@@ -26,8 +26,16 @@ var k8sCmd = &cobra.Command{
 	Short: "View logs from Kubernetes pods",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// TODO: implement in Task 14 - requires K8sSource
-		return nil
+		parsers, err := loadParsers()
+		if err != nil {
+			return err
+		}
+		namespace, _ := cmd.Flags().GetString("namespace")
+		src := stream.NewK8sSource(args[0], namespace, nil)
+		app := tui.NewApp(src, parsers, bufferSize)
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		_, err = p.Run()
+		return err
 	},
 }
 
