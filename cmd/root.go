@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +82,28 @@ func init() {
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(pipeCmd)
+	rootCmd.AddCommand(completionCmd())
+}
+
+func completionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish]",
+		Short: "Generate shell completion script",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return rootCmd.GenBashCompletion(os.Stdout)
+			case "zsh":
+				return rootCmd.GenZshCompletion(os.Stdout)
+			case "fish":
+				return rootCmd.GenFishCompletion(os.Stdout, true)
+			default:
+				return fmt.Errorf("unsupported shell: %s (use bash, zsh, or fish)", args[0])
+			}
+		},
+	}
+	return cmd
 }
 
 func Execute() {
