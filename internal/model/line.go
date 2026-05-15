@@ -23,7 +23,15 @@ const (
 )
 
 // AllFields lists all possible parsed fields in display order.
+// Can be overridden via config.
 var AllFields = []Field{FieldTime, FieldLevel, FieldThread, FieldTraceID, FieldLogger, FieldMessage, FieldSource}
+
+// SetAllFields overrides the global field list from config.
+func SetAllFields(fields []Field) {
+	if len(fields) > 0 {
+		AllFields = fields
+	}
+}
 
 // ParsedLine is a structured log line produced by a parser.
 type ParsedLine struct {
@@ -38,13 +46,18 @@ type ParsedLine struct {
 }
 
 // Get returns the value for a given field.
+// Checks Fields map first, then falls back to struct fields.
 func (p *ParsedLine) Get(f Field) string {
 	if p.Fields != nil {
-		return p.Fields[f]
+		if v, ok := p.Fields[f]; ok {
+			return v
+		}
 	}
 	switch f {
 	case FieldTime:
-		return p.Time.Format("15:04:05.000")
+		if !p.Time.IsZero() {
+			return p.Time.Format("15:04:05.000")
+		}
 	case FieldLevel:
 		return p.Level
 	case FieldThread:
@@ -65,8 +78,9 @@ func (p *ParsedLine) Get(f Field) string {
 type FieldMask map[Field]bool
 
 // DefaultFieldMask returns the default visible fields.
+// Uses AllFields to include any custom fields.
 func DefaultFieldMask() FieldMask {
-	return FieldMask{
+	mask := FieldMask{
 		FieldTime:    true,
 		FieldLevel:   true,
 		FieldThread:  false,
@@ -75,6 +89,28 @@ func DefaultFieldMask() FieldMask {
 		FieldMessage: true,
 		FieldSource:  true,
 	}
+	// custom fields default to visible
+	for _, f := range AllFields {
+		if _, ok := mask[f]; !ok {
+			mask[f] = true
+		}
+	}
+	return mask
+}
+
+// NewFieldMaskFromConfig creates a FieldMask from explicit config.
+func NewFieldMaskFromConfig(fields []FieldConfigEntry) FieldMask {
+	mask := make(FieldMask)
+	for _, f := range fields {
+		mask[Field(f.Name)] = f.Visible
+	}
+	return mask
+}
+
+// FieldConfigEntry represents a field entry from config.
+type FieldConfigEntry struct {
+	Name    string
+	Visible bool
 }
 
 // IsVisible returns whether a field should be displayed.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/buffer"
 	"github.com/justfun/logview/internal/export"
 	"github.com/justfun/logview/internal/model"
@@ -17,11 +18,12 @@ import (
 )
 
 type App struct {
-	stream    stream.LogStream
-	parsers   *parser.AutoDetect
-	buffer    *buffer.RingBuffer
-	searchIdx *buffer.SearchIndex
-	keymap    KeyMap
+	stream      stream.LogStream
+	parsers     *parser.AutoDetect
+	buffer      *buffer.RingBuffer
+	searchIdx   *buffer.SearchIndex
+	keymap      KeyMap
+	fieldAlias  map[string]string // custom field -> standard field mapping
 
 	filteredView []*model.ParsedLine
 	stGroups     []stacktrace.Group
@@ -36,15 +38,12 @@ type App struct {
 
 	searchMode  bool
 	searchInput string
+	cachedQuery SearchQuery
 
-	fieldMask     model.FieldMask
-	levelMask     map[string]bool
-	filterTraceID string
-	filterThread  string
+	fieldMask model.FieldMask
 
-	activePanel int // 0=fields, 1=levels, 2=filters
-	panelFocus  bool // 是否聚焦在面板上（用于交互）
-	fieldCursor int // 字段面板中的光标位置
+	panelFocus  bool
+	fieldCursor int
 
 	exportMode  bool
 	exportState ExportState
@@ -67,15 +66,32 @@ func newExportState() ExportState {
 	}
 }
 
+var overrideFieldMask model.FieldMask
+var overrideFieldAlias map[string]string
+
+// SetFieldMask sets the global field mask override (called from config loader).
+func SetFieldMask(mask model.FieldMask) {
+	overrideFieldMask = mask
+}
+
+// SetFieldAlias sets the global field alias mapping (called from config loader).
+func SetFieldAlias(aliases map[string]string) {
+	overrideFieldAlias = aliases
+}
+
 func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int) *App {
+	fm := model.DefaultFieldMask()
+	if overrideFieldMask != nil {
+		fm = overrideFieldMask
+	}
 	return &App{
 		stream:      src,
 		parsers:     parsers,
 		buffer:      buffer.NewRingBuffer(bufSize),
 		searchIdx:   buffer.NewSearchIndex(),
 		keymap:      DefaultKeyMap(),
-		fieldMask:   model.DefaultFieldMask(),
-		levelMask:   map[string]bool{"DEBUG": false, "INFO": true, "WARN": true, "ERROR": true},
+		fieldMask:   fm,
+		fieldAlias:  overrideFieldAlias,
 		expanded:    make(map[int]bool),
 		autoscroll:  true,
 		exportState: newExportState(),
@@ -149,6 +165,7 @@ func (a *App) processLine(raw model.RawLine) {
 		if p := a.parsers.Detect(raw); p != nil {
 			pl = p.Parse(raw)
 			a.parserName = p.Name()
+			a.reparsePending(p)
 		}
 	}
 	if pl == nil {
@@ -158,12 +175,29 @@ func (a *App) processLine(raw model.RawLine) {
 			Fields:  map[model.Field]string{model.FieldMessage: raw.Text},
 		}
 	}
+	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
 	a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
 	if !a.autoscroll {
 		a.newLogs++
 	}
 	a.recomputeView()
+}
+
+func (a *App) reparsePending(p parser.Parser) {
+	pending := a.parsers.DrainPending()
+	if len(pending) == 0 {
+		return
+	}
+	for i := 0; i < a.buffer.Len(); i++ {
+		line := a.buffer.Get(i)
+		if line == nil || line.Fields != nil && line.Fields[model.FieldMessage] == line.Raw.Text {
+			pl := p.Parse(line.Raw)
+			if pl != nil {
+				a.buffer.Set(i, pl)
+			}
+		}
+	}
 }
 
 func (a *App) recomputeView() {
@@ -173,24 +207,17 @@ func (a *App) recomputeView() {
 		if line == nil {
 			continue
 		}
-		if !a.levelMask[line.Level] && line.Level != "" {
-			continue
-		}
-		if a.filterTraceID != "" && line.TraceID != a.filterTraceID {
-			continue
-		}
-		if a.filterThread != "" && line.Thread != a.filterThread {
-			continue
-		}
 		if a.searchInput != "" {
-			if !containsIgnoreCase(line.Message, a.searchInput) &&
-				!containsIgnoreCase(line.Raw.Text, a.searchInput) {
+			if !a.currentQuery().MatchLine(line) {
 				continue
 			}
 		}
 		view = append(view, line)
 	}
 	a.filteredView = view
+	if a.cursor >= len(a.filteredView) {
+		a.cursor = max(0, len(a.filteredView)-1)
+	}
 	a.stGroups = stacktrace.Detect(view)
 }
 
@@ -199,34 +226,96 @@ func containsIgnoreCase(s, sub string) bool {
 	return len(ls) >= len(lsub) && strings.Contains(ls, lsub)
 }
 
-// 面板交互按键处理
+// applyFieldAlias maps custom field names to standard struct fields.
+// e.g. if config has "th" maps_to "thread", sets pl.Thread from Fields["th"].
+func (a *App) applyFieldAlias(pl *model.ParsedLine) {
+	if a.fieldAlias == nil || pl.Fields == nil {
+		return
+	}
+	for custom, standard := range a.fieldAlias {
+		v, ok := pl.Fields[model.Field(custom)]
+		if !ok || v == "" {
+			continue
+		}
+		switch model.Field(standard) {
+		case model.FieldTime:
+			if t, err := time.Parse("2006-01-02 15:04:05.000", v); err == nil {
+				pl.Time = t
+			}
+		case model.FieldLevel:
+			pl.Level = v
+		case model.FieldThread:
+			pl.Thread = v
+		case model.FieldTraceID:
+			pl.TraceID = v
+		case model.FieldLogger:
+			pl.Logger = v
+		case model.FieldMessage:
+			pl.Message = v
+		}
+	}
+}
+
+func (a *App) currentQuery() SearchQuery {
+	if a.cachedQuery.Raw != a.searchInput {
+		a.cachedQuery = parseSearchQuery(a.searchInput)
+	}
+	return a.cachedQuery
+}
+
+func (a *App) jumpSearchMatch(dir int) {
+	if a.searchInput == "" || len(a.filteredView) == 0 {
+		return
+	}
+	q := a.currentQuery()
+	if q.IsEmpty() {
+		return
+	}
+	var matches []int
+	for i, line := range a.filteredView {
+		if q.MatchLine(line) {
+			matches = append(matches, i)
+		}
+	}
+	if len(matches) == 0 {
+		return
+	}
+	cur := a.cursor
+	idx := 0
+	for idx < len(matches) && matches[idx] < cur {
+		idx++
+	}
+	if dir > 0 {
+		if idx < len(matches) {
+			a.cursor = matches[idx]
+		} else {
+			a.cursor = matches[0]
+		}
+	} else {
+		if idx > 0 {
+			a.cursor = matches[idx-1]
+		} else {
+			a.cursor = matches[len(matches)-1]
+		}
+	}
+	a.autoscroll = false
+}
+
 func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		a.panelFocus = false
-	case "tab":
-		a.activePanel = (a.activePanel + 1) % 3
 	case "up", "k":
-		if a.activePanel == 0 && a.fieldCursor > 0 {
+		if a.fieldCursor > 0 {
 			a.fieldCursor--
 		}
 	case "down", "j":
-		if a.activePanel == 0 && a.fieldCursor < len(model.AllFields)-1 {
+		if a.fieldCursor < len(model.AllFields)-1 {
 			a.fieldCursor++
 		}
 	case "enter", " ":
-		if a.activePanel == 0 {
-			// 切换字段显示
-			field := model.AllFields[a.fieldCursor]
-			a.fieldMask.Toggle(field)
-			a.recomputeView()
-		} else if a.activePanel == 1 {
-			levels := []string{"DEBUG", "INFO", "WARN", "ERROR"}
-			if a.fieldCursor < len(levels) {
-				a.levelMask[levels[a.fieldCursor]] = !a.levelMask[levels[a.fieldCursor]]
-				a.recomputeView()
-			}
-		}
+		field := model.AllFields[a.fieldCursor]
+		a.fieldMask.Toggle(field)
 	}
 	return a, nil
 }
@@ -235,46 +324,69 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return a, tea.Quit
+	case "esc":
+		if a.searchInput != "" {
+			var curLine *model.ParsedLine
+			if a.cursor >= 0 && a.cursor < len(a.filteredView) {
+				curLine = a.filteredView[a.cursor]
+			}
+			a.searchInput = ""
+			a.recomputeView()
+			if curLine != nil {
+				for i, l := range a.filteredView {
+					if l == curLine {
+						a.cursor = i
+						break
+					}
+				}
+			}
+		}
 	case "/":
 		a.searchMode = true
 		a.searchInput = ""
-	case "tab":
-		a.panelFocus = true
-		a.activePanel = (a.activePanel + 1) % 3
-		a.fieldCursor = 0
 	case "f":
 		a.panelFocus = true
-		a.activePanel = 0
 		a.fieldCursor = 0
-	case "e":
-		for _, g := range a.stGroups {
-			if a.cursor >= g.Start && a.cursor <= g.End {
-				a.expanded[g.Start] = !a.expanded[g.Start]
-				break
-			}
-		}
 	case "s":
 		a.exportMode = true
 	case "g":
-		if a.cursor == 0 {
+		a.cursor = 0
+		a.autoscroll = false
+	case "G":
+		a.cursor = max(0, len(a.filteredView)-1)
+		a.autoscroll = true
+	case "n":
+		a.jumpSearchMatch(1)
+	case "N":
+		a.jumpSearchMatch(-1)
+	case "ctrl+d":
+		hs := a.visibleLines() / 2
+		a.cursor += hs
+		if a.cursor >= len(a.filteredView) {
 			a.cursor = max(0, len(a.filteredView)-1)
-		} else {
-			a.cursor = 0
 		}
 		a.autoscroll = (a.cursor == len(a.filteredView)-1)
-	case "enter":
-		if a.cursor < len(a.filteredView) {
-			line := a.filteredView[a.cursor]
-			if line.TraceID != "" && line.TraceID != "NA" {
-				a.filterTraceID = line.TraceID
-			}
-			if line.Thread != "" {
-				a.filterThread = line.Thread
-			}
-			a.activePanel = 2
-			a.panelFocus = true
-			a.recomputeView()
+	case "ctrl+f":
+		ps := a.visibleLines()
+		a.cursor += ps
+		if a.cursor >= len(a.filteredView) {
+			a.cursor = len(a.filteredView) - 1
 		}
+		a.autoscroll = (a.cursor == len(a.filteredView)-1)
+	case "ctrl+u":
+		hs := a.visibleLines() / 2
+		a.cursor -= hs
+		if a.cursor < 0 {
+			a.cursor = 0
+		}
+		a.autoscroll = false
+	case "ctrl+b":
+		ps := a.visibleLines()
+		a.cursor -= ps
+		if a.cursor < 0 {
+			a.cursor = 0
+		}
+		a.autoscroll = false
 	case "up", "k":
 		if a.cursor > 0 {
 			a.cursor--
@@ -304,22 +416,20 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch msg.Type {
+	case tea.KeyEscape:
 		a.searchMode = false
-	case "enter":
+	case tea.KeyEnter:
 		a.searchMode = false
 		a.recomputeView()
-	case "backspace":
+	case tea.KeyBackspace:
 		if len(a.searchInput) > 0 {
-			a.searchInput = a.searchInput[:len(a.searchInput)-1]
+			a.searchInput = a.searchInput[:len([]rune(a.searchInput))-1]
 			a.recomputeView()
 		}
-	default:
-		if len(msg.String()) == 1 {
-			a.searchInput += msg.String()
-			a.recomputeView()
-		}
+	case tea.KeyRunes:
+		a.searchInput += string(msg.Runes)
+		a.recomputeView()
 	}
 	return a, nil
 }
@@ -378,8 +488,12 @@ func (a *App) doExport() {
 }
 
 func (a *App) visibleLines() int {
-	// title(1) + separator(1) + searchbar(1) + separator(1) + panel(3) + separator(1) + helpbar(1) = 9
-	return a.height - 9
+	// 6 fixed lines: title, sep, bar, sep, sep(bottom), helpBar
+	vl := a.height - 6
+	if vl < 1 {
+		vl = 1
+	}
+	return vl
 }
 
 func (a *App) View() string {
@@ -389,25 +503,35 @@ func (a *App) View() string {
 
 	w := a.width
 
-	// title bar
+	pLabel := a.parserName
+	if pLabel == "" {
+		pLabel = "raw"
+	}
 	title := TitleStyle.Width(w).Render(
-		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条 ", a.stream.Label(), a.parserName, a.buffer.Len()),
+		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条 ", a.stream.Label(), pLabel, a.buffer.Len()),
 	)
 
-	// separator
 	sep := strings.Repeat(HorizontalLine, w)
 
-	// log view
-	logView := a.renderLogView()
-
-	// search bar
-	searchBar := SearchStyle.Width(w).Render(a.renderSearchBarContent())
-
-	// bottom panel
-	panel := a.renderPanel()
-
-	// help bar
+	// truncate every line to terminal width to prevent wrapping
+	trunc := lipgloss.NewStyle().MaxWidth(w)
+	bar := trunc.Render(a.renderSearchBar())
 	helpBar := HelpStyle.Width(w).Render(a.renderHelpBarContent())
 
-	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%s", title, sep, logView, sep, searchBar, panel, helpBar)
+	vl := a.visibleLines()
+	var logLines []string
+	if a.panelFocus {
+		logLines = a.buildPopupLines(vl)
+	} else {
+		logLines = a.buildLogLines(vl)
+	}
+
+	allLines := make([]string, 0, vl+6)
+	allLines = append(allLines, title, sep, bar, sep)
+	for _, l := range logLines {
+		allLines = append(allLines, trunc.Render(l))
+	}
+	allLines = append(allLines, sep, helpBar)
+	return strings.Join(allLines, "\n")
 }
+

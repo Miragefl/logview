@@ -39,6 +39,14 @@ func (rb *RingBuffer) Get(i int) *model.ParsedLine {
 	return rb.buf[idx]
 }
 
+func (rb *RingBuffer) Set(i int, line *model.ParsedLine) {
+	if i < 0 || i >= rb.len {
+		return
+	}
+	idx := (rb.head + i) % rb.cap
+	rb.buf[idx] = line
+}
+
 func (rb *RingBuffer) Slice(start, end int) []*model.ParsedLine {
 	if start < 0 {
 		start = 0

@@ -3,8 +3,10 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/justfun/logview/internal/model"
 	"github.com/justfun/logview/internal/parser"
 	"github.com/justfun/logview/internal/stream"
 	"github.com/justfun/logview/internal/tui"
@@ -92,12 +94,44 @@ func loadParsers() (*parser.AutoDetect, error) {
 	rulesPath := filepath.Join(homeDir, ".logview", "rules.yaml")
 
 	var rules []parser.RuleConfig
+	var fieldConfigs []parser.FieldConfig
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, _ = parser.LoadRules(rulesPath)
 	}
 	if len(rules) == 0 {
 		rules = defaultRules()
 	}
+
+	if len(fieldConfigs) > 0 {
+		var fields []model.Field
+		var entries []model.FieldConfigEntry
+		aliases := make(map[string]string)
+		standardFields := []string{"time", "level", "thread", "traceId", "logger", "message", "source"}
+		for _, fc := range fieldConfigs {
+			f := model.Field(fc.Name)
+			fields = append(fields, f)
+			entries = append(entries, model.FieldConfigEntry{Name: fc.Name, Visible: fc.Visible})
+			isStandard := false
+			for _, std := range standardFields {
+				if fc.Name == std {
+					isStandard = true
+					break
+				}
+			}
+			if !isStandard {
+				for _, std := range standardFields {
+					if strings.HasPrefix(std, fc.Name) || strings.Contains(std, fc.Name) {
+						aliases[fc.Name] = std
+						break
+					}
+				}
+			}
+		}
+		model.SetAllFields(fields)
+		tui.SetFieldMask(model.NewFieldMaskFromConfig(entries))
+		tui.SetFieldAlias(aliases)
+	}
+
 	parsers := parser.MustCompileRules(rules)
 	return parser.NewAutoDetect(parsers), nil
 }
@@ -106,7 +140,7 @@ func defaultRules() []parser.RuleConfig {
 	return []parser.RuleConfig{
 		{
 			Name:    "java-logback",
-			Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`,
+			Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})\s+\[(?P<thread>[^\]]+)\]\s+\[(?P<traceId>[^\]]+)\]\s+(?P<level>\w+)\s+(?P<logger>\S+)\s+-\s+(?P<message>.*)`,
 		},
 		{
 			Name:  "json-log",

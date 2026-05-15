@@ -1,0 +1,32 @@
+version: 2
+
+builds:
+  - main: .
+    binary: logview
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+brews:
+  - name: logview
+    repository:
+      owner: Miragefl
+      name: homebrew-logview
+    directory: Formula
+    homepage: "https://github.com/Miragefl/logview"
+    description: "Terminal log viewer with real-time search and filtering"
+    test: |
+      system "#{bin}/logview --help"
+    install: |
+      bin.install "logview"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc

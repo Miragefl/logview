@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/model"
 )
 
-func (a *App) renderLogView() string {
-	vl := a.visibleLines()
+// buildLogLines returns exactly vl rendered lines for the log area.
+func (a *App) buildLogLines(vl int) []string {
 	if vl < 1 {
 		vl = 1
 	}
+	lines := make([]string, vl)
 
 	if a.autoscroll && len(a.filteredView) > 0 {
 		a.cursor = len(a.filteredView) - 1
@@ -24,41 +26,34 @@ func (a *App) renderLogView() string {
 	end := start + vl
 	if end > len(a.filteredView) {
 		end = len(a.filteredView)
+		start = max(0, end-vl)
 	}
 	a.offset = start
 
-	var b strings.Builder
+	idx := 0
 	for i := start; i < end; i++ {
 		line := a.filteredView[i]
 		folded := false
 		for _, g := range a.stGroups {
 			if i > g.Start && i <= g.End && !a.expanded[g.Start] {
 				if i == g.Start+1 {
-					b.WriteString(FoldedStyle.Render(fmt.Sprintf("  (%d lines folded) [e展开]", g.End-g.Start)))
-					b.WriteByte('\n')
+					lines[idx] = FoldedStyle.Render(fmt.Sprintf("  (%d lines folded) [e展开]", g.End-g.Start))
 				}
 				folded = true
 				break
 			}
 		}
-		if folded {
-			continue
+		if !folded {
+			lines[idx] = a.renderLine(line, i == a.cursor)
 		}
-
-		text := a.renderLine(line, i == a.cursor)
-		b.WriteString(text)
-		b.WriteByte('\n')
+		idx++
 	}
 
-	// 填充剩余行，保证日志区域高度一致
-	for i := end - start; i < vl; i++ {
-		b.WriteByte('\n')
+	if a.newLogs > 0 && !a.autoscroll && idx < vl {
+		lines[vl-1] = NewLogStyle.Render(fmt.Sprintf(" [新日志: %d条] 按g跳转", a.newLogs))
 	}
 
-	if a.newLogs > 0 && !a.autoscroll {
-		b.WriteString(NewLogStyle.Render(fmt.Sprintf(" [新日志: %d条] 按g跳转", a.newLogs)))
-	}
-	return b.String()
+	return lines
 }
 
 func (a *App) renderLine(line *model.ParsedLine, selected bool) string {
@@ -82,10 +77,15 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool) string {
 	}
 	text := strings.Join(parts, "  ")
 	if a.searchInput != "" {
-		text = highlightText(text, a.searchInput)
+		q := a.currentQuery()
+		for _, kw := range q.HighlightKeywords() {
+			text = highlightText(text, kw)
+		}
 	}
 	if selected {
-		return SelectedStyle.Width(a.width).Render(text)
+		// MaxWidth truncates first, Width fills background — Width alone WRAPS!
+		truncated := lipgloss.NewStyle().MaxWidth(a.width).Render(text)
+		return SelectedStyle.Width(a.width).Render(truncated)
 	}
 	return text
 }

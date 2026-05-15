@@ -31,10 +31,29 @@ var (
 	CheckboxChecked   = "☑"
 	CheckboxUnchecked = "☐"
 
+	FieldSeparator = " │ "
+
 	FoldedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 	NewLogStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
-	// 分隔线样式
+	DetailLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
+	DetailValueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	DetailDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+
+	PopupBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("86")).
+			Padding(0, 2).
+			Background(lipgloss.Color("235"))
+
+	PopupActiveTabStyle = lipgloss.NewStyle().
+				Bold(true).
+				Background(lipgloss.Color("62")).
+				Foreground(lipgloss.Color("15"))
+
+	PopupTabStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243"))
+
 	HorizontalLine = "─"
 )
 
