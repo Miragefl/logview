@@ -18,11 +18,32 @@ import (
 var (
 	ruleName   string
 	bufferSize int
+	configDir  string
 )
+
+var (
+	buildVersion = "dev"
+	buildCommit  = "none"
+	buildDate    = "unknown"
+)
+
+func SetVersion(v, c, d string) {
+	buildVersion = v
+	buildCommit = c
+	buildDate = d
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "logview",
 	Short: "Terminal log viewer with real-time search and filtering",
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version info",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("logview %s (commit: %s, built: %s)\n", buildVersion, buildCommit, buildDate)
+	},
 }
 
 var k8sCmd = &cobra.Command{
@@ -50,7 +71,6 @@ func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) (
 	}
 	namespace, _ := cmd.Flags().GetString("namespace")
 
-	// completing kind prefix (e.g. user typed "po" or "deploy/")
 	kinds := []struct{ prefix, kind string }{
 		{"pod/", "pod"}, {"po/", "pod"},
 		{"deploy/", "deployment"}, {"deployment/", "deployment"},
@@ -67,7 +87,6 @@ func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) (
 		}
 	}
 
-	// no prefix yet, suggest kind prefixes
 	var completions []string
 	for _, k := range kinds {
 		completions = append(completions, k.prefix)
@@ -130,9 +149,11 @@ func init() {
 	k8sCmd.RegisterFlagCompletionFunc("namespace", completeK8sNamespace)
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")
+	rootCmd.PersistentFlags().StringVar(&configDir, "config", "", "config directory (default: ~/.config/logview)")
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(pipeCmd)
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(completionCmd())
 }
 
@@ -163,9 +184,16 @@ func Execute() {
 	}
 }
 
-func loadParsers() (*parser.AutoDetect, error) {
+func getConfigDir() string {
+	if configDir != "" {
+		return configDir
+	}
 	homeDir, _ := os.UserHomeDir()
-	rulesPath := filepath.Join(homeDir, ".logview", "rules.yaml")
+	return filepath.Join(homeDir, ".config", "logview")
+}
+
+func loadParsers() (*parser.AutoDetect, error) {
+	rulesPath := filepath.Join(getConfigDir(), "rules.yaml")
 
 	var rules []parser.RuleConfig
 	var fieldConfigs []parser.FieldConfig

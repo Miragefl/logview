@@ -32,11 +32,25 @@ logview tail /var/log/app.log
 
 # 管道
 kubectl logs -f deploy/parking-api | logview pipe
+
+# 查看版本
+logview version
+
+# 指定配置文件目录
+logview --config ~/.config/logview k8s deploy/parking-api
 ```
 
-## 自定义解析规则
+## 配置
 
-创建 `~/.logview/rules.yaml`：
+默认配置目录：`~/.config/logview/`
+
+可通过 `--config` 指定其他目录：
+
+```bash
+logview --config /path/to/config k8s deploy/app
+```
+
+配置文件 `rules.yaml`：
 
 ```yaml
 rules:
@@ -96,7 +110,7 @@ logview completion fish > ~/.config/fish/completions/logview.fish
 补全效果：
 
 ```
-logview <tab>                     # 提示子命令: k8s, tail, pipe, completion
+logview <tab>                     # 提示子命令: k8s, tail, pipe, version, completion
 logview k8s -n <tab>              # 提示集群中的 namespace
 logview k8s <tab>                 # 提示资源类型: pod/, deploy/, sts/
 logview k8s pod/<tab>             # 提示该 namespace 下的 Pod
