@@ -78,6 +78,31 @@ after:09:00 before:10:00        时间范围过滤
 after:09:00 ERROR AND WARN      混合使用
 ```
 
+## 命令补全
+
+支持 bash / zsh / fish，安装后输入命令按 Tab 自动补全子命令、k8s 资源和 namespace。
+
+```bash
+# zsh（推荐加入 ~/.zshrc）
+logview completion zsh > ~/.zfunc/_logview
+
+# bash
+logview completion bash > /etc/bash_completion.d/logview
+
+# fish
+logview completion fish > ~/.config/fish/completions/logview.fish
+```
+
+补全效果：
+
+```
+logview <tab>                     # 提示子命令: k8s, tail, pipe, completion
+logview k8s -n <tab>              # 提示集群中的 namespace
+logview k8s <tab>                 # 提示资源类型: pod/, deploy/, sts/
+logview k8s pod/<tab>             # 提示该 namespace 下的 Pod
+logview k8s deploy/<tab>          # 提示该 namespace 下的 Deployment
+```
+
 ## 快捷键
 
 | 按键 | 功能 |
