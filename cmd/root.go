@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,6 +29,7 @@ var k8sCmd = &cobra.Command{
 	Use:   "k8s <resource> [flags]",
 	Short: "View logs from Kubernetes pods",
 	Args:  cobra.ExactArgs(1),
+	ValidArgsFunction: completeK8sResource,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		parsers, err := loadParsers()
 		if err != nil {
@@ -40,6 +42,46 @@ var k8sCmd = &cobra.Command{
 		_, err = p.Run()
 		return err
 	},
+}
+
+func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	namespace, _ := cmd.Flags().GetString("namespace")
+
+	// completing kind prefix (e.g. user typed "po" or "deploy/")
+	kinds := []struct{ prefix, kind string }{
+		{"pod/", "pod"}, {"po/", "pod"},
+		{"deploy/", "deployment"}, {"deployment/", "deployment"},
+		{"sts/", "statefulset"}, {"statefulset/", "statefulset"},
+	}
+	for _, k := range kinds {
+		if strings.HasPrefix(toComplete, k.prefix) {
+			names := kubectlGetNames(k.kind, namespace)
+			var completions []string
+			for _, n := range names {
+				completions = append(completions, k.prefix+n)
+			}
+			return completions, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
+
+	// no prefix yet, suggest kind prefixes
+	var completions []string
+	for _, k := range kinds {
+		completions = append(completions, k.prefix)
+	}
+	return completions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func kubectlGetNames(kind, namespace string) []string {
+	args := []string{"get", kind, "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}"}
+	out, err := exec.Command("kubectl", args...).Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(strings.TrimSpace(string(out)))
 }
 
 var tailCmd = &cobra.Command{
