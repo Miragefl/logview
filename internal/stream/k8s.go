@@ -3,6 +3,7 @@ package stream
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -87,18 +88,37 @@ func (k *K8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 }
 
 func (k *K8sSource) discoverPods(ctx context.Context) ([]string, error) {
+	// get selector labels from the deployment/statefulset
+	selectorArgs := []string{"get", k.resource.Kind, k.resource.Name,
+		"-n", k.namespace,
+		"-o", "jsonpath={.spec.selector.matchLabels}",
+	}
+	out, err := exec.CommandContext(ctx, "kubectl", selectorArgs...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("get selector: %w", err)
+	}
+	var labels map[string]string
+	if err := json.Unmarshal(out, &labels); err != nil || len(labels) == 0 {
+		return nil, fmt.Errorf("parse selector labels: %w", err)
+	}
+	var parts []string
+	for k, v := range labels {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+	}
+	selector := strings.Join(parts, ",")
+
 	args := []string{"get", "pods",
-		"-l", fmt.Sprintf("app=%s", k.resource.Name),
+		"-l", selector,
 		"-n", k.namespace,
 		"-o", "jsonpath={.items[*].metadata.name}",
 	}
-	out, err := exec.CommandContext(ctx, "kubectl", args...).Output()
+	out, err = exec.CommandContext(ctx, "kubectl", args...).Output()
 	if err != nil {
 		return nil, err
 	}
 	raw := strings.TrimSpace(string(out))
 	if raw == "" {
-		return nil, fmt.Errorf("no pods found")
+		return nil, fmt.Errorf("no pods found for %s (selector: %s)", k.resource.Name, selector)
 	}
 	return strings.Fields(raw), nil
 }
