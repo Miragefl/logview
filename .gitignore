@@ -12,3 +12,4 @@ logview
 
 # Test
 *.test
+dist/
