@@ -7,6 +7,8 @@ import (
 	"github.com/justfun/logview/internal/model"
 )
 
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
 type RegexParser struct {
 	name   string
 	re     *regexp.Regexp
@@ -28,7 +30,8 @@ func NewRegexParser(name, pattern string) (*RegexParser, error) {
 func (p *RegexParser) Name() string { return p.name }
 
 func (p *RegexParser) Parse(raw model.RawLine) *model.ParsedLine {
-	matches := p.re.FindStringSubmatch(raw.Text)
+	cleaned := ansiRe.ReplaceAllString(raw.Text, "")
+	matches := p.re.FindStringSubmatch(cleaned)
 	if matches == nil {
 		return nil
 	}

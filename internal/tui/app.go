@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -133,7 +134,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
 func (a *App) processLine(raw model.RawLine) {
+	cleaned := ansiRe.ReplaceAllString(raw.Text, "")
+	raw.Text = cleaned
 	var pl *model.ParsedLine
 	if a.parsers != nil {
 		if p := a.parsers.Detect(raw); p != nil {
