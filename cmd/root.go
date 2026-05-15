@@ -84,6 +84,14 @@ func kubectlGetNames(kind, namespace string) []string {
 	return strings.Fields(strings.TrimSpace(string(out)))
 }
 
+func completeK8sNamespace(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	out, err := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}").Output()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	return strings.Fields(strings.TrimSpace(string(out))), cobra.ShellCompDirectiveNoFileComp
+}
+
 var tailCmd = &cobra.Command{
 	Use:   "tail <file> [file...] [flags]",
 	Short: "View logs from local files",
@@ -119,6 +127,7 @@ var pipeCmd = &cobra.Command{
 
 func init() {
 	k8sCmd.Flags().StringP("namespace", "n", "default", "Kubernetes namespace")
+	k8sCmd.RegisterFlagCompletionFunc("namespace", completeK8sNamespace)
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")
 	rootCmd.AddCommand(k8sCmd)
