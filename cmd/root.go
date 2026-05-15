@@ -1,9 +1,13 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
+	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/justfun/logview/internal/parser"
+	"github.com/justfun/logview/internal/stream"
+	"github.com/justfun/logview/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -22,10 +26,7 @@ var k8sCmd = &cobra.Command{
 	Short: "View logs from Kubernetes pods",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resource := args[0]
-		namespace, _ := cmd.Flags().GetString("namespace")
-		fmt.Printf("k8s: resource=%s namespace=%s\n", resource, namespace)
-		// TUI wiring will be added in Task 13
+		// TODO: implement in Task 14 - requires K8sSource
 		return nil
 	},
 }
@@ -35,9 +36,15 @@ var tailCmd = &cobra.Command{
 	Short: "View logs from local files",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("tail: files=%v\n", args)
-		// TUI wiring will be added in Task 13
-		return nil
+		parsers, err := loadParsers()
+		if err != nil {
+			return err
+		}
+		src := stream.NewTailSource(args)
+		app := tui.NewApp(src, parsers, bufferSize)
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		_, err = p.Run()
+		return err
 	},
 }
 
@@ -45,9 +52,15 @@ var pipeCmd = &cobra.Command{
 	Use:   "pipe",
 	Short: "View logs from stdin (pipe)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("pipe: reading from stdin")
-		// TUI wiring will be added in Task 13
-		return nil
+		parsers, err := loadParsers()
+		if err != nil {
+			return err
+		}
+		src := stream.NewPipeSource(os.Stdin)
+		app := tui.NewApp(src, parsers, bufferSize)
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		_, err = p.Run()
+		return err
 	},
 }
 
@@ -63,5 +76,37 @@ func init() {
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+func loadParsers() (*parser.AutoDetect, error) {
+	homeDir, _ := os.UserHomeDir()
+	rulesPath := filepath.Join(homeDir, ".logview", "rules.yaml")
+
+	var rules []parser.RuleConfig
+	if _, err := os.Stat(rulesPath); err == nil {
+		rules, _ = parser.LoadRules(rulesPath)
+	}
+	if len(rules) == 0 {
+		rules = defaultRules()
+	}
+	parsers := parser.MustCompileRules(rules)
+	return parser.NewAutoDetect(parsers), nil
+}
+
+func defaultRules() []parser.RuleConfig {
+	return []parser.RuleConfig{
+		{
+			Name:    "java-logback",
+			Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`,
+		},
+		{
+			Name:  "json-log",
+			Parse: "json",
+		},
+		{
+			Name:    "plain-text",
+			Pattern: `(?P<message>.*)`,
+		},
 	}
 }
