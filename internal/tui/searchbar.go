@@ -2,12 +2,12 @@ package tui
 
 import "fmt"
 
-func (a *App) renderSearchBar() string {
+func (a *App) renderSearchBarContent() string {
 	if a.searchMode {
-		return SearchStyle.Render(fmt.Sprintf(" 搜索: %s█", a.searchInput))
+		return fmt.Sprintf(" 搜索: %s█  [Esc取消] [Enter确认]", a.searchInput)
 	}
 	if a.searchInput != "" {
-		return SearchStyle.Render(fmt.Sprintf(" 搜索: %s", a.searchInput))
+		return fmt.Sprintf(" 搜索: %s  [/修改] [Esc清除]", a.searchInput)
 	}
-	return SearchStyle.Render(" 按 / 搜索")
+	return " 按 / 搜索"
 }

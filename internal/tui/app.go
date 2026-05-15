@@ -43,6 +43,8 @@ type App struct {
 	filterThread  string
 
 	activePanel int // 0=fields, 1=levels, 2=filters
+	panelFocus  bool // 是否聚焦在面板上（用于交互）
+	fieldCursor int // 字段面板中的光标位置
 
 	exportMode  bool
 	exportState ExportState
@@ -51,8 +53,8 @@ type App struct {
 }
 
 type ExportState struct {
-	Scope    int    // 0=filtered, 1=all
-	Format   int    // 0=raw, 1=json
+	Scope    int
+	Format   int
 	FilePath string
 	Cursor   int
 	Done     bool
@@ -129,6 +131,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.searchMode {
 			return a.handleSearchKeys(msg)
 		}
+		if a.panelFocus {
+			return a.handlePanelKeys(msg)
+		}
 		return a.handleNormalKeys(msg)
 	}
 	return a, nil
@@ -194,6 +199,38 @@ func containsIgnoreCase(s, sub string) bool {
 	return len(ls) >= len(lsub) && strings.Contains(ls, lsub)
 }
 
+// 面板交互按键处理
+func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		a.panelFocus = false
+	case "tab":
+		a.activePanel = (a.activePanel + 1) % 3
+	case "up", "k":
+		if a.activePanel == 0 && a.fieldCursor > 0 {
+			a.fieldCursor--
+		}
+	case "down", "j":
+		if a.activePanel == 0 && a.fieldCursor < len(model.AllFields)-1 {
+			a.fieldCursor++
+		}
+	case "enter", " ":
+		if a.activePanel == 0 {
+			// 切换字段显示
+			field := model.AllFields[a.fieldCursor]
+			a.fieldMask.Toggle(field)
+			a.recomputeView()
+		} else if a.activePanel == 1 {
+			levels := []string{"DEBUG", "INFO", "WARN", "ERROR"}
+			if a.fieldCursor < len(levels) {
+				a.levelMask[levels[a.fieldCursor]] = !a.levelMask[levels[a.fieldCursor]]
+				a.recomputeView()
+			}
+		}
+	}
+	return a, nil
+}
+
 func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
@@ -202,9 +239,13 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.searchMode = true
 		a.searchInput = ""
 	case "tab":
+		a.panelFocus = true
 		a.activePanel = (a.activePanel + 1) % 3
+		a.fieldCursor = 0
 	case "f":
+		a.panelFocus = true
 		a.activePanel = 0
+		a.fieldCursor = 0
 	case "e":
 		for _, g := range a.stGroups {
 			if a.cursor >= g.Start && a.cursor <= g.End {
@@ -231,6 +272,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.filterThread = line.Thread
 			}
 			a.activePanel = 2
+			a.panelFocus = true
 			a.recomputeView()
 		}
 	case "up", "k":
@@ -336,21 +378,36 @@ func (a *App) doExport() {
 }
 
 func (a *App) visibleLines() int {
-	return a.height - 6
+	// title(1) + separator(1) + searchbar(1) + separator(1) + panel(3) + separator(1) + helpbar(1) = 9
+	return a.height - 9
 }
 
 func (a *App) View() string {
 	if a.width == 0 {
 		return "Loading..."
 	}
-	title := TitleStyle.Render(fmt.Sprintf(" LogView ─ %s [%s] ─ %d条 ", a.stream.Label(), a.parserName, a.buffer.Len()))
+
+	w := a.width
+
+	// title bar
+	title := TitleStyle.Width(w).Render(
+		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条 ", a.stream.Label(), a.parserName, a.buffer.Len()),
+	)
+
+	// separator
+	sep := strings.Repeat(HorizontalLine, w)
+
+	// log view
 	logView := a.renderLogView()
-	searchBar := a.renderSearchBar()
+
+	// search bar
+	searchBar := SearchStyle.Width(w).Render(a.renderSearchBarContent())
+
+	// bottom panel
 	panel := a.renderPanel()
-	helpBar := a.renderHelpBar()
-	base := fmt.Sprintf("%s\n%s\n%s\n%s\n%s", title, logView, searchBar, panel, helpBar)
-	if a.exportMode {
-		return base + "\n" + a.renderExportDialog()
-	}
-	return base
+
+	// help bar
+	helpBar := HelpStyle.Width(w).Render(a.renderHelpBarContent())
+
+	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%s", title, sep, logView, sep, searchBar, panel, helpBar)
 }

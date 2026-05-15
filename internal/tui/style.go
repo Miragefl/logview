@@ -4,9 +4,9 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	TitleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("62"))
+			Bold(true).
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("62"))
 
 	LevelDebug = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
 	LevelInfo  = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
@@ -14,21 +14,18 @@ var (
 	LevelError = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 
 	SearchStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("62"))
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("62"))
 
 	HighlightStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("227")).
-		Foreground(lipgloss.Color("0"))
-
-	PanelStyle = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), true, false, false, false)
+			Background(lipgloss.Color("227")).
+			Foreground(lipgloss.Color("0"))
 
 	SelectedStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("62")).
-		Foreground(lipgloss.Color("15"))
+			Background(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("15"))
 
-	HelpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	HelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
 	HelpKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
 
 	CheckboxChecked   = "☑"
@@ -36,6 +33,9 @@ var (
 
 	FoldedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 	NewLogStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+
+	// 分隔线样式
+	HorizontalLine = "─"
 )
 
 func LevelStyle(level string) lipgloss.Style {
