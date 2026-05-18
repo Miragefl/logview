@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/model"
+	"github.com/justfun/logview/internal/stacktrace"
 )
 
 // buildLogLines returns rendered lines for the log area.
@@ -33,20 +34,39 @@ func (a *App) buildLogLines(vl int) []string {
 		singleSlots = 0
 	}
 
-	// cursor near bottom: show cursor at bottom, fill above
-	// cursor in middle: center cursor
-	start := max(0, a.cursor-singleSlots)
+	// calculate start based on scroll anchor
+	var start int
+	switch a.scrollAnchor {
+	case 1: // zt: cursor at top
+		start = a.cursor
+	case 2: // zz: cursor at center
+		start = max(0, a.cursor-singleSlots/2)
+	case 3: // zb: cursor at bottom
+		start = max(0, a.cursor-singleSlots)
+	default: // auto: cursor near bottom for reading
+		start = max(0, a.cursor-singleSlots)
+	}
 	a.offset = start
 
 	var lines []string
+	rendered := make(map[int]bool)
+
+	addLine := func(idx int) {
+		if g := a.foldedGroup(idx); g != nil && !rendered[g.Start] {
+			rendered[g.Start] = true
+			hint := "e展开"
+			if a.expanded[g.Start] {
+				hint = "e收起"
+			}
+			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines) [%s]", g.End-g.Start, hint)))
+		} else if g == nil {
+			lines = append(lines, a.renderLine(a.filteredView[idx], false, idx))
+		}
+	}
 
 	// fill before cursor
 	for i := start; i < a.cursor; i++ {
-		if a.isFolded(i) {
-			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines folded) [e展开]", a.foldedCount(i))))
-		} else {
-			lines = append(lines, a.renderLine(a.filteredView[i], false, i))
-		}
+		addLine(i)
 	}
 
 	// cursor line(s)
@@ -54,11 +74,7 @@ func (a *App) buildLogLines(vl int) []string {
 
 	// fill after cursor until we reach vl
 	for i := a.cursor + 1; i < len(a.filteredView) && len(lines) < vl; i++ {
-		if a.isFolded(i) {
-			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines folded) [e展开]", a.foldedCount(i))))
-		} else {
-			lines = append(lines, a.renderLine(a.filteredView[i], false, i))
-		}
+		addLine(i)
 	}
 
 	// pad or trim to exactly vl
@@ -72,22 +88,30 @@ func (a *App) buildLogLines(vl int) []string {
 	return lines
 }
 
-func (a *App) isFolded(lineIdx int) bool {
-	for _, g := range a.stGroups {
+func (a *App) foldedGroup(lineIdx int) *stacktrace.Group {
+	for i := range a.stGroups {
+		g := &a.stGroups[i]
 		if lineIdx > g.Start && lineIdx <= g.End && !a.expanded[g.Start] {
-			return true
+			return g
 		}
 	}
-	return false
+	return nil
 }
 
-func (a *App) foldedCount(lineIdx int) int {
-	for _, g := range a.stGroups {
-		if lineIdx > g.Start && lineIdx <= g.End && !a.expanded[g.Start] {
-			return g.End - g.Start
+// skipFolded adjusts target to skip over collapsed stacktrace groups.
+// dir: +1 for downward, -1 for upward. Returns adjusted index.
+func (a *App) skipFolded(target, dir int) int {
+	for {
+		g := a.foldedGroup(target)
+		if g == nil {
+			return target
+		}
+		if dir > 0 {
+			target = g.End + 1
+		} else {
+			target = g.Start
 		}
 	}
-	return 0
 }
 
 // renderLineWrapped renders the cursor line without truncation, wrapped to terminal width.

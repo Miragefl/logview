@@ -41,8 +41,9 @@ type App struct {
 	height     int
 	cursor     int
 	offset     int
-	autoscroll bool
-	newLogs    int
+	autoscroll    bool
+	scrollAnchor  int // 0=auto, 1=top, 2=center, 3=bottom
+	newLogs       int
 
 	searchMode  bool
 	searchInput string
@@ -414,14 +415,13 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		key := msg.String()
 		switch a.pendingKey {
 		case "z":
-			vl := a.visibleLines()
 			switch key {
 			case "t":
-				a.offset = a.cursor
+				a.scrollAnchor = 1
 			case "z":
-				a.offset = max(0, a.cursor-vl/2)
+				a.scrollAnchor = 2
 			case "b":
-				a.offset = max(0, a.cursor-vl+1)
+				a.scrollAnchor = 3
 			}
 			a.autoscroll = false
 			a.pendingKey = ""
@@ -497,20 +497,32 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		a.cursor = 0
 		a.autoscroll = false
+		a.scrollAnchor = 0
 	case "G":
 		a.cursor = max(0, len(a.filteredView)-1)
 		a.autoscroll = true
+		a.scrollAnchor = 0
 	case "H":
 		a.cursor = a.offset
 		a.autoscroll = false
+		a.scrollAnchor = 0
 	case "M":
 		a.cursor = a.offset + a.visibleLines()/2
 		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
 		a.autoscroll = false
+		a.scrollAnchor = 0
 	case "L":
 		a.cursor = a.offset + a.visibleLines() - 1
 		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
 		a.autoscroll = false
+		a.scrollAnchor = 0
+	case "e":
+		for _, g := range a.stGroups {
+			if a.cursor >= g.Start && a.cursor <= g.End {
+				a.expanded[g.Start] = !a.expanded[g.Start]
+				break
+			}
+		}
 	case "z":
 		a.pendingKey = "z"
 	case "I":
@@ -529,6 +541,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor >= len(a.filteredView) {
 			a.cursor = max(0, len(a.filteredView)-1)
 		}
+		a.cursor = a.skipFolded(a.cursor, 1)
 		a.autoscroll = (a.cursor == len(a.filteredView)-1)
 	case "ctrl+f":
 		ps := a.visibleLines()
@@ -536,6 +549,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor >= len(a.filteredView) {
 			a.cursor = len(a.filteredView) - 1
 		}
+		a.cursor = a.skipFolded(a.cursor, 1)
 		a.autoscroll = (a.cursor == len(a.filteredView)-1)
 	case "ctrl+u":
 		hs := a.visibleLines() / 2
@@ -543,6 +557,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
+		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "ctrl+b":
 		ps := a.visibleLines()
@@ -550,15 +565,21 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
+		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "up", "k":
 		if a.cursor > 0 {
 			a.cursor--
+			a.cursor = a.skipFolded(a.cursor, -1)
 			a.autoscroll = false
 		}
 	case "down", "j":
 		if a.cursor < len(a.filteredView)-1 {
 			a.cursor++
+			a.cursor = a.skipFolded(a.cursor, 1)
+			if a.cursor >= len(a.filteredView) {
+				a.cursor = len(a.filteredView) - 1
+			}
 		}
 		a.autoscroll = (a.cursor == len(a.filteredView)-1)
 	case "pgup":
@@ -567,6 +588,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
+		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "pgdown":
 		ps := a.visibleLines()
@@ -574,6 +596,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor >= len(a.filteredView) {
 			a.cursor = len(a.filteredView) - 1
 		}
+		a.cursor = a.skipFolded(a.cursor, 1)
 		a.autoscroll = (a.cursor == len(a.filteredView)-1)
 	}
 	return a, nil
@@ -920,6 +943,8 @@ func (a *App) View() string {
 		logLines = a.buildHighlightPopup(vl)
 	} else if a.hideMode {
 		logLines = a.buildHidePopup(vl)
+	} else if a.exportMode {
+		logLines = a.buildExportPopup(vl)
 	} else if a.panelFocus {
 		logLines = a.buildPopupLines(vl)
 	} else {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/model"
 )
 
@@ -17,10 +16,7 @@ func (a *App) renderFieldsPanel() string {
 		}
 		item := fmt.Sprintf("%s %s", cb, f)
 		if a.panelFocus && i == a.fieldCursor {
-			item = lipgloss.NewStyle().
-				Background(lipgloss.Color("62")).
-				Foreground(lipgloss.Color("15")).
-				Render(item)
+			item = SelectedStyle.Render(item)
 		}
 		items = append(items, item)
 	}

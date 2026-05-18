@@ -262,12 +262,14 @@ func loadParsers() (*parser.AutoDetect, int, error) {
 	var rules []parser.RuleConfig
 	var fieldConfigs []parser.FieldConfig
 	var history int
+	var themeName string
+	var themeColors map[string]string
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, fieldConfigs, history, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, _ = parser.LoadRules(rulesPath)
 	} else {
 		os.MkdirAll(cfgDir, 0755)
 		os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644)
-		rules, fieldConfigs, history, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, _ = parser.LoadRules(rulesPath)
 	}
 	if history <= 0 {
 		history = 5000
@@ -307,10 +309,18 @@ func loadParsers() (*parser.AutoDetect, int, error) {
 	}
 
 	parsers := parser.MustCompileRules(rules)
+	cfg := tui.ResolveTheme(themeName, themeColors)
+	tui.ApplyTheme(cfg)
 	return parser.NewAutoDetect(parsers), history, nil
 }
 
-const defaultRulesYAML = `patterns:
+const defaultRulesYAML = `# ============================================================
+# LogView 配置文件
+# 修改后重新打开 logview 即可生效
+# ============================================================
+
+# patterns: 可复用的正则片段，在 rules 中用 {name} 引用
+patterns:
   time: '(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})'
   thread: '(?P<thread>[^\]]+)'
   traceId: '(?P<traceId>[^\]]+)'
@@ -318,6 +328,9 @@ const defaultRulesYAML = `patterns:
   logger: '(?P<logger>\S+)'
   message: '(?P<message>.*)'
 
+# rules: 日志解析规则，按顺序匹配，每个来源只选第一条命中的规则
+#   - pattern: 正则表达式，支持 {name} 引用 patterns
+#   - parse: 可选，设为 json 则按 JSON 解析
 rules:
   - name: java-logback
     pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - {message}'
@@ -327,8 +340,32 @@ rules:
   - name: plain-text
     pattern: '{message}'
 
+# history: -f 模式默认加载的尾行数
 history: 5000
 
+# theme: 配色主题，可选 dark / light
+theme: dark
+
+# theme_colors: 覆盖主题中的具体颜色（十六进制色码）
+# 可配置项:
+#   title.fg / title.bg      标题栏 前景/背景
+#   level.debug               DEBUG 级别色
+#   level.info                INFO 级别色
+#   level.warn                WARN 级别色
+#   level.error               ERROR 级别色
+#   time / source / traceId / thread    字段颜色
+#   error_line_bg / warn_line_bg        ERROR/WARN 行背景
+#   highlight                 搜索高亮背景色
+#   selected                  选中项背景色
+#   visual                    可视选择背景色
+#   popup.border / popup.bg   弹窗 边框/背景
+#   dim                       暗淡文字色
+#   accent                    强调色（标签、按键）
+# theme_colors:
+#   level.error: "#FF0000"
+#   highlight: "#FFFF00"
+
+# fields: 字段显示/隐藏，visible: false 隐藏但搜索和过滤仍可用
 fields:
   - name: time
     visible: true

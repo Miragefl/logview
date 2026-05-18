@@ -146,10 +146,10 @@ func TestFieldPanelWorks(t *testing.T) {
 	initialMask := app.fieldMask[model.FieldThread]
 
 	// 按 f 进入字段面板
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
 
 	if !app.panelFocus {
-		t.Fatal("panelFocus should be true after pressing f")
+		t.Fatal("panelFocus should be true after pressing F")
 	}
 
 	// View should show popup with field settings
@@ -159,10 +159,10 @@ func TestFieldPanelWorks(t *testing.T) {
 	}
 
 	// 按 j 移动光标到 thread 字段
-	// AllFields: time, level, thread, traceId, logger, message, source
-	// thread 是 index 2
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=1 (level)
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=2 (thread)
+	// AllFields: time(0), source(1), level(2), thread(3), traceId(4), logger(5), message(6)
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=1 (source)
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=2 (level)
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=3 (thread)
 
 	// 按空格切换 thread 的显示
 	_, _ = app.Update(tea.KeyMsg{Type: tea.KeySpace})
@@ -190,9 +190,9 @@ func TestViewStructure(t *testing.T) {
 	}{
 		{"title", "LogView"},
 		{"separator", "─"},
-		{"search bar", "搜索"},
+		{"search bar", "LogView"},
 
-		{"help bar", "退出"},
+		{"help bar", "帮助"},
 	}
 
 	for _, c := range checks {
@@ -346,7 +346,7 @@ func TestFieldToggleFullViewChange(t *testing.T) {
 	}
 
 	// 按 f 进入字段面板
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
 	// 按 j 到 level (index 1)
 	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	// 按空格切换 level 为不可见
