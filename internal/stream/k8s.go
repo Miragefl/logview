@@ -38,15 +38,16 @@ func ParseK8sResource(s string) (K8sResource, error) {
 }
 
 type K8sSource struct {
-	resource  K8sResource
-	namespace string
-	podNames  []string
-	seq       atomic.Uint64
+	resource   K8sResource
+	namespace  string
+	podNames   []string
+	tailLines  int
+	seq        atomic.Uint64
 }
 
-func NewK8sSource(resource, namespace string, podNames []string) *K8sSource {
+func NewK8sSource(resource, namespace string, podNames []string, tailLines int) *K8sSource {
 	res, _ := ParseK8sResource(resource)
-	return &K8sSource{resource: res, namespace: namespace, podNames: podNames}
+	return &K8sSource{resource: res, namespace: namespace, podNames: podNames, tailLines: tailLines}
 }
 
 func (k *K8sSource) Label() string {
@@ -125,6 +126,9 @@ func (k *K8sSource) discoverPods(ctx context.Context) ([]string, error) {
 
 func (k *K8sSource) streamPod(ctx context.Context, ch chan<- model.RawLine, podName string) {
 	args := []string{"logs", "-f", podName, "-n", k.namespace}
+	if k.tailLines > 0 {
+		args = append(args, "--tail", fmt.Sprintf("%d", k.tailLines))
+	}
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 
 	stdout, err := cmd.StdoutPipe()

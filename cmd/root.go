@@ -20,8 +20,6 @@ var (
 	ruleName   string
 	bufferSize int
 	configDir  string
-	followMode bool
-	tailLines  int
 )
 
 var (
@@ -50,16 +48,22 @@ var versionCmd = &cobra.Command{
 }
 
 var k8sCmd = &cobra.Command{
-	Use:   "k8s <resource> [resource...] [flags]",
-	Short: "View logs from Kubernetes pods",
-	Args:  cobra.MinimumNArgs(1),
+	Use:              "k8s <resource> [resource...] [flags]",
+	Short:            "View logs from Kubernetes pods",
+	Args:             cobra.MinimumNArgs(1),
 	ValidArgsFunction: completeK8sResource,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, err := loadParsers()
+		parsers, history, err := loadParsers()
 		if err != nil {
 			return err
 		}
 		namespaces, _ := cmd.Flags().GetStringArray("namespace")
+		k8sFollow, _ := cmd.Flags().GetBool("follow")
+		k8sTail, _ := cmd.Flags().GetInt("tail")
+
+		if k8sFollow && k8sTail == 0 {
+			k8sTail = history
+		}
 
 		if len(namespaces) > 1 && len(namespaces) != len(args) {
 			return fmt.Errorf("namespace count (%d) must match resource count (%d), or provide exactly 1 namespace for all resources",
@@ -69,12 +73,12 @@ var k8sCmd = &cobra.Command{
 		var src stream.LogStream
 		if len(args) == 1 {
 			ns := resolveNamespace(namespaces, 0)
-			src = stream.NewK8sSource(args[0], ns, nil)
+			src = stream.NewK8sSource(args[0], ns, nil, k8sTail)
 		} else {
 			sources := make([]*stream.K8sSource, len(args))
 			for i, res := range args {
 				ns := resolveNamespace(namespaces, i)
-				sources[i] = stream.NewK8sSource(res, ns, nil)
+				sources[i] = stream.NewK8sSource(res, ns, nil, k8sTail)
 			}
 			src = stream.NewMultiK8sSource(sources)
 		}
@@ -145,13 +149,19 @@ var tailCmd = &cobra.Command{
 	Short: "View logs from local files",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, err := loadParsers()
+		parsers, history, err := loadParsers()
 		if err != nil {
 			return err
 		}
+		followMode, _ := cmd.Flags().GetBool("follow")
+		tailLines, _ := cmd.Flags().GetInt("tail")
 		followLines := 0
 		if followMode {
-			followLines = tailLines
+			if tailLines > 0 {
+				followLines = tailLines
+			} else {
+				followLines = history
+			}
 		}
 		src := stream.NewTailSource(args, followLines)
 		app := tui.NewApp(src, parsers, bufferSize)
@@ -165,7 +175,7 @@ var pipeCmd = &cobra.Command{
 	Use:   "pipe",
 	Short: "View logs from stdin (pipe)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, err := loadParsers()
+		parsers, _, err := loadParsers()
 		if err != nil {
 			return err
 		}
@@ -179,12 +189,14 @@ var pipeCmd = &cobra.Command{
 
 func init() {
 	k8sCmd.Flags().StringArrayP("namespace", "n", []string{"default"}, "Kubernetes namespace (one for all, or one per resource)")
+	k8sCmd.Flags().BoolVarP(new(bool), "follow", "f", false, "follow mode: show last N lines then tail new content")
+	k8sCmd.Flags().Int("tail", 0, "number of trailing lines in follow mode (default: config history)")
 	k8sCmd.RegisterFlagCompletionFunc("namespace", completeK8sNamespace)
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")
 	rootCmd.PersistentFlags().StringVar(&configDir, "config", "", "config directory (default: ~/.config/logview)")
-	tailCmd.Flags().BoolVarP(&followMode, "follow", "f", false, "follow mode: show last N lines then tail new content")
-	tailCmd.Flags().IntVarP(&tailLines, "lines", "n", 100, "number of trailing lines in follow mode")
+	tailCmd.Flags().BoolP("follow", "f", false, "follow mode: show last N lines then tail new content")
+	tailCmd.Flags().IntP("tail", "n", 0, "number of trailing lines in follow mode (default: config history)")
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(pipeCmd)
@@ -227,7 +239,7 @@ func expandTailArgs(args []string) []string {
 	var out []string
 	for _, a := range args {
 		if m := tailNumFollowRe.FindStringSubmatch(a); m != nil {
-			out = append(out, "-n", m[1], "-f")
+			out = append(out, "--tail", m[1], "-f")
 		} else {
 			out = append(out, a)
 		}
@@ -243,16 +255,25 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "logview")
 }
 
-func loadParsers() (*parser.AutoDetect, error) {
-	rulesPath := filepath.Join(getConfigDir(), "rules.yaml")
+func loadParsers() (*parser.AutoDetect, int, error) {
+	cfgDir := getConfigDir()
+	rulesPath := filepath.Join(cfgDir, "rules.yaml")
 
 	var rules []parser.RuleConfig
 	var fieldConfigs []parser.FieldConfig
+	var history int
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, fieldConfigs, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, _ = parser.LoadRules(rulesPath)
+	} else {
+		os.MkdirAll(cfgDir, 0755)
+		os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644)
+		rules, fieldConfigs, history, _ = parser.LoadRules(rulesPath)
+	}
+	if history <= 0 {
+		history = 5000
 	}
 	if len(rules) == 0 {
-		rules = defaultRules()
+		rules = defaultFallbackRules()
 	}
 
 	if len(fieldConfigs) > 0 {
@@ -286,10 +307,46 @@ func loadParsers() (*parser.AutoDetect, error) {
 	}
 
 	parsers := parser.MustCompileRules(rules)
-	return parser.NewAutoDetect(parsers), nil
+	return parser.NewAutoDetect(parsers), history, nil
 }
 
-func defaultRules() []parser.RuleConfig {
+const defaultRulesYAML = `patterns:
+  time: '(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})'
+  thread: '(?P<thread>[^\]]+)'
+  traceId: '(?P<traceId>[^\]]+)'
+  level: '(?P<level>\w+)'
+  logger: '(?P<logger>\S+)'
+  message: '(?P<message>.*)'
+
+rules:
+  - name: java-logback
+    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - {message}'
+  - name: json-log
+    pattern: '(?P<raw>.*)'
+    parse: json
+  - name: plain-text
+    pattern: '{message}'
+
+history: 5000
+
+fields:
+  - name: time
+    visible: true
+  - name: source
+    visible: true
+  - name: level
+    visible: true
+  - name: thread
+    visible: false
+  - name: traceId
+    visible: false
+  - name: logger
+    visible: false
+  - name: message
+    visible: true
+`
+
+func defaultFallbackRules() []parser.RuleConfig {
 	return []parser.RuleConfig{
 		{
 			Name:    "java-logback",

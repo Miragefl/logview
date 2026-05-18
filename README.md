@@ -27,6 +27,11 @@ logview k8s deploy/parking-api
 logview k8s deploy/parking-api -n production
 logview k8s pod/billing-rule-59fd8b85cf-xnn24 -n parking-release
 
+# Kubernetes - follow 模式（只看最近 N 行 + 追踪新日志）
+logview k8s -f deploy/parking-api                    # 默认 history 行数
+logview k8s -200f deploy/parking-api                 # 最后 200 行 + 追踪
+logview k8s -f --tail 1000 deploy/parking-api        # 显式指定
+
 # Kubernetes - 多个资源（同 namespace）
 logview k8s -n parking deploy/api deploy/billing
 
@@ -35,8 +40,9 @@ logview k8s -n parking deploy/api -n billing deploy/billing-rule
 
 # 本地文件
 logview tail /var/log/app.log
-logview tail -f /var/log/app.log          # follow mode: 读最后100行 + 追踪新日志
-logview tail -n 200 -f /var/log/app.log   # follow mode: 读最后200行 + 追踪新日志
+logview tail -f /var/log/app.log                     # follow: 默认 history 行 + 追踪
+logview tail -200f /var/log/app.log                  # follow: 最后 200 行 + 追踪
+logview tail -n 500 -f /var/log/app.log              # follow: 显式指定行数
 
 # 管道
 kubectl logs -f deploy/parking-api | logview pipe
@@ -52,7 +58,7 @@ logview --config ~/.config/logview k8s deploy/parking-api
 
 默认配置目录：`~/.config/logview/`
 
-可通过 `--config` 指定其他目录：
+首次运行会自动生成默认配置文件。可通过 `--config` 指定其他目录：
 
 ```bash
 logview --config /path/to/config k8s deploy/app
@@ -61,17 +67,33 @@ logview --config /path/to/config k8s deploy/app
 配置文件 `rules.yaml`：
 
 ```yaml
+# patterns: 可复用的正则模板，用 {name} 引用
+patterns:
+  time: '(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})'
+  thread: '(?P<thread>[^\]]+)'
+  traceId: '(?P<traceId>[^\]]+)'
+  level: '(?P<level>\w+)'
+  logger: '(?P<logger>\S+)'
+  message: '(?P<message>.*)'
+
+# rules: 日志解析规则，按顺序匹配，每个来源只选第一个命中的规则
 rules:
   - name: java-logback
-    pattern: '(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)'
+    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - {message}'
   - name: json-log
     pattern: '(?P<raw>.*)'
     parse: json
   - name: plain-text
-    pattern: '(?P<message>.*)'
+    pattern: '{message}'
 
+# history: -f 模式默认加载的行数，不配置默认 5000
+history: 5000
+
+# fields: 字段显示/隐藏配置
 fields:
   - name: time
+    visible: true
+  - name: source
     visible: true
   - name: level
     visible: true
@@ -83,9 +105,23 @@ fields:
     visible: false
   - name: message
     visible: true
-  - name: source
-    visible: true
 ```
+
+### 配置项说明
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `patterns` | 可复用的正则模板，在 rules 中用 `{name}` 引用 | 无 |
+| `rules` | 日志解析规则列表，按顺序自动匹配 | 内置 java-logback / json / plain-text |
+| `history` | `-f` 模式默认加载的尾行数 | `5000` |
+| `fields` | 字段显示控制，`visible: false` 隐藏但搜索/过滤仍可用 | 全部显示 |
+
+### 规则匹配机制
+
+- 每个**来源**（文件 / Pod）独立匹配，第一条命中的规则用于该来源所有后续日志
+- 跳过 `plain-text` 兜底规则，优先匹配结构化规则
+- 50 行内未匹配任何规则，降级到 `plain-text`
+- 多资源聚合时，不同来源可以使用不同规则
 
 ## 搜索语法
 
@@ -177,6 +213,16 @@ ERROR, WARN, timeout    # 三个关键词分别以黄、青、品红高亮
 
 清空输入后确认即可取消高亮。
 
+### 隐藏日志
+
+按 `x` 打开隐藏弹窗，输入关键词并用逗号分隔，包含这些关键词的日志行将被隐藏。再次打开会保留上次的关键词。
+
+```
+DEBUG, health check, heartbeat    # 包含这三个关键词的日志将被隐藏
+```
+
+清空输入后确认即可取消隐藏。
+
 ### 选择与复制（Vim 风格）
 
 | 按键 | 功能 |
@@ -204,14 +250,17 @@ ERROR, WARN, timeout    # 三个关键词分别以黄、青、品红高亮
 | `s` | 导出日志 |
 | `e` | 展开/折叠堆栈 |
 | `h` | 高亮关键词 |
+| `x` | 隐藏关键词 |
 | `?` | 快捷键帮助 |
 | `q` / `C-c` | 退出 |
 
 ## 特性
 
+- **follow 模式**：`k8s -f` / `tail -f` 只加载最近 N 行再追踪新日志，支持 `-NUMf` 简写（如 `-200f`）
 - **光标行自动展开**：光标所在行自动换行显示完整内容，无需横向滚动
 - **上下文帮助栏**：帮助栏根据当前模式（搜索/选择/面板/导出）显示对应快捷键
 - **多资源聚合**：同时查看多个 k8s Deployment / Pod 的日志
-- **智能解析**：自动识别 JSON、Logback 等日志格式
+- **智能解析**：自动识别 JSON、Logback 等日志格式，支持 patterns 模板复用
 - **字段配置**：按 `F` 自定义显示哪些字段
 - **搜索语法**：支持 `field:value`、`AND/OR`、`after:/before:` 时间范围
+- **高亮与隐藏**：`h` 高亮关键词，`x` 隐藏包含关键词的日志行

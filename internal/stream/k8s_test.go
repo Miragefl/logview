@@ -5,7 +5,7 @@ import (
 )
 
 func TestK8sSourceLabel(t *testing.T) {
-	src := NewK8sSource("deploy/parking-api", "default", nil)
+	src := NewK8sSource("deploy/parking-api", "default", nil, 0)
 	label := src.Label()
 	if label != "k8s/deployment/parking-api" {
 		t.Errorf("Label() = %q, want 'k8s/deployment/parking-api'", label)

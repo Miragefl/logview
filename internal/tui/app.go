@@ -73,6 +73,10 @@ type App struct {
 	highlightMode  bool
 	highlightInput string
 
+	hides     []string
+	hideMode  bool
+	hideInput string
+
 	parserName string
 }
 
@@ -185,6 +189,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.highlightMode {
 			return a.handleHighlightKeys(msg)
 		}
+		if a.hideMode {
+			return a.handleHideKeys(msg)
+		}
 		if a.exportMode {
 			return a.handleExportKeys(msg)
 		}
@@ -263,6 +270,11 @@ func (a *App) recomputeView() {
 				continue
 			}
 		}
+		if len(a.hides) > 0 {
+			if a.matchHides(line) {
+				continue
+			}
+		}
 		view = append(view, line)
 	}
 	a.filteredView = view
@@ -290,6 +302,16 @@ func (a *App) matchLevelFilter(line *model.ParsedLine) bool {
 		return true
 	}
 	return true
+}
+
+func (a *App) matchHides(line *model.ParsedLine) bool {
+	text := line.Raw.Text
+	for _, kw := range a.hides {
+		if containsIgnoreCase(text, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyFieldAlias maps custom field names to standard struct fields.
@@ -464,6 +486,11 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.highlightMode = true
 		if a.highlightInput == "" && len(a.highlights) > 0 {
 			a.highlightInput = strings.Join(a.highlights, ", ")
+		}
+	case "x":
+		a.hideMode = true
+		if a.hideInput == "" && len(a.hides) > 0 {
+			a.hideInput = strings.Join(a.hides, ", ")
 		}
 	case "s":
 		a.exportMode = true
@@ -717,6 +744,47 @@ func (a *App) handleHighlightKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *App) handleHideKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.hideMode = false
+	case tea.KeyEnter:
+		kw := strings.TrimSpace(a.hideInput)
+		if kw != "" {
+			a.hides = strings.Split(kw, ",")
+			for i := range a.hides {
+				a.hides[i] = strings.TrimSpace(a.hides[i])
+			}
+			var clean []string
+			for _, h := range a.hides {
+				if h != "" {
+					clean = append(clean, h)
+				}
+			}
+			a.hides = clean
+		} else {
+			a.hides = nil
+		}
+		a.hideMode = false
+		a.recomputeView()
+	case tea.KeyBackspace:
+		if len(a.hideInput) > 0 {
+			runes := []rune(a.hideInput)
+			a.hideInput = string(runes[:len(runes)-1])
+		}
+	case tea.KeyRunes:
+		a.hideInput += string(msg.Runes)
+	default:
+		switch msg.String() {
+		case "ctrl+u":
+			a.hideInput = ""
+		case " ":
+			a.hideInput += " "
+		}
+	}
+	return a, nil
+}
+
 func (a *App) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "?", "esc", "q", "enter":
@@ -850,6 +918,8 @@ func (a *App) View() string {
 		logLines = a.buildHelpPopup(vl)
 	} else if a.highlightMode {
 		logLines = a.buildHighlightPopup(vl)
+	} else if a.hideMode {
+		logLines = a.buildHidePopup(vl)
 	} else if a.panelFocus {
 		logLines = a.buildPopupLines(vl)
 	} else {

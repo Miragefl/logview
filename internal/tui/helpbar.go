@@ -55,6 +55,7 @@ func (a *App) helpItems() []helpItem {
 			{"s", "导出日志"},
 			{"E/W/I/D/A", "日志级别"},
 			{"h", "高亮"},
+			{"x", "隐藏"},
 			{"?", "帮助"},
 		}
 		if a.levelFilter != "" {
@@ -62,6 +63,9 @@ func (a *App) helpItems() []helpItem {
 		}
 		if a.searchInput != "" {
 			items = append(items, helpItem{"", fmt.Sprintf("[搜索: %s]", a.searchInput)})
+		}
+		if len(a.hides) > 0 {
+			items = append(items, helpItem{"", fmt.Sprintf("[隐藏: %d词]", len(a.hides))})
 		}
 		return items
 	}

@@ -80,6 +80,8 @@ var (
 	}
 )
 
+var HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+
 func LevelStyle(level string) lipgloss.Style {
 	switch level {
 	case "DEBUG", "DBG":

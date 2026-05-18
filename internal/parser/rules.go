@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/justfun/logview/internal/model"
 	"gopkg.in/yaml.v3"
@@ -20,20 +21,34 @@ type FieldConfig struct {
 }
 
 type rulesFile struct {
-	Rules  []RuleConfig `yaml:"rules"`
-	Fields []FieldConfig `yaml:"fields,omitempty"`
+	Patterns map[string]string `yaml:"patterns,omitempty"`
+	Rules    []RuleConfig      `yaml:"rules"`
+	Fields   []FieldConfig     `yaml:"fields,omitempty"`
+	History  int               `yaml:"history,omitempty"`
 }
 
-func LoadRules(path string) ([]RuleConfig, []FieldConfig, error) {
+func LoadRules(path string) ([]RuleConfig, []FieldConfig, int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read rules: %w", err)
+		return nil, nil, 0, fmt.Errorf("read rules: %w", err)
 	}
 	var rf rulesFile
 	if err := yaml.Unmarshal(data, &rf); err != nil {
-		return nil, nil, fmt.Errorf("parse rules yaml: %w", err)
+		return nil, nil, 0, fmt.Errorf("parse rules yaml: %w", err)
 	}
-	return rf.Rules, rf.Fields, nil
+	if len(rf.Patterns) > 0 {
+		for i := range rf.Rules {
+			rf.Rules[i].Pattern = expandPatterns(rf.Rules[i].Pattern, rf.Patterns)
+		}
+	}
+	return rf.Rules, rf.Fields, rf.History, nil
+}
+
+func expandPatterns(pattern string, vars map[string]string) string {
+	for key, val := range vars {
+		pattern = strings.ReplaceAll(pattern, "{"+key+"}", val)
+	}
+	return pattern
 }
 
 func MustCompileRules(rules []RuleConfig) []Parser {
