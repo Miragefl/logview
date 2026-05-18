@@ -13,13 +13,13 @@ import (
 )
 
 type TailSource struct {
-	paths      []string
-	followOnly bool
-	seq        atomic.Uint64
+	paths       []string
+	followLines int
+	seq         atomic.Uint64
 }
 
-func NewTailSource(paths []string, followOnly bool) *TailSource {
-	return &TailSource{paths: paths, followOnly: followOnly}
+func NewTailSource(paths []string, followLines int) *TailSource {
+	return &TailSource{paths: paths, followLines: followLines}
 }
 
 func (t *TailSource) Label() string { return "tail" }
@@ -41,6 +41,20 @@ func (t *TailSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	return ch, nil
 }
 
+func (t *TailSource) sendLine(ctx context.Context, ch chan<- model.RawLine, text, source string) bool {
+	raw := model.RawLine{
+		Text:   text,
+		Source: source,
+		Seq:    t.seq.Add(1),
+	}
+	select {
+	case ch <- raw:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path string) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -48,17 +62,17 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 	}
 	defer f.Close()
 
-	reader := bufio.NewReader(f)
+	source := filepath.Base(path)
 
-	if !t.followOnly {
-		// Read existing content first
+	if t.followLines <= 0 {
+		// read all existing content
+		reader := bufio.NewReader(f)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
 			}
-
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				break
@@ -66,31 +80,62 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 			if len(line) > 0 && line[len(line)-1] == '\n' {
 				line = line[:len(line)-1]
 			}
-
-			raw := model.RawLine{
-				Text:   line,
-				Source: filepath.Base(path),
-				Seq:    t.seq.Add(1),
-			}
-			select {
-			case ch <- raw:
-			case <-ctx.Done():
+			if !t.sendLine(ctx, ch, line, source) {
 				return
 			}
 		}
 	} else {
-		// Follow mode: seek to end, skip all existing content
-		f.Seek(0, 2)
+		// follow mode: read last N lines from end, then follow
+		info, _ := f.Stat()
+		if info.Size() > 0 {
+			// seek back ~1KB per line to find enough lines
+			seekBack := int64(t.followLines) * 1024
+			if seekBack > info.Size() {
+				seekBack = info.Size()
+			}
+			start := info.Size() - seekBack
+			f.Seek(start, 0)
+
+			reader := bufio.NewReader(f)
+			// skip partial first line if we landed mid-line
+			if start > 0 {
+				reader.ReadString('\n')
+			}
+
+			// ring buffer to keep only last N lines
+			ring := make([]string, 0, t.followLines)
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					break
+				}
+				if len(line) > 0 && line[len(line)-1] == '\n' {
+					line = line[:len(line)-1]
+				}
+				ring = append(ring, line)
+				if len(ring) > t.followLines {
+					ring = ring[1:]
+				}
+			}
+
+			for _, l := range ring {
+				if !t.sendLine(ctx, ch, l, source) {
+					return
+				}
+			}
+		} else {
+			f.Seek(0, 2)
+		}
 	}
 
-	// Then tail for new lines
+	// follow new lines
+	reader := bufio.NewReader(f)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			time.Sleep(100 * time.Millisecond)
@@ -99,15 +144,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 		if len(line) > 0 && line[len(line)-1] == '\n' {
 			line = line[:len(line)-1]
 		}
-
-		raw := model.RawLine{
-			Text:   line,
-			Source: filepath.Base(path),
-			Seq:    t.seq.Add(1),
-		}
-		select {
-		case ch <- raw:
-		case <-ctx.Done():
+		if !t.sendLine(ctx, ch, line, source) {
 			return
 		}
 	}

@@ -19,7 +19,8 @@ var (
 	ruleName   string
 	bufferSize int
 	configDir  string
-	followOnly bool
+	followMode bool
+	tailLines  int
 )
 
 var (
@@ -147,7 +148,11 @@ var tailCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		src := stream.NewTailSource(args, followOnly)
+		followLines := 0
+		if followMode {
+			followLines = tailLines
+		}
+		src := stream.NewTailSource(args, followLines)
 		app := tui.NewApp(src, parsers, bufferSize)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
@@ -177,7 +182,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")
 	rootCmd.PersistentFlags().StringVar(&configDir, "config", "", "config directory (default: ~/.config/logview)")
-	tailCmd.Flags().BoolVarP(&followOnly, "follow", "f", false, "follow mode: skip existing content, only show new lines")
+	tailCmd.Flags().BoolVarP(&followMode, "follow", "f", false, "follow mode: show last N lines then tail new content")
+	tailCmd.Flags().IntVarP(&tailLines, "lines", "n", 100, "number of trailing lines in follow mode")
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(pipeCmd)

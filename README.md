@@ -35,7 +35,8 @@ logview k8s -n parking deploy/api -n billing deploy/billing-rule
 
 # 本地文件
 logview tail /var/log/app.log
-logview tail -f /var/log/app.log    # follow mode: 只看新日志，跳过历史
+logview tail -f /var/log/app.log          # follow mode: 读最后100行 + 追踪新日志
+logview tail -n 200 -f /var/log/app.log   # follow mode: 读最后200行 + 追踪新日志
 
 # 管道
 kubectl logs -f deploy/parking-api | logview pipe
