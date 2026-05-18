@@ -262,7 +262,7 @@ func TestFieldToggleChangesRender(t *testing.T) {
 
 	// 默认 mask: time=true, level=true, thread=false, traceId=false, logger=false, message=true, source=true
 	line := app.filteredView[0]
-	defaultRender := stripANSI(app.renderLine(line, false))
+	defaultRender := stripANSI(app.renderLine(line, false, 0))
 
 	// 检查默认渲染包含关键字段
 	if !strings.Contains(defaultRender, "INFO") {
@@ -277,7 +277,7 @@ func TestFieldToggleChangesRender(t *testing.T) {
 
 	// 隐藏 level 字段
 	app.fieldMask.Toggle(model.FieldLevel)
-	noLevelRender := stripANSI(app.renderLine(line, false))
+	noLevelRender := stripANSI(app.renderLine(line, false, 0))
 
 	if strings.Contains(noLevelRender, "INFO") {
 		t.Errorf("after hiding level, render should NOT contain 'INFO', got: %q", noLevelRender)
@@ -292,7 +292,7 @@ func TestFieldToggleChangesRender(t *testing.T) {
 	app.fieldMask[model.FieldSource] = false
 	app.fieldMask[model.FieldMessage] = true
 
-	msgOnlyRender := stripANSI(app.renderLine(line, false))
+	msgOnlyRender := stripANSI(app.renderLine(line, false, 0))
 	if !strings.Contains(msgOnlyRender, "test message here") {
 		t.Errorf("message-only render should contain message, got: %q", msgOnlyRender)
 	}
@@ -309,7 +309,7 @@ func TestFieldToggleNoParserSourceVisible(t *testing.T) {
 	app := newTestApp() // nil parsers
 
 	line := app.filteredView[0]
-	render := stripANSI(app.renderLine(line, false))
+	render := stripANSI(app.renderLine(line, false, 0))
 
 	// 即使没有 parser, source 通过 Raw.Source fallback 也应该显示
 	if !strings.Contains(render, "test-pod") {
@@ -318,7 +318,7 @@ func TestFieldToggleNoParserSourceVisible(t *testing.T) {
 
 	// 隐藏 source 后应该消失
 	app.fieldMask[model.FieldSource] = false
-	render2 := stripANSI(app.renderLine(line, false))
+	render2 := stripANSI(app.renderLine(line, false, 0))
 	if strings.Contains(render2, "test-pod") {
 		t.Errorf("source should be hidden after toggle, got: %q", render2)
 	}

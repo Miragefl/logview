@@ -13,6 +13,14 @@ var (
 	LevelWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	LevelError = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 
+	TimeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	SourceStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("183"))
+	TraceIDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("123"))
+	ThreadStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+
+	ErrorLineBg = lipgloss.Color("52")
+	WarnLineBg  = lipgloss.Color("58")
+
 	SearchStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("15")).
 			Background(lipgloss.Color("62"))
@@ -23,6 +31,10 @@ var (
 
 	SelectedStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("15"))
+
+	VisualStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("28")).
 			Foreground(lipgloss.Color("15"))
 
 	HelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
@@ -55,6 +67,17 @@ var (
 			Foreground(lipgloss.Color("243"))
 
 	HorizontalLine = "─"
+
+	HighlightColors = []lipgloss.Color{
+		lipgloss.Color("227"), // yellow
+		lipgloss.Color("123"), // cyan
+		lipgloss.Color("201"), // magenta
+		lipgloss.Color("82"),  // green
+		lipgloss.Color("214"), // orange
+		lipgloss.Color("69"),  // blue
+		lipgloss.Color("183"), // purple
+		lipgloss.Color("196"), // red
+	}
 )
 
 func LevelStyle(level string) lipgloss.Style {

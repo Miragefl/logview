@@ -47,17 +47,35 @@ var versionCmd = &cobra.Command{
 }
 
 var k8sCmd = &cobra.Command{
-	Use:   "k8s <resource> [flags]",
+	Use:   "k8s <resource> [resource...] [flags]",
 	Short: "View logs from Kubernetes pods",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MinimumNArgs(1),
 	ValidArgsFunction: completeK8sResource,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		parsers, err := loadParsers()
 		if err != nil {
 			return err
 		}
-		namespace, _ := cmd.Flags().GetString("namespace")
-		src := stream.NewK8sSource(args[0], namespace, nil)
+		namespaces, _ := cmd.Flags().GetStringArray("namespace")
+
+		if len(namespaces) > 1 && len(namespaces) != len(args) {
+			return fmt.Errorf("namespace count (%d) must match resource count (%d), or provide exactly 1 namespace for all resources",
+				len(namespaces), len(args))
+		}
+
+		var src stream.LogStream
+		if len(args) == 1 {
+			ns := resolveNamespace(namespaces, 0)
+			src = stream.NewK8sSource(args[0], ns, nil)
+		} else {
+			sources := make([]*stream.K8sSource, len(args))
+			for i, res := range args {
+				ns := resolveNamespace(namespaces, i)
+				sources[i] = stream.NewK8sSource(res, ns, nil)
+			}
+			src = stream.NewMultiK8sSource(sources)
+		}
+
 		app := tui.NewApp(src, parsers, bufferSize)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
@@ -65,11 +83,19 @@ var k8sCmd = &cobra.Command{
 	},
 }
 
-func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) > 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
+func resolveNamespace(namespaces []string, idx int) string {
+	if len(namespaces) == 0 {
+		return "default"
 	}
-	namespace, _ := cmd.Flags().GetString("namespace")
+	if len(namespaces) == 1 {
+		return namespaces[0]
+	}
+	return namespaces[idx]
+}
+
+func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	namespaces, _ := cmd.Flags().GetStringArray("namespace")
+	ns := resolveNamespace(namespaces, len(args))
 
 	kinds := []struct{ prefix, kind string }{
 		{"pod/", "pod"}, {"po/", "pod"},
@@ -78,7 +104,7 @@ func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) (
 	}
 	for _, k := range kinds {
 		if strings.HasPrefix(toComplete, k.prefix) {
-			names := kubectlGetNames(k.kind, namespace)
+			names := kubectlGetNames(k.kind, ns)
 			var completions []string
 			for _, n := range names {
 				completions = append(completions, k.prefix+n)
@@ -145,7 +171,7 @@ var pipeCmd = &cobra.Command{
 }
 
 func init() {
-	k8sCmd.Flags().StringP("namespace", "n", "default", "Kubernetes namespace")
+	k8sCmd.Flags().StringArrayP("namespace", "n", []string{"default"}, "Kubernetes namespace (one for all, or one per resource)")
 	k8sCmd.RegisterFlagCompletionFunc("namespace", completeK8sNamespace)
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")

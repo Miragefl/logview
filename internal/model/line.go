@@ -24,7 +24,7 @@ const (
 
 // AllFields lists all possible parsed fields in display order.
 // Can be overridden via config.
-var AllFields = []Field{FieldTime, FieldLevel, FieldThread, FieldTraceID, FieldLogger, FieldMessage, FieldSource}
+var AllFields = []Field{FieldTime, FieldSource, FieldLevel, FieldThread, FieldTraceID, FieldLogger, FieldMessage}
 
 // SetAllFields overrides the global field list from config.
 func SetAllFields(fields []Field) {

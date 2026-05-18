@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -16,6 +17,13 @@ import (
 	"github.com/justfun/logview/internal/stacktrace"
 	"github.com/justfun/logview/internal/stream"
 )
+
+var cancelFunc context.CancelFunc
+
+type starField struct {
+	Name  string
+	Value string
+}
 
 type App struct {
 	stream      stream.LogStream
@@ -47,6 +55,23 @@ type App struct {
 
 	exportMode  bool
 	exportState ExportState
+
+	visualMode  bool
+	visualStart int
+
+	pendingKey  string
+
+	levelFilter string
+
+	starFields  []starField
+	starCursor   int
+		searchCursor int
+
+		helpMode      bool
+
+	highlights     []string
+	highlightMode  bool
+	highlightInput string
 
 	parserName string
 }
@@ -120,13 +145,23 @@ func tickEvery() tea.Cmd {
 var streamCh <-chan model.RawLine
 
 func (a *App) Init() tea.Cmd {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelFunc = cancel
 	ch, err := a.stream.Start(ctx)
 	if err != nil {
+		cancel()
 		return nil
 	}
 	streamCh = ch
 	return tea.Batch(waitForStream(ch), tickEvery())
+}
+
+func (a *App) shutdown() tea.Cmd {
+	if cancelFunc != nil {
+		cancelFunc()
+	}
+	a.stream.Cleanup()
+	return tea.Quit
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -141,6 +176,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return a, tickEvery()
 	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" {
+			return a, a.shutdown()
+		}
+		if a.helpMode {
+			return a.handleHelpKeys(msg)
+		}
+		if a.highlightMode {
+			return a.handleHighlightKeys(msg)
+		}
 		if a.exportMode {
 			return a.handleExportKeys(msg)
 		}
@@ -151,6 +195,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.handlePanelKeys(msg)
 		}
 		return a.handleNormalKeys(msg)
+	case tea.InterruptMsg:
+		return a, a.shutdown()
 	}
 	return a, nil
 }
@@ -212,6 +258,11 @@ func (a *App) recomputeView() {
 				continue
 			}
 		}
+		if a.levelFilter != "" {
+			if !a.matchLevelFilter(line) {
+				continue
+			}
+		}
 		view = append(view, line)
 	}
 	a.filteredView = view
@@ -224,6 +275,21 @@ func (a *App) recomputeView() {
 func containsIgnoreCase(s, sub string) bool {
 	ls, lsub := strings.ToLower(s), strings.ToLower(sub)
 	return len(ls) >= len(lsub) && strings.Contains(ls, lsub)
+}
+
+func (a *App) matchLevelFilter(line *model.ParsedLine) bool {
+	lv := strings.ToUpper(line.Level)
+	switch a.levelFilter {
+	case "ERROR":
+		return lv == "ERROR" || lv == "ERR" || lv == "FATAL"
+	case "WARN":
+		return lv == "ERROR" || lv == "ERR" || lv == "FATAL" || lv == "WARN" || lv == "WARNING"
+	case "INFO":
+		return lv == "ERROR" || lv == "ERR" || lv == "FATAL" || lv == "WARN" || lv == "WARNING" || lv == "INFO"
+	case "DEBUG":
+		return true
+	}
+	return true
 }
 
 // applyFieldAlias maps custom field names to standard struct fields.
@@ -321,10 +387,40 @@ func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// handle pending key sequences (viw, zt/zz/zb)
+	if a.pendingKey != "" {
+		key := msg.String()
+		switch a.pendingKey {
+		case "z":
+			vl := a.visibleLines()
+			switch key {
+			case "t":
+				a.offset = a.cursor
+			case "z":
+				a.offset = max(0, a.cursor-vl/2)
+			case "b":
+				a.offset = max(0, a.cursor-vl+1)
+			}
+			a.autoscroll = false
+			a.pendingKey = ""
+			return a, nil
+		}
+		a.pendingKey = ""
+		return a, nil
+	}
+
+	if a.visualMode {
+		return a.handleVisualKeys(msg)
+	}
+
 	switch msg.String() {
 	case "q":
 		return a, tea.Quit
 	case "esc":
+		if a.visualMode {
+			a.visualMode = false
+			return a, nil
+		}
 		if a.searchInput != "" {
 			var curLine *model.ParsedLine
 			if a.cursor >= 0 && a.cursor < len(a.filteredView) {
@@ -343,10 +439,32 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "/":
 		a.searchMode = true
-		a.searchInput = ""
+		a.populateSearchFields()
+		a.searchCursor = len([]rune(a.searchInput))
+	case "v":
+		a.visualMode = true
+		a.visualStart = a.cursor
+		a.autoscroll = false
+	case "V":
+		a.visualMode = true
+		a.visualStart = a.cursor
+		a.autoscroll = false
+	case "y":
+		a.yankLines(a.cursor, a.cursor)
 	case "f":
+		a.searchMode = true
+		a.populateSearchFields()
+		a.searchCursor = len([]rune(a.searchInput))
+	case "F":
 		a.panelFocus = true
 		a.fieldCursor = 0
+	case "?":
+		a.helpMode = true
+	case "h":
+		a.highlightMode = true
+		if a.highlightInput == "" && len(a.highlights) > 0 {
+			a.highlightInput = strings.Join(a.highlights, ", ")
+		}
 	case "s":
 		a.exportMode = true
 	case "g":
@@ -355,10 +473,29 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G":
 		a.cursor = max(0, len(a.filteredView)-1)
 		a.autoscroll = true
-	case "n":
-		a.jumpSearchMatch(1)
-	case "N":
-		a.jumpSearchMatch(-1)
+	case "H":
+		a.cursor = a.offset
+		a.autoscroll = false
+	case "M":
+		a.cursor = a.offset + a.visibleLines()/2
+		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
+		a.autoscroll = false
+	case "L":
+		a.cursor = a.offset + a.visibleLines() - 1
+		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
+		a.autoscroll = false
+	case "z":
+		a.pendingKey = "z"
+	case "I":
+		a.toggleLevelFilter("INFO")
+	case "D":
+		a.toggleLevelFilter("DEBUG")
+	case "E":
+		a.toggleLevelFilter("ERROR")
+	case "W":
+		a.toggleLevelFilter("WARN")
+	case "A":
+		a.toggleLevelFilter("")
 	case "ctrl+d":
 		hs := a.visibleLines() / 2
 		a.cursor += hs
@@ -415,21 +552,175 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		a.yankLines(a.visualStart, a.cursor)
+	case "esc":
+		a.visualMode = false
+	case "up", "k":
+		if a.cursor > 0 {
+			a.cursor--
+		}
+	case "down", "j":
+		if a.cursor < len(a.filteredView)-1 {
+			a.cursor++
+		}
+	case "G":
+		a.cursor = max(0, len(a.filteredView)-1)
+	case "g":
+		a.cursor = 0
+	}
+	return a, nil
+}
+
 func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		a.searchMode = false
+		a.starFields = nil
+		a.starCursor = 0
 	case tea.KeyEnter:
+		if len(a.starFields) > 0 && a.starCursor < len(a.starFields) {
+			sf := a.starFields[a.starCursor]
+			if sf.Name != "" {
+				term := sf.Name + ":" + sf.Value
+				runes := []rune(a.searchInput)
+				pos := a.searchCursor
+				insert := term
+				if a.searchInput != "" && pos > 0 && runes[pos-1] != ' ' {
+					insert = " " + insert
+				}
+				if a.searchInput != "" && pos < len(runes) && runes[pos] != ' ' {
+					insert = insert + " "
+				}
+				runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
+				a.searchInput = string(runes)
+				a.searchCursor = pos + len([]rune(insert))
+			}
+		}
 		a.searchMode = false
+		a.starFields = nil
+		a.starCursor = 0
 		a.recomputeView()
 	case tea.KeyBackspace:
-		if len(a.searchInput) > 0 {
-			a.searchInput = a.searchInput[:len([]rune(a.searchInput))-1]
+		runes := []rune(a.searchInput)
+		if a.searchCursor > 0 && len(runes) > 0 {
+			a.searchCursor--
+			runes = append(runes[:a.searchCursor], runes[a.searchCursor+1:]...)
+			a.searchInput = string(runes)
 			a.recomputeView()
 		}
+	case tea.KeyTab:
+		if len(a.starFields) > 0 {
+			a.starCursor = (a.starCursor + 1) % len(a.starFields)
+		}
+	case tea.KeyShiftTab:
+		if len(a.starFields) > 0 {
+			a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
+		}
 	case tea.KeyRunes:
-		a.searchInput += string(msg.Runes)
+		insert := string(msg.Runes)
+		runes := []rune(a.searchInput)
+		pos := a.searchCursor
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
+		a.searchInput = string(runes)
+		a.searchCursor = pos + len([]rune(insert))
 		a.recomputeView()
+	default:
+		switch msg.String() {
+		case "left":
+			if a.searchCursor > 0 {
+				a.searchCursor--
+			}
+		case "right":
+			if a.searchCursor < len([]rune(a.searchInput)) {
+				a.searchCursor++
+			}
+		case "home", "ctrl+a":
+			a.searchCursor = 0
+		case "end", "ctrl+e":
+			a.searchCursor = len([]rune(a.searchInput))
+		case "delete":
+			runes := []rune(a.searchInput)
+			if a.searchCursor < len(runes) {
+				runes = append(runes[:a.searchCursor], runes[a.searchCursor+1:]...)
+				a.searchInput = string(runes)
+				a.recomputeView()
+			}
+		case "ctrl+u":
+			a.searchInput = ""
+			a.searchCursor = 0
+			a.recomputeView()
+		case " ":
+			runes := []rune(a.searchInput)
+			pos := a.searchCursor
+			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
+			a.searchInput = string(runes)
+			a.searchCursor = pos + 1
+			a.recomputeView()
+		case "ctrl+j":
+			if len(a.starFields) > 0 {
+				a.starCursor = (a.starCursor + 1) % len(a.starFields)
+			}
+		case "ctrl+k":
+			if len(a.starFields) > 0 {
+				a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
+			}
+		}
+	}
+	return a, nil
+}
+
+func (a *App) handleHighlightKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.highlightMode = false
+	case tea.KeyEnter:
+		// parse comma-separated keywords
+		kw := strings.TrimSpace(a.highlightInput)
+		if kw != "" {
+			a.highlights = strings.Split(kw, ",")
+			for i := range a.highlights {
+				a.highlights[i] = strings.TrimSpace(a.highlights[i])
+			}
+			// remove empty
+			var clean []string
+			for _, h := range a.highlights {
+				if h != "" {
+					clean = append(clean, h)
+				}
+			}
+			a.highlights = clean
+		} else {
+			a.highlights = nil
+		}
+		a.highlightMode = false
+	case tea.KeyBackspace:
+		if len(a.highlightInput) > 0 {
+			runes := []rune(a.highlightInput)
+			a.highlightInput = string(runes[:len(runes)-1])
+		}
+	case tea.KeyRunes:
+		a.highlightInput += string(msg.Runes)
+	default:
+		switch msg.String() {
+		case "ctrl+u":
+			a.highlightInput = ""
+		case " ":
+			a.highlightInput += " "
+		}
+	}
+	return a, nil
+}
+
+func (a *App) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "?", "esc", "q", "enter":
+		a.helpMode = false
 	}
 	return a, nil
 }
@@ -466,6 +757,41 @@ func (a *App) handleExportKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *App) populateSearchFields() {
+	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
+		a.starFields = nil
+		return
+	}
+	line := a.filteredView[a.cursor]
+	var fields []starField
+	fields = append(fields, starField{Name: "", Value: ""})
+	for _, f := range model.AllFields {
+		val := line.Get(f)
+		if val == "" {
+			continue
+		}
+		if f == model.FieldMessage {
+			for _, w := range strings.Fields(val) {
+				if len(w) > 1 {
+					fields = append(fields, starField{Name: string(f), Value: w})
+				}
+			}
+			continue
+		}
+		fields = append(fields, starField{Name: string(f), Value: val})
+	}
+	a.starFields = fields
+}
+
+func (a *App) toggleLevelFilter(level string) {
+	if a.levelFilter == level {
+		a.levelFilter = ""
+	} else {
+		a.levelFilter = level
+	}
+	a.recomputeView()
+}
+
 func (a *App) doExport() {
 	s := &a.exportState
 	var lines []*model.ParsedLine
@@ -488,8 +814,8 @@ func (a *App) doExport() {
 }
 
 func (a *App) visibleLines() int {
-	// 6 fixed lines: title, sep, bar, sep, sep(bottom), helpBar
-	vl := a.height - 6
+	// fixed lines: title, sep, bar, sep, sep(bottom) = 5, plus helpBar (1-2 lines)
+	vl := a.height - 5 - a.helpBarHeight()
 	if vl < 1 {
 		vl = 1
 	}
@@ -516,11 +842,15 @@ func (a *App) View() string {
 	// truncate every line to terminal width to prevent wrapping
 	trunc := lipgloss.NewStyle().MaxWidth(w)
 	bar := trunc.Render(a.renderSearchBar())
-	helpBar := HelpStyle.Width(w).Render(a.renderHelpBarContent())
+	helpBar := a.renderHelpBarContent()
 
 	vl := a.visibleLines()
 	var logLines []string
-	if a.panelFocus {
+	if a.helpMode {
+		logLines = a.buildHelpPopup(vl)
+	} else if a.highlightMode {
+		logLines = a.buildHighlightPopup(vl)
+	} else if a.panelFocus {
 		logLines = a.buildPopupLines(vl)
 	} else {
 		logLines = a.buildLogLines(vl)
@@ -528,10 +858,89 @@ func (a *App) View() string {
 
 	allLines := make([]string, 0, vl+6)
 	allLines = append(allLines, title, sep, bar, sep)
-	for _, l := range logLines {
-		allLines = append(allLines, trunc.Render(l))
+	// overlay search popup on top of log lines if active
+	popupLines := a.buildSearchPopup()
+	for i, l := range logLines {
+		rendered := trunc.Render(l)
+		if a.searchMode && len(popupLines) > 0 && i < len(popupLines) {
+			rendered = lipgloss.NewStyle().Width(w).MaxWidth(w).Render(popupLines[i])
+		}
+		allLines = append(allLines, rendered)
 	}
 	allLines = append(allLines, sep, helpBar)
 	return strings.Join(allLines, "\n")
 }
 
+func (a *App) yankLines(start, end int) {
+	if start > end {
+		start, end = end, start
+	}
+	var buf strings.Builder
+	for i := start; i <= end && i < len(a.filteredView); i++ {
+		buf.WriteString(a.filteredView[i].Raw.Text)
+		buf.WriteByte('\n')
+	}
+	copyToClipboard(buf.String())
+	a.visualMode = false
+}
+
+func (a *App) yankWord() {
+	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
+		return
+	}
+	line := a.filteredView[a.cursor]
+	var parts []string
+	for _, f := range model.AllFields {
+		if !a.fieldMask.IsVisible(f) {
+			continue
+		}
+		val := line.Get(f)
+		if val == "" {
+			continue
+		}
+		parts = append(parts, val)
+	}
+	text := strings.Join(parts, "  ")
+	center := len(text) / 2
+	if center > a.width/2 {
+		center = a.width / 2
+	}
+	word := wordAtPos(text, center)
+	if word != "" {
+		copyToClipboard(word)
+	}
+}
+
+func wordAtPos(text string, pos int) string {
+	if pos >= len(text) {
+		pos = len(text) - 1
+	}
+	if pos < 0 {
+		return ""
+	}
+	isSpace := func(c byte) bool { return c == ' ' || c == '	' }
+	if isSpace(text[pos]) {
+		left := pos
+		for left >= 0 && isSpace(text[left]) { left-- }
+		right := pos
+		for right < len(text) && isSpace(text[right]) { right++ }
+		if left >= 0 {
+			pos = left
+		} else if right < len(text) {
+			pos = right
+		} else {
+			return ""
+		}
+	}
+	start := pos
+	for start > 0 && !isSpace(text[start-1]) { start-- }
+	end := pos
+	for end < len(text) && !isSpace(text[end]) { end++ }
+	return text[start:end]
+}
+
+func copyToClipboard(text string) {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(text)
+	cmd.Run()
+}

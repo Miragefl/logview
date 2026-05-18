@@ -153,3 +153,64 @@ func (k *K8sSource) streamPod(ctx context.Context, ch chan<- model.RawLine, podN
 }
 
 func (k *K8sSource) Cleanup() error { return nil }
+
+// MultiK8sSource merges multiple K8sSource into a single LogStream.
+type MultiK8sSource struct {
+	sources []*K8sSource
+}
+
+func NewMultiK8sSource(sources []*K8sSource) *MultiK8sSource {
+	return &MultiK8sSource{sources: sources}
+}
+
+func (m *MultiK8sSource) Label() string {
+	labels := make([]string, len(m.sources))
+	for i, s := range m.sources {
+		labels[i] = s.Label()
+	}
+	return strings.Join(labels, "+")
+}
+
+func (m *MultiK8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
+	out := make(chan model.RawLine, 512)
+
+	var channels []<-chan model.RawLine
+	for _, src := range m.sources {
+		ch, err := src.Start(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", src.Label(), err)
+		}
+		channels = append(channels, ch)
+	}
+
+	go func() {
+		defer close(out)
+		var wg sync.WaitGroup
+		for _, ch := range channels {
+			wg.Add(1)
+			go func(c <-chan model.RawLine) {
+				defer wg.Done()
+				for line := range c {
+					select {
+					case out <- line:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}(ch)
+		}
+		wg.Wait()
+	}()
+
+	return out, nil
+}
+
+func (m *MultiK8sSource) Cleanup() error {
+	var first error
+	for _, s := range m.sources {
+		if err := s.Cleanup(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
