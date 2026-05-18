@@ -16,7 +16,7 @@ func TestTailSourceReadsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src := NewTailSource([]string{fpath})
+	src := NewTailSource([]string{fpath}, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -48,7 +48,7 @@ func TestTailSourceReadsFile(t *testing.T) {
 }
 
 func TestTailSourceLabel(t *testing.T) {
-	src := NewTailSource([]string{"/var/log/a.log", "/var/log/b.log"})
+	src := NewTailSource([]string{"/var/log/a.log", "/var/log/b.log"}, false)
 	if src.Label() != "tail" {
 		t.Errorf("Label() = %q, want %q", src.Label(), "tail")
 	}
@@ -63,7 +63,7 @@ func TestTailSourceTailsNewLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src := NewTailSource([]string{fpath})
+	src := NewTailSource([]string{fpath}, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -111,9 +111,56 @@ func TestTailSourceTailsNewLines(t *testing.T) {
 }
 
 func TestTailSourceCleanup(t *testing.T) {
-	src := NewTailSource([]string{"/tmp/test.log"})
+	src := NewTailSource([]string{"/tmp/test.log"}, false)
 	err := src.Cleanup()
 	if err != nil {
 		t.Errorf("Cleanup() error: %v", err)
+	}
+}
+
+func TestTailSourceFollowSkipsExisting(t *testing.T) {
+	dir := t.TempDir()
+	fpath := filepath.Join(dir, "test.log")
+	content := "old1\nold2\nold3\n"
+	if err := os.WriteFile(fpath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewTailSource([]string{fpath}, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ch, err := src.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	f, err := os.OpenFile(fpath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("new1\nnew2\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for len(lines) < 2 {
+		select {
+		case raw := <-ch:
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("timed out, got %d/2 lines: %v", len(lines), lines)
+		}
+	}
+
+	if lines[0] != "new1" {
+		t.Errorf("lines[0] = %q, want %q", lines[0], "new1")
+	}
+	if lines[1] != "new2" {
+		t.Errorf("lines[1] = %q, want %q", lines[1], "new2")
 	}
 }

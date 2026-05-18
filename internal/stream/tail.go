@@ -13,12 +13,13 @@ import (
 )
 
 type TailSource struct {
-	paths []string
-	seq   atomic.Uint64
+	paths      []string
+	followOnly bool
+	seq        atomic.Uint64
 }
 
-func NewTailSource(paths []string) *TailSource {
-	return &TailSource{paths: paths}
+func NewTailSource(paths []string, followOnly bool) *TailSource {
+	return &TailSource{paths: paths, followOnly: followOnly}
 }
 
 func (t *TailSource) Label() string { return "tail" }
@@ -49,32 +50,37 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 
 	reader := bufio.NewReader(f)
 
-	// Read existing content first
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
+	if !t.followOnly {
+		// Read existing content first
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-		if len(line) > 0 && line[len(line)-1] == '\n' {
-			line = line[:len(line)-1]
-		}
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				break
+			}
+			if len(line) > 0 && line[len(line)-1] == '\n' {
+				line = line[:len(line)-1]
+			}
 
-		raw := model.RawLine{
-			Text:   line,
-			Source: filepath.Base(path),
-			Seq:    t.seq.Add(1),
+			raw := model.RawLine{
+				Text:   line,
+				Source: filepath.Base(path),
+				Seq:    t.seq.Add(1),
+			}
+			select {
+			case ch <- raw:
+			case <-ctx.Done():
+				return
+			}
 		}
-		select {
-		case ch <- raw:
-		case <-ctx.Done():
-			return
-		}
+	} else {
+		// Follow mode: seek to end, skip all existing content
+		f.Seek(0, 2)
 	}
 
 	// Then tail for new lines

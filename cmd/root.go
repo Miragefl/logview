@@ -19,6 +19,7 @@ var (
 	ruleName   string
 	bufferSize int
 	configDir  string
+	followOnly bool
 )
 
 var (
@@ -146,7 +147,7 @@ var tailCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		src := stream.NewTailSource(args)
+		src := stream.NewTailSource(args, followOnly)
 		app := tui.NewApp(src, parsers, bufferSize)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
@@ -176,6 +177,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")
 	rootCmd.PersistentFlags().StringVar(&configDir, "config", "", "config directory (default: ~/.config/logview)")
+	tailCmd.Flags().BoolVarP(&followOnly, "follow", "f", false, "follow mode: skip existing content, only show new lines")
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(pipeCmd)
