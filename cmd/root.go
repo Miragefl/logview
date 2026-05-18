@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -212,10 +213,26 @@ func completionCmd() *cobra.Command {
 	return cmd
 }
 
+var tailNumFollowRe = regexp.MustCompile(`^-(\d+)f$`)
+
 func Execute() {
+	rootCmd.SetArgs(expandTailArgs(os.Args[1:]))
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// expand -100f / -200f into -n 100 -f for cobra compatibility
+func expandTailArgs(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if m := tailNumFollowRe.FindStringSubmatch(a); m != nil {
+			out = append(out, "-n", m[1], "-f")
+		} else {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func getConfigDir() string {
