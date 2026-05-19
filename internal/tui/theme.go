@@ -96,6 +96,11 @@ func ApplyTheme(cfg ThemeConfig) {
 	SelectedStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(cfg.Selected)).
 		Foreground(lipgloss.Color("#FFFFFF"))
+	SelectedBgColor = lipgloss.Color(cfg.Selected)
+	SelectedFgColor = lipgloss.Color("#FFFFFF")
+	VisualBgColor = lipgloss.Color(cfg.Visual)
+	VisualFgColor = lipgloss.Color("#FFFFFF")
+
 
 	VisualStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(cfg.Visual)).

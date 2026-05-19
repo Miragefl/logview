@@ -63,12 +63,14 @@ type App struct {
 	pendingKey  string
 
 	levelFilter string
+	wrapMode  bool
 
 	starFields  []starField
 	starCursor   int
 		searchCursor int
 
 		helpMode      bool
+		yankMsg       string
 
 	highlights     []string
 	highlightMode  bool
@@ -410,6 +412,7 @@ func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	a.yankMsg = ""
 	// handle pending key sequences (viw, zt/zz/zb)
 	if a.pendingKey != "" {
 		key := msg.String()
@@ -436,6 +439,17 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
+	case "C":
+		a.buffer.Clear()
+		a.searchIdx.Clear()
+		a.filteredView = nil
+		a.stGroups = nil
+		a.expanded = make(map[int]bool)
+		a.cursor = 0
+		a.offset = 0
+		a.newLogs = 0
+		a.yankMsg = "屏幕已清空"
+		return a, nil
 	case "q":
 		return a, tea.Quit
 	case "esc":
@@ -516,6 +530,8 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
 		a.autoscroll = false
 		a.scrollAnchor = 0
+		case "w":
+			a.wrapMode = !a.wrapMode
 	case "e":
 		for _, g := range a.stGroups {
 			if a.cursor >= g.Start && a.cursor <= g.End {
@@ -976,6 +992,7 @@ func (a *App) yankLines(start, end int) {
 		buf.WriteByte('\n')
 	}
 	copyToClipboard(buf.String())
+	a.yankMsg = fmt.Sprintf("已复制 %d 行", end-start+1)
 	a.visualMode = false
 }
 

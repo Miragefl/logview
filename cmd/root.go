@@ -228,10 +228,30 @@ func completionCmd() *cobra.Command {
 var tailNumFollowRe = regexp.MustCompile(`^-(\d+)f$`)
 
 func Execute() {
-	rootCmd.SetArgs(expandTailArgs(os.Args[1:]))
+	args := expandTailArgs(os.Args[1:])
+	// auto-detect stdin pipe: if no subcommand and stdin is not a terminal, use pipe mode
+	if len(args) == 0 || !isSubcommand(args[0]) {
+		if info, _ := os.Stdin.Stat(); info.Mode()&os.ModeNamedPipe != 0 || !isTerminal(info) {
+			args = append([]string{"pipe"}, args...)
+		}
+	}
+	rootCmd.SetArgs(args)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func isSubcommand(arg string) bool {
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == arg {
+			return true
+		}
+	}
+	return false
+}
+
+func isTerminal(info os.FileInfo) bool {
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // expand -100f / -200f into -n 100 -f for cobra compatibility

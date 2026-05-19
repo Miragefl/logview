@@ -31,6 +31,12 @@ func (rb *RingBuffer) Push(line *model.ParsedLine) {
 func (rb *RingBuffer) Len() int { return rb.len }
 func (rb *RingBuffer) TotalReceived() uint64 { return rb.total }
 
+func (rb *RingBuffer) Clear() {
+	rb.head = 0
+	rb.len = 0
+	rb.total = 0
+}
+
 func (rb *RingBuffer) Get(i int) *model.ParsedLine {
 	if i < 0 || i >= rb.len {
 		return nil

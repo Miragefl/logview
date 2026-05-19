@@ -17,7 +17,7 @@ func (a *App) buildHighlightPopup(vl int) []string {
 		content.WriteString(DetailDimStyle.Render("当前高亮:") + "\n")
 		for i, kw := range a.highlights {
 			colorIdx := i % len(HighlightColors)
-			style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
+			style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))  // dark text on highlight
 			content.WriteString(fmt.Sprintf("  %s %s\n", style.Render(" "+kw+" "), DetailDimStyle.Render(kw)))
 		}
 		content.WriteString("\n")

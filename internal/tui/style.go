@@ -80,6 +80,15 @@ var (
 	}
 )
 
+// selectedAnsi tracks the ANSI sequences to restore selected bg/fg after inner style resets
+var selectedAnsiRestore string
+
+var VisualBgColor lipgloss.Color = lipgloss.Color("28")
+var VisualFgColor lipgloss.Color = lipgloss.Color("15")
+
+var SelectedBgColor lipgloss.Color = lipgloss.Color("62")
+var SelectedFgColor lipgloss.Color = lipgloss.Color("15")
+
 var HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 
 func LevelStyle(level string) lipgloss.Style {

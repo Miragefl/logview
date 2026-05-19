@@ -48,15 +48,23 @@ func (a *App) helpItems() []helpItem {
 		}
 	default:
 		items := []helpItem{
+			{"j/k/g/G", "移动"},
 			{"C-d/C-u", "半页翻"},
+			{"C-f/C-b", "翻页"},
+			{"/", "搜索"},
+			{"v/V", "选择"},
+			{"y", "复制"},
 			{"H/M/L", "屏顶/中/底"},
-			{"zt/zz/zb", "当前行置顶/居中/置底"},
-			{"F", "字段设置"},
-			{"s", "导出日志"},
-			{"E/W/I/D/A", "日志级别"},
+			{"zt/zz/zb", "置顶/居中/置底"},
+			{"F", "字段"},
+			{"s", "导出"},
+			{"E/W/I/D/A", "级别"},
 			{"h", "高亮"},
 			{"x", "隐藏"},
-			{"?", "帮助"},
+			{"w", "换行"},
+			{"e", "展开"},
+			{"S-c", "清屏"},
+				{"?", "帮助"},
 		}
 		if a.levelFilter != "" {
 			items = append(items, helpItem{"", LevelStyle(a.levelFilter).Render(fmt.Sprintf("[过滤: %s]", a.levelFilter))})
@@ -66,6 +74,9 @@ func (a *App) helpItems() []helpItem {
 		}
 		if len(a.hides) > 0 {
 			items = append(items, helpItem{"", fmt.Sprintf("[隐藏: %d词]", len(a.hides))})
+		}
+		if a.yankMsg != "" {
+			items = append(items, helpItem{"", NewLogStyle.Render(a.yankMsg)})
 		}
 		return items
 	}
