@@ -27,23 +27,24 @@ type rulesFile struct {
 	History      int               `yaml:"history,omitempty"`
 	Theme        string            `yaml:"theme,omitempty"`
 	ThemeColors  map[string]string `yaml:"theme_colors,omitempty"`
+	Hides        []string          `yaml:"hides,omitempty"`
 }
 
-func LoadRules(path string) ([]RuleConfig, []FieldConfig, int, string, map[string]string, error) {
+func LoadRules(path string) ([]RuleConfig, []FieldConfig, int, string, map[string]string, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, 0, "", nil, fmt.Errorf("read rules: %w", err)
+		return nil, nil, 0, "", nil, nil, fmt.Errorf("read rules: %w", err)
 	}
 	var rf rulesFile
 	if err := yaml.Unmarshal(data, &rf); err != nil {
-		return nil, nil, 0, "", nil, fmt.Errorf("parse rules yaml: %w", err)
+		return nil, nil, 0, "", nil, nil, fmt.Errorf("parse rules yaml: %w", err)
 	}
 	if len(rf.Patterns) > 0 {
 		for i := range rf.Rules {
 			rf.Rules[i].Pattern = expandPatterns(rf.Rules[i].Pattern, rf.Patterns)
 		}
 	}
-	return rf.Rules, rf.Fields, rf.History, rf.Theme, rf.ThemeColors, nil
+	return rf.Rules, rf.Fields, rf.History, rf.Theme, rf.ThemeColors, rf.Hides, nil
 }
 
 func expandPatterns(pattern string, vars map[string]string) string {

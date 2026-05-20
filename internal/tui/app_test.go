@@ -22,7 +22,7 @@ func (m *mockStream) Label() string    { return "test" }
 func (m *mockStream) Cleanup() error   { return nil }
 
 func newTestApp() *App {
-	app := NewApp(&mockStream{}, nil, 1000)
+	app := NewApp(&mockStream{}, nil, 1000, nil)
 	app.width = 120
 	app.height = 40
 	// push some test data
@@ -246,7 +246,7 @@ func newParsedTestApp() *App {
 	p, _ := parser.NewRegexParser("java-logback",
 		`(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`)
 	ad := parser.NewAutoDetect([]parser.Parser{p})
-	app := NewApp(&mockStream{}, ad, 1000)
+	app := NewApp(&mockStream{}, ad, 1000, nil)
 	app.width = 120
 	app.height = 40
 	app.processLine(model.RawLine{

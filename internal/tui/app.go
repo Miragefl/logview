@@ -111,7 +111,7 @@ func SetFieldAlias(aliases map[string]string) {
 	overrideFieldAlias = aliases
 }
 
-func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int) *App {
+func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides []string) *App {
 	fm := model.DefaultFieldMask()
 	if overrideFieldMask != nil {
 		fm = overrideFieldMask
@@ -125,6 +125,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int) *App 
 		fieldMask:   fm,
 		fieldAlias:  overrideFieldAlias,
 		expanded:    make(map[int]bool),
+		hides:       hides,
 		autoscroll:  true,
 		exportState: newExportState(),
 	}

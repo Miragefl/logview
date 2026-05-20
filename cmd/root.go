@@ -53,7 +53,7 @@ var k8sCmd = &cobra.Command{
 	Args:             cobra.MinimumNArgs(1),
 	ValidArgsFunction: completeK8sResource,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, history, err := loadParsers()
+		parsers, history, defaultHides, err := loadParsers()
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ var k8sCmd = &cobra.Command{
 			src = stream.NewMultiK8sSource(sources)
 		}
 
-		app := tui.NewApp(src, parsers, bufferSize)
+		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -149,7 +149,7 @@ var tailCmd = &cobra.Command{
 	Short: "View logs from local files",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, history, err := loadParsers()
+		parsers, history, defaultHides, err := loadParsers()
 		if err != nil {
 			return err
 		}
@@ -164,7 +164,7 @@ var tailCmd = &cobra.Command{
 			}
 		}
 		src := stream.NewTailSource(args, followLines)
-		app := tui.NewApp(src, parsers, bufferSize)
+		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -175,12 +175,12 @@ var pipeCmd = &cobra.Command{
 	Use:   "pipe",
 	Short: "View logs from stdin (pipe)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, _, err := loadParsers()
+		parsers, _, defaultHides, err := loadParsers()
 		if err != nil {
 			return err
 		}
 		src := stream.NewPipeSource(os.Stdin)
-		app := tui.NewApp(src, parsers, bufferSize)
+		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -275,7 +275,7 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "logview")
 }
 
-func loadParsers() (*parser.AutoDetect, int, error) {
+func loadParsers() (*parser.AutoDetect, int, []string, error) {
 	cfgDir := getConfigDir()
 	rulesPath := filepath.Join(cfgDir, "rules.yaml")
 
@@ -284,12 +284,13 @@ func loadParsers() (*parser.AutoDetect, int, error) {
 	var history int
 	var themeName string
 	var themeColors map[string]string
+	var defaultHides []string
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, fieldConfigs, history, themeName, themeColors, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, defaultHides, _ = parser.LoadRules(rulesPath)
 	} else {
 		os.MkdirAll(cfgDir, 0755)
 		os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644)
-		rules, fieldConfigs, history, themeName, themeColors, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, defaultHides, _ = parser.LoadRules(rulesPath)
 	}
 	if history <= 0 {
 		history = 5000
@@ -331,7 +332,7 @@ func loadParsers() (*parser.AutoDetect, int, error) {
 	parsers := parser.MustCompileRules(rules)
 	cfg := tui.ResolveTheme(themeName, themeColors)
 	tui.ApplyTheme(cfg)
-	return parser.NewAutoDetect(parsers), history, nil
+	return parser.NewAutoDetect(parsers), history, defaultHides, nil
 }
 
 const defaultRulesYAML = `# ============================================================
@@ -353,7 +354,7 @@ patterns:
 #   - parse: 可选，设为 json 则按 JSON 解析
 rules:
   - name: java-logback
-    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - {message}'
+    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - ?{message}'
   - name: json-log
     pattern: '(?P<raw>.*)'
     parse: json
@@ -385,6 +386,11 @@ theme: dark
 #   level.error: "#FF0000"
 #   highlight: "#FFFF00"
 
+# hides: 默认隐藏包含这些关键词的日志行，按 x 可管理
+# hides:
+#   - health check
+#   - heartbeat
+
 # fields: 字段显示/隐藏，visible: false 隐藏但搜索和过滤仍可用
 fields:
   - name: time
@@ -407,7 +413,7 @@ func defaultFallbackRules() []parser.RuleConfig {
 	return []parser.RuleConfig{
 		{
 			Name:    "java-logback",
-			Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})\s+\[(?P<thread>[^\]]+)\]\s+\[(?P<traceId>[^\]]+)\]\s+(?P<level>\w+)\s+(?P<logger>\S+)\s+-\s+(?P<message>.*)`,
+			Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})\s+\[(?P<thread>[^\]]+)\]\s+\[(?P<traceId>[^\]]+)\]\s+(?P<level>\w+)\s+(?P<logger>\S+)\s+-\s*(?P<message>.*)`,
 		},
 		{
 			Name:  "json-log",
