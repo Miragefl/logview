@@ -24,6 +24,8 @@ type ThemeConfig struct {
 	PopupBg     string
 	Dim         string
 	Accent      string
+	Bg          string
+	Fg          string
 }
 
 var DarkTheme = ThemeConfig{
@@ -46,6 +48,8 @@ var DarkTheme = ThemeConfig{
 	PopupBg:     "#262626",
 	Dim:         "#767676",
 	Accent:      "#5FD7AF",
+	Bg:          "",
+	Fg:          "",
 }
 
 var LightTheme = ThemeConfig{
@@ -68,6 +72,8 @@ var LightTheme = ThemeConfig{
 	PopupBg:     "#E4E4E4",
 	Dim:         "#9E9E9E",
 	Accent:      "#008700",
+	Bg:          "#FFFFFF",
+	Fg:          "#333333",
 }
 
 func ApplyTheme(cfg ThemeConfig) {
@@ -101,7 +107,6 @@ func ApplyTheme(cfg ThemeConfig) {
 	VisualBgColor = lipgloss.Color(cfg.Visual)
 	VisualFgColor = lipgloss.Color("#FFFFFF")
 
-
 	VisualStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(cfg.Visual)).
 		Foreground(lipgloss.Color("#FFFFFF"))
@@ -113,7 +118,6 @@ func ApplyTheme(cfg ThemeConfig) {
 	NewLogStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelWarn)).Bold(true)
 
 	DetailLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cfg.Accent))
-	DetailValueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#D0D0D0"))
 	DetailDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))
 
 	PopupBoxStyle = lipgloss.NewStyle().
@@ -123,7 +127,6 @@ func ApplyTheme(cfg ThemeConfig) {
 		Background(lipgloss.Color(cfg.PopupBg))
 
 	PopupTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))
-
 	HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelError)).Bold(true)
 
 	HighlightColors = []lipgloss.Color{
@@ -135,6 +138,31 @@ func ApplyTheme(cfg ThemeConfig) {
 		lipgloss.Color("#5F87D7"),
 		lipgloss.Color(cfg.Source),
 		lipgloss.Color(cfg.LevelError),
+	}
+
+	AppBgColor = lipgloss.Color(cfg.Bg)
+	AppFgColor = lipgloss.Color(cfg.Fg)
+	AppBgSeq = SetTerminalBg(cfg.Bg)
+
+	if cfg.Bg != "" {
+		bg := lipgloss.Color(cfg.Bg)
+		LevelDebug = LevelDebug.Background(bg)
+		LevelInfo = LevelInfo.Background(bg)
+		LevelWarn = LevelWarn.Background(bg)
+		LevelError = LevelError.Background(bg)
+		TimeStyle = TimeStyle.Background(bg)
+		SourceStyle = SourceStyle.Background(bg)
+		TraceIDStyle = TraceIDStyle.Background(bg)
+		ThreadStyle = ThreadStyle.Background(bg)
+		HelpStyle = HelpStyle.Background(bg)
+		HelpKeyStyle = HelpKeyStyle.Background(bg)
+		FoldedStyle = FoldedStyle.Background(bg)
+		NewLogStyle = NewLogStyle.Background(bg)
+		DetailLabelStyle = DetailLabelStyle.Background(bg)
+		DetailValueStyle = lipgloss.NewStyle().Foreground(AppFgColor).Background(bg)
+		DetailDimStyle = DetailDimStyle.Background(bg)
+		PopupTabStyle = PopupTabStyle.Background(bg)
+		HideMarkStyle = HideMarkStyle.Background(bg)
 	}
 }
 
@@ -202,6 +230,12 @@ func ResolveTheme(name string, overrides map[string]string) ThemeConfig {
 	}
 	if v, ok := overrides["accent"]; ok {
 		base.Accent = v
+	}
+	if v, ok := overrides["bg"]; ok {
+		base.Bg = v
+	}
+	if v, ok := overrides["fg"]; ok {
+		base.Fg = v
 	}
 	return base
 }

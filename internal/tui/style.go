@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 var (
 	TitleStyle = lipgloss.NewStyle().
@@ -90,6 +94,25 @@ var SelectedBgColor lipgloss.Color = lipgloss.Color("62")
 var SelectedFgColor lipgloss.Color = lipgloss.Color("15")
 
 var HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+
+var AppBgColor lipgloss.Color = ""
+var AppFgColor lipgloss.Color = ""
+var AppBgSeq string = ""
+
+func hexToRGB(hex string) (r, g, b int) {
+	if len(hex) == 7 && hex[0] == '#' {
+		fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
+	}
+	return
+}
+
+func SetTerminalBg(hex string) string {
+	if hex == "" {
+		return ""
+	}
+	r, g, b := hexToRGB(hex)
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+}
 
 func LevelStyle(level string) lipgloss.Style {
 	switch level {

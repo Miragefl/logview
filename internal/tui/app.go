@@ -980,7 +980,13 @@ func (a *App) View() string {
 		allLines = append(allLines, rendered)
 	}
 	allLines = append(allLines, sep, helpBar)
-	return strings.Join(allLines, "\n")
+	out := strings.Join(allLines, "\n")
+	if AppBgSeq != "" {
+		reset := "\x1b[0m"
+		out = strings.ReplaceAll(out, reset, reset+AppBgSeq)
+		out = AppBgSeq + out + reset
+	}
+	return out
 }
 
 func (a *App) yankLines(start, end int) {
