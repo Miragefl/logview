@@ -2,6 +2,8 @@
 
 终端实时日志查看器，支持实时搜索、高亮、字段过滤、多资源聚合。
 
+![LogView Demo](docs/screenshot.png)
+
 ## 安装
 
 ### Homebrew（推荐）
