@@ -87,16 +87,32 @@ func NewAutoDetect(parsers []Parser) *AutoDetect {
 // maxPending is the max lines buffered per source before forcing plain-text.
 const maxPending = 50
 
-// Detect returns the parser for a source. First N lines are tested against
-// structured parsers only (skipping plain-text). Once a structured parser matches,
-// it's cached. If no structured parser matches within maxPending lines, plain-text
-// is used as fallback.
+// Detect returns the parser for a source. It tries structured parsers on every
+// line (skipping plain-text). Once a structured parser matches, it's cached.
+// If no structured parser matches within maxPending lines, plain-text is used
+// as fallback, but subsequent lines still try structured parsers — if one matches
+// later, the source is upgraded and pending lines are re-parsed.
 func (ad *AutoDetect) Detect(raw model.RawLine) Parser {
+	// Fast path: structured parser already chosen
 	if p, ok := ad.chosen[raw.Source]; ok {
+		if p.Name() != "plain-text" {
+			return p
+		}
+		// plain-text fallback: keep trying structured parsers
+		for _, sp := range ad.parsers {
+			if sp.Name() == "plain-text" {
+				continue
+			}
+			if sp.Parse(raw) != nil {
+				ad.chosen[raw.Source] = sp
+				delete(ad.pending, raw.Source)
+				return sp
+			}
+		}
 		return p
 	}
 
-	// Only try structured parsers, skip plain-text catch-all
+	// No parser chosen yet: try structured parsers
 	for _, p := range ad.parsers {
 		if p.Name() == "plain-text" {
 			continue

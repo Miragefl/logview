@@ -92,7 +92,7 @@ history: 5000
 # theme: 配色主题，可选 dark / light
 theme: dark
 
-# theme_colors: 覆盖主题中的具体颜色（ANSI 256 色编号）
+# theme_colors: 覆盖主题中的具体颜色（Hex 色值，如 #FF0000）
 # theme_colors:
 #   level.error: 160
 #   highlight: 226
@@ -129,7 +129,7 @@ fields:
 | `history` | `-f` 模式默认加载的尾行数 | `5000` |
 | `fields` | 字段显示控制，`visible: false` 隐藏但搜索/过滤仍可用 | 全部显示 |
 | `theme` | 配色主题，可选 `dark` / `light` | `dark` |
-| `theme_colors` | 覆盖主题中的具体颜色（ANSI 256 色编号） | 无 |
+| `theme_colors` | 覆盖主题中的具体颜色（Hex 色值，如 `#FF0000`） | 无 |
 | `hides` | 默认隐藏包含这些关键词的日志行，按 `x` 管理 | 无 |
 
 ### 规则匹配机制
