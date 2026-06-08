@@ -26,6 +26,8 @@ func (a *App) buildHelpPopup(vl int) []string {
 		}},
 		{"搜索", []helpItem{
 			{"f或/", "打开搜索"},
+			{"n/N", "下一个/上一个匹配"},
+			{"C-r", "搜索历史"},
 			{"Tab/S-Tab", "切换字段"},
 			{"C-j/C-k", "上下字段"},
 			{"Enter", "确认"},
@@ -41,6 +43,12 @@ func (a *App) buildHelpPopup(vl int) []string {
 			{"I", "去掉DEBUG"},
 			{"D", "全部级别"},
 			{"A", "取消过滤"},
+		}},
+		{"标记与工具", []helpItem{
+			{"m", "标记/取消标记"},
+			{"'", "跳转标记"},
+			{"#", "切换行号"},
+			{"S", "统计面板"},
 		}},
 		{"其他", []helpItem{
 			{"F", "字段设置"},
