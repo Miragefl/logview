@@ -455,31 +455,23 @@ func (a *App) jumpBookmark() {
 	if len(a.bookmarkSeq) == 0 || len(a.filteredView) == 0 {
 		return
 	}
-	curSeq := uint64(0)
-	if a.cursor >= 0 && a.cursor < len(a.filteredView) {
-		curSeq = a.filteredView[a.cursor].Raw.Seq
+	// collect bookmark positions in filteredView order
+	var positions []int
+	for i, line := range a.filteredView {
+		if a.bookmarks[line.Raw.Seq] {
+			positions = append(positions, i)
+		}
+	}
+	if len(positions) == 0 {
+		return
 	}
 	// find next bookmark after cursor
-	for _, seq := range a.bookmarkSeq {
-		if seq > curSeq {
-			for j := a.cursor + 1; j < len(a.filteredView); j++ {
-				if a.filteredView[j].Raw.Seq == seq {
-					a.cursor = j
-					a.autoscroll = false
-					return
-				}
-			}
-		}
+	idx := sort.Search(len(positions), func(i int) bool { return positions[i] > a.cursor })
+	if idx >= len(positions) {
+		idx = 0
 	}
-	// wrap around to first bookmark
-	seq := a.bookmarkSeq[0]
-	for j := 0; j < len(a.filteredView); j++ {
-		if a.filteredView[j].Raw.Seq == seq {
-			a.cursor = j
-			a.autoscroll = false
-			return
-		}
-	}
+	a.cursor = positions[idx]
+	a.autoscroll = false
 }
 
 func (a *App) streamLabel() string {
