@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -34,9 +36,25 @@ func (a *App) renderDetailBar() string {
 	if msg == "" {
 		msg = line.Raw.Text
 	}
+	msg = prettyPrintJSON(msg)
 	parts = append(parts, fmt.Sprintf("%s %s",
 		DetailLabelStyle.Render("msg:"),
 		DetailValueStyle.Render(msg)))
 
 	return strings.Join(parts, "  ")
+}
+
+func prettyPrintJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return s
+	}
+	if s[0] != '{' && s[0] != '[' {
+		return s
+	}
+	var buf bytes.Buffer
+	if json.Indent(&buf, []byte(s), "", "  ") == nil {
+		return buf.String()
+	}
+	return s
 }

@@ -20,7 +20,7 @@ rules:
 	fpath := filepath.Join(dir, "rules.yaml")
 	os.WriteFile(fpath, []byte(yamlContent), 0644)
 
-	rules, _, _, _, _, _, err := LoadRules(fpath)
+	rules, _, _, _, _, _, _, err := LoadRules(fpath)
 	if err != nil {
 		t.Fatalf("LoadRules() error: %v", err)
 	}
@@ -54,7 +54,7 @@ rules:
 	fpath := filepath.Join(dir, "rules.yaml")
 	os.WriteFile(fpath, []byte(yamlContent), 0644)
 
-	rules, _, _, _, _, _, err := LoadRules(fpath)
+	rules, _, _, _, _, _, _, err := LoadRules(fpath)
 	if err != nil {
 		t.Fatalf("LoadRules() error: %v", err)
 	}

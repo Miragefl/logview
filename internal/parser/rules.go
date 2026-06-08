@@ -2,9 +2,11 @@ package parser
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/justfun/logview/internal/model"
 	"gopkg.in/yaml.v3"
 )
@@ -20,6 +22,11 @@ type FieldConfig struct {
 	Visible bool   `yaml:"visible"`
 }
 
+type KeyBindingConfig struct {
+	Action string `yaml:"action"`
+	Key    string `yaml:"key"`
+}
+
 type rulesFile struct {
 	Patterns     map[string]string `yaml:"patterns,omitempty"`
 	Rules        []RuleConfig      `yaml:"rules"`
@@ -28,23 +35,24 @@ type rulesFile struct {
 	Theme        string            `yaml:"theme,omitempty"`
 	ThemeColors  map[string]string `yaml:"theme_colors,omitempty"`
 	Hides        []string          `yaml:"hides,omitempty"`
+	KeyBindings  map[string]string `yaml:"keybindings,omitempty"`
 }
 
-func LoadRules(path string) ([]RuleConfig, []FieldConfig, int, string, map[string]string, []string, error) {
+func LoadRules(path string) ([]RuleConfig, []FieldConfig, int, string, map[string]string, []string, map[string]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, 0, "", nil, nil, fmt.Errorf("read rules: %w", err)
+		return nil, nil, 0, "", nil, nil, nil, fmt.Errorf("read rules: %w", err)
 	}
 	var rf rulesFile
 	if err := yaml.Unmarshal(data, &rf); err != nil {
-		return nil, nil, 0, "", nil, nil, fmt.Errorf("parse rules yaml: %w", err)
+		return nil, nil, 0, "", nil, nil, nil, fmt.Errorf("parse rules yaml: %w", err)
 	}
 	if len(rf.Patterns) > 0 {
 		for i := range rf.Rules {
 			rf.Rules[i].Pattern = expandPatterns(rf.Rules[i].Pattern, rf.Patterns)
 		}
 	}
-	return rf.Rules, rf.Fields, rf.History, rf.Theme, rf.ThemeColors, rf.Hides, nil
+	return rf.Rules, rf.Fields, rf.History, rf.Theme, rf.ThemeColors, rf.Hides, rf.KeyBindings, nil
 }
 
 func expandPatterns(pattern string, vars map[string]string) string {
@@ -149,4 +157,33 @@ func (ad *AutoDetect) DrainPending() []model.RawLine {
 		delete(ad.pending, src)
 	}
 	return all
+}
+
+// WatchRules watches a rules file for changes and calls onChange when modified.
+// Returns a Closer that stops the watcher.
+func WatchRules(path string, onChange func()) (io.Closer, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("create watcher: %w", err)
+	}
+	if err := watcher.Add(path); err != nil {
+		watcher.Close()
+		return nil, fmt.Errorf("watch %s: %w", path, err)
+	}
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+					onChange()
+				}
+			case <-watcher.Errors:
+				return
+			}
+		}
+	}()
+	return watcher, nil
 }

@@ -31,8 +31,8 @@ func (a *App) renderSearchBar() string {
 		if tr := q.TimeRangeHint(); tr != "" {
 			hint = fmt.Sprintf("  [时间: %s]", tr)
 		}
-		return fmt.Sprintf(" 搜索: %s  [%d条匹配] [/修改] [Esc清除]%s",
-			a.searchInput, len(a.filteredView), hint)
+		return fmt.Sprintf(" 搜索: %s  [%d/%d匹配] [/修改] [Esc清除]%s",
+			a.searchInput, a.searchMatchIdx, a.searchMatchCount, hint)
 	}
 	return a.renderDetailBar()
 }

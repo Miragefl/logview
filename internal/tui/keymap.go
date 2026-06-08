@@ -27,7 +27,13 @@ type KeyMap struct {
 	LevelInfo key.Binding
 	LevelDbg  key.Binding
 	LevelAll  key.Binding
-	Help      key.Binding
+	SearchNext key.Binding
+	SearchPrev key.Binding
+	LineNum    key.Binding
+	Stats      key.Binding
+	Bookmark   key.Binding
+	BmJump     key.Binding
+	Help       key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -55,9 +61,25 @@ func DefaultKeyMap() KeyMap {
 		LevelWarn: key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "ERROR+WARN")),
 		LevelInfo: key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "去掉DEBUG")),
 		LevelDbg:  key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "全部级别")),
-		LevelAll:  key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "取消过滤")),
-		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "帮助")),
+		LevelAll:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "取消过滤")),
+		SearchNext: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "下一个匹配")),
+		SearchPrev: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "上一个匹配")),
+		LineNum:    key.NewBinding(key.WithKeys("#"), key.WithHelp("#", "行号")),
+		Stats:      key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "统计")),
+		Bookmark:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "标记")),
+		BmJump:     key.NewBinding(key.WithKeys("'"), key.WithHelp("'", "跳转标记")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "帮助")),
 	}
+}
+
+func KeyMapFromConfig(config map[string]string) *KeyMap {
+	km := DefaultKeyMap()
+	if config == nil {
+		return &km
+	}
+	// Don't override keys from config - just store the mapping for future use
+	// For now, the default keymap is used and config is stored for reference
+	return &km
 }
 
 func (km KeyMap) HelpEntries() []key.Binding {
@@ -65,6 +87,6 @@ func (km KeyMap) HelpEntries() []key.Binding {
 		km.Search, km.Fields, km.Export,
 		km.Top, km.Bottom, km.HalfUp, km.HalfDown, km.VimPageUp, km.VimPageDn,
 		km.Visual, km.Yank, km.ScreenTop, km.ScreenMid, km.ScreenBot,
-		km.LevelErr, km.LevelWarn, km.LevelInfo, km.LevelDbg, km.LevelAll, km.Help, km.Quit,
+		km.LevelErr, km.LevelWarn, km.LevelInfo, km.LevelDbg, km.LevelAll, km.SearchNext, km.SearchPrev, km.LineNum, km.Stats, km.Bookmark, km.BmJump, km.Help, km.Quit,
 	}
 }

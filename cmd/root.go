@@ -53,7 +53,7 @@ var k8sCmd = &cobra.Command{
 	Args:             cobra.MinimumNArgs(1),
 	ValidArgsFunction: completeK8sResource,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, history, defaultHides, err := loadParsers()
+		parsers, history, defaultHides, rulesPath, _, err := loadParsers()
 		if err != nil {
 			return err
 		}
@@ -84,6 +84,7 @@ var k8sCmd = &cobra.Command{
 		}
 
 		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
+		app.SetRulesPath(rulesPath)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -149,12 +150,27 @@ var tailCmd = &cobra.Command{
 	Short: "View logs from local files",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, history, defaultHides, err := loadParsers()
+		parsers, history, defaultHides, rulesPath, _, err := loadParsers()
 		if err != nil {
 			return err
 		}
 		followMode, _ := cmd.Flags().GetBool("follow")
+		readOnly, _ := cmd.Flags().GetBool("read-only")
 		tailLines, _ := cmd.Flags().GetInt("tail")
+		if readOnly {
+			src := stream.NewFileSource(args)
+			app := tui.NewApp(src, parsers, bufferSize, defaultHides)
+			app.SetRulesPath(rulesPath)
+			resume, _ := cmd.Flags().GetBool("resume")
+			if resume {
+				if s, err := tui.LoadSession(); err == nil {
+					app.ApplySession(s)
+				}
+			}
+			p := tea.NewProgram(app, tea.WithAltScreen())
+			_, err = p.Run()
+			return err
+		}
 		followLines := 0
 		if followMode {
 			if tailLines > 0 {
@@ -165,6 +181,13 @@ var tailCmd = &cobra.Command{
 		}
 		src := stream.NewTailSource(args, followLines)
 		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
+		app.SetRulesPath(rulesPath)
+		resume, _ := cmd.Flags().GetBool("resume")
+		if resume {
+			if s, err := tui.LoadSession(); err == nil {
+				app.ApplySession(s)
+			}
+		}
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -175,12 +198,37 @@ var pipeCmd = &cobra.Command{
 	Use:   "pipe",
 	Short: "View logs from stdin (pipe)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, _, defaultHides, err := loadParsers()
+		parsers, _, defaultHides, rulesPath, _, err := loadParsers()
 		if err != nil {
 			return err
 		}
 		src := stream.NewPipeSource(os.Stdin)
 		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
+		app.SetRulesPath(rulesPath)
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		_, err = p.Run()
+		return err
+	},
+}
+
+var fileCmd = &cobra.Command{
+	Use:   "file <file> [file...]",
+	Short: "Open log file(s) in read-only mode",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		parsers, _, defaultHides, rulesPath, _, err := loadParsers()
+		if err != nil {
+			return err
+		}
+		src := stream.NewFileSource(args)
+		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
+		app.SetRulesPath(rulesPath)
+		resume, _ := cmd.Flags().GetBool("resume")
+		if resume {
+			if s, err := tui.LoadSession(); err == nil {
+				app.ApplySession(s)
+			}
+		}
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -197,8 +245,12 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configDir, "config", "", "config directory (default: ~/.config/logview)")
 	tailCmd.Flags().BoolP("follow", "f", false, "follow mode: show last N lines then tail new content")
 	tailCmd.Flags().IntP("tail", "n", 0, "number of trailing lines in follow mode (default: config history)")
+	tailCmd.Flags().BoolP("read-only", "r", false, "read-only mode: load file without following")
+	tailCmd.Flags().BoolP("resume", "R", false, "restore last session state")
+	fileCmd.Flags().BoolP("resume", "R", false, "restore last session state")
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
+	rootCmd.AddCommand(fileCmd)
 	rootCmd.AddCommand(pipeCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(completionCmd())
@@ -275,7 +327,7 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "logview")
 }
 
-func loadParsers() (*parser.AutoDetect, int, []string, error) {
+func loadParsers() (*parser.AutoDetect, int, []string, string, map[string]string, error) {
 	cfgDir := getConfigDir()
 	rulesPath := filepath.Join(cfgDir, "rules.yaml")
 
@@ -285,12 +337,13 @@ func loadParsers() (*parser.AutoDetect, int, []string, error) {
 	var themeName string
 	var themeColors map[string]string
 	var defaultHides []string
+	var keyBindings map[string]string
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, fieldConfigs, history, themeName, themeColors, defaultHides, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, _ = parser.LoadRules(rulesPath)
 	} else {
 		os.MkdirAll(cfgDir, 0755)
 		os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644)
-		rules, fieldConfigs, history, themeName, themeColors, defaultHides, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, _ = parser.LoadRules(rulesPath)
 	}
 	if history <= 0 {
 		history = 5000
@@ -332,7 +385,7 @@ func loadParsers() (*parser.AutoDetect, int, []string, error) {
 	parsers := parser.MustCompileRules(rules)
 	cfg := tui.ResolveTheme(themeName, themeColors)
 	tui.ApplyTheme(cfg)
-	return parser.NewAutoDetect(parsers), history, defaultHides, nil
+	return parser.NewAutoDetect(parsers), history, defaultHides, rulesPath, keyBindings, nil
 }
 
 const defaultRulesYAML = `# ============================================================

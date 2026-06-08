@@ -88,7 +88,6 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 		// follow mode: read last N lines from end, then follow
 		info, _ := f.Stat()
 		if info.Size() > 0 {
-			// seek back ~1KB per line to find enough lines
 			seekBack := int64(t.followLines) * 1024
 			if seekBack > info.Size() {
 				seekBack = info.Size()
@@ -97,12 +96,10 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 			f.Seek(start, 0)
 
 			reader := bufio.NewReader(f)
-			// skip partial first line if we landed mid-line
 			if start > 0 {
 				reader.ReadString('\n')
 			}
 
-			// ring buffer to keep only last N lines
 			ring := make([]string, 0, t.followLines)
 			for {
 				line, err := reader.ReadString('\n')
@@ -128,7 +125,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 		}
 	}
 
-	// follow new lines
+	// follow new lines (both modes enter this loop)
 	reader := bufio.NewReader(f)
 	for {
 		select {

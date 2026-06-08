@@ -72,6 +72,15 @@ var (
 
 	HorizontalLine = "─"
 
+	SourceColors = []lipgloss.Color{
+		lipgloss.Color("183"), // purple (default)
+		lipgloss.Color("117"), // cyan
+		lipgloss.Color("221"), // yellow
+		lipgloss.Color("156"), // green
+		lipgloss.Color("215"), // orange
+		lipgloss.Color("217"), // pink
+	}
+
 	HighlightColors = []lipgloss.Color{
 		lipgloss.Color("227"), // yellow
 		lipgloss.Color("123"), // cyan
@@ -94,6 +103,7 @@ var SelectedBgColor lipgloss.Color = lipgloss.Color("62")
 var SelectedFgColor lipgloss.Color = lipgloss.Color("15")
 
 var HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+var BookmarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
 var AppBgColor lipgloss.Color = ""
 var AppFgColor lipgloss.Color = ""

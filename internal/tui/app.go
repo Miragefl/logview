@@ -3,8 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,6 +54,7 @@ type App struct {
 	fieldMask model.FieldMask
 
 	panelFocus  bool
+	statsPanel  bool
 	fieldCursor int
 
 	exportMode  bool
@@ -81,6 +84,24 @@ type App struct {
 	hideInput string
 
 	parserName string
+
+	searchMatchCount int
+	searchMatchIdx   int
+
+	searchHistory []string
+	searchHistIdx int
+
+	showLineNum bool
+
+	sourceColorIdx map[string]int
+
+	rulesPath     string
+	configWatcher io.Closer
+	configToast   string
+	reloadFunc    func()
+
+	bookmarks   map[uint64]bool
+	bookmarkSeq []uint64
 }
 
 type ExportState struct {
@@ -128,19 +149,37 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		hides:       hides,
 		autoscroll:  true,
 		exportState: newExportState(),
+		sourceColorIdx: make(map[string]int),
+		bookmarks:      make(map[uint64]bool),
 	}
 }
 
-type streamMsg struct{ line model.RawLine }
+type batchMsg struct{ lines []model.RawLine }
 type tickMsg struct{}
+type configReloadMsg struct{}
+type configToastMsg struct{}
 
 func waitForStream(ch <-chan model.RawLine) tea.Cmd {
 	return func() tea.Msg {
+		var lines []model.RawLine
 		line, ok := <-ch
 		if !ok {
 			return nil
 		}
-		return streamMsg{line: line}
+		lines = append(lines, line)
+	loop:
+		for len(lines) < 1000 {
+			select {
+			case l, ok := <-ch:
+				if !ok {
+					break loop
+				}
+				lines = append(lines, l)
+			default:
+				break loop
+			}
+		}
+		return batchMsg{lines: lines}
 	}
 }
 
@@ -149,6 +188,7 @@ func tickEvery() tea.Cmd {
 		return tickMsg{}
 	})
 }
+
 
 var streamCh <-chan model.RawLine
 
@@ -161,10 +201,35 @@ func (a *App) Init() tea.Cmd {
 		return nil
 	}
 	streamCh = ch
-	return tea.Batch(waitForStream(ch), tickEvery())
+	cmds := []tea.Cmd{waitForStream(ch), tickEvery()}
+	if a.rulesPath != "" {
+		reloadCh := make(chan struct{}, 1)
+		if w, err := parser.WatchRules(a.rulesPath, func() {
+			if a.reloadFunc != nil {
+				a.reloadFunc()
+			}
+			select {
+			case reloadCh <- struct{}{}:
+			default:
+			}
+		}); err == nil {
+			a.configWatcher = w
+			cmds = append(cmds, func() tea.Msg {
+				<-reloadCh
+				return configReloadMsg{}
+			})
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func (a *App) shutdown() tea.Cmd {
+	SaveSession(SessionState{
+		SearchQuery:  a.searchInput,
+		LevelFilter:  a.levelFilter,
+		HiddenFields: a.hides,
+		ShowLineNum:  a.showLineNum,
+	})
 	if cancelFunc != nil {
 		cancelFunc()
 	}
@@ -178,11 +243,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		return a, nil
-	case streamMsg:
-		a.processLine(msg.line)
+	case batchMsg:
+		a.processBatch(msg.lines)
 		return a, waitForStream(streamCh)
 	case tickMsg:
 		return a, tickEvery()
+	case configReloadMsg:
+		if a.reloadFunc != nil {
+			a.reloadFunc()
+			a.configToast = "配置已重新加载"
+			return a, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return configToastMsg{} })
+		}
+		return a, nil
+	case configToastMsg:
+		a.configToast = ""
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return a, a.shutdown()
@@ -214,6 +288,44 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
+func (a *App) processBatch(lines []model.RawLine) {
+	for _, raw := range lines {
+		cleaned := ansiRe.ReplaceAllString(raw.Text, "")
+		raw.Text = cleaned
+		var pl *model.ParsedLine
+		if a.parsers != nil {
+			if p := a.parsers.Detect(raw); p != nil {
+				pl = p.Parse(raw)
+				a.parserName = p.Name()
+				a.reparsePending(p)
+			}
+		}
+		if pl == nil {
+			pl = &model.ParsedLine{
+				Raw:     raw,
+				Message: raw.Text,
+				Fields:  map[model.Field]string{model.FieldMessage: raw.Text},
+			}
+		}
+		a.applyFieldAlias(pl)
+		if _, ok := a.sourceColorIdx[pl.Raw.Source]; !ok {
+			a.sourceColorIdx[pl.Raw.Source] = len(a.sourceColorIdx) % len(SourceColors)
+		}
+		a.buffer.Push(pl)
+		a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
+		if a.matchLineForFilter(pl) {
+			a.filteredView = append(a.filteredView, pl)
+		}
+	}
+	if !a.autoscroll {
+		a.newLogs += len(lines)
+	}
+	if a.cursor >= len(a.filteredView) {
+		a.cursor = max(0, len(a.filteredView)-1)
+	}
+	a.stGroups = stacktrace.Detect(a.filteredView)
+}
+
 func (a *App) processLine(raw model.RawLine) {
 	cleaned := ansiRe.ReplaceAllString(raw.Text, "")
 	raw.Text = cleaned
@@ -235,10 +347,12 @@ func (a *App) processLine(raw model.RawLine) {
 	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
 	a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
+	if a.matchLineForFilter(pl) {
+		a.filteredView = append(a.filteredView, pl)
+	}
 	if !a.autoscroll {
 		a.newLogs++
 	}
-	a.recomputeView()
 }
 
 func (a *App) reparsePending(p parser.Parser) {
@@ -255,6 +369,25 @@ func (a *App) reparsePending(p parser.Parser) {
 			}
 		}
 	}
+}
+
+func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
+	if a.searchInput != "" {
+		if !a.currentQuery().MatchLine(line) {
+			return false
+		}
+	}
+	if a.levelFilter != "" {
+		if !a.matchLevelFilter(line) {
+			return false
+		}
+	}
+	if len(a.hides) > 0 {
+		if a.matchHides(line) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) recomputeView() {
@@ -286,6 +419,93 @@ func (a *App) recomputeView() {
 		a.cursor = max(0, len(a.filteredView)-1)
 	}
 	a.stGroups = stacktrace.Detect(view)
+	a.updateSearchStats()
+}
+
+func (a *App) updateSearchStats() {
+	if a.searchInput == "" {
+		a.searchMatchCount = 0
+		a.searchMatchIdx = 0
+		return
+	}
+	q := a.currentQuery()
+	count := 0
+	idx := 0
+	for i, line := range a.filteredView {
+		if q.MatchLine(line) {
+			count++
+			if i <= a.cursor {
+				idx = count
+			}
+		}
+	}
+	a.searchMatchCount = count
+	a.searchMatchIdx = idx
+}
+
+func (a *App) SetRulesPath(path string) {
+	a.rulesPath = path
+}
+
+func (a *App) SetReloadFunc(fn func()) {
+	a.reloadFunc = fn
+}
+
+func (a *App) jumpBookmark() {
+	if len(a.bookmarkSeq) == 0 || len(a.filteredView) == 0 {
+		return
+	}
+	curSeq := uint64(0)
+	if a.cursor >= 0 && a.cursor < len(a.filteredView) {
+		curSeq = a.filteredView[a.cursor].Raw.Seq
+	}
+	// find next bookmark after cursor
+	for _, seq := range a.bookmarkSeq {
+		if seq > curSeq {
+			for j := a.cursor + 1; j < len(a.filteredView); j++ {
+				if a.filteredView[j].Raw.Seq == seq {
+					a.cursor = j
+					a.autoscroll = false
+					return
+				}
+			}
+		}
+	}
+	// wrap around to first bookmark
+	seq := a.bookmarkSeq[0]
+	for j := 0; j < len(a.filteredView); j++ {
+		if a.filteredView[j].Raw.Seq == seq {
+			a.cursor = j
+			a.autoscroll = false
+			return
+		}
+	}
+}
+
+func (a *App) streamLabel() string {
+	label := a.stream.Label()
+	if label == "file" {
+		return "只读"
+	}
+	return "跟踪中"
+}
+
+func (a *App) addSearchHistory(query string) {
+	if query == "" {
+		return
+	}
+	// deduplicate
+	for i, h := range a.searchHistory {
+		if h == query {
+			a.searchHistory = append(a.searchHistory[:i], a.searchHistory[i+1:]...)
+			break
+		}
+	}
+	a.searchHistory = append(a.searchHistory, query)
+	if len(a.searchHistory) > 20 {
+		a.searchHistory = a.searchHistory[len(a.searchHistory)-20:]
+	}
+	a.searchHistIdx = 0
 }
 
 func containsIgnoreCase(s, sub string) bool {
@@ -356,41 +576,51 @@ func (a *App) currentQuery() SearchQuery {
 }
 
 func (a *App) jumpSearchMatch(dir int) {
-	if a.searchInput == "" || len(a.filteredView) == 0 {
-		return
-	}
-	q := a.currentQuery()
-	if q.IsEmpty() {
+	if len(a.filteredView) == 0 {
 		return
 	}
 	var matches []int
-	for i, line := range a.filteredView {
-		if q.MatchLine(line) {
-			matches = append(matches, i)
+	if a.searchInput != "" {
+		q := a.currentQuery()
+		if q.IsEmpty() {
+			return
+		}
+		for i, line := range a.filteredView {
+			if q.MatchLine(line) {
+				matches = append(matches, i)
+			}
+		}
+	} else if len(a.highlights) > 0 {
+		for i, line := range a.filteredView {
+			msg := line.Get(model.FieldMessage)
+			for _, kw := range a.highlights {
+				if strings.Contains(msg, kw) {
+					matches = append(matches, i)
+					break
+				}
+			}
 		}
 	}
 	if len(matches) == 0 {
 		return
 	}
 	cur := a.cursor
-	idx := 0
-	for idx < len(matches) && matches[idx] < cur {
-		idx++
-	}
+	idx := sort.Search(len(matches), func(i int) bool { return matches[i] >= cur })
 	if dir > 0 {
-		if idx < len(matches) {
-			a.cursor = matches[idx]
-		} else {
-			a.cursor = matches[0]
+		next := idx + 1
+		if next >= len(matches) {
+			next = 0
 		}
+		a.cursor = matches[next]
 	} else {
-		if idx > 0 {
-			a.cursor = matches[idx-1]
-		} else {
-			a.cursor = matches[len(matches)-1]
+		prev := idx - 1
+		if prev < 0 {
+			prev = len(matches) - 1
 		}
+		a.cursor = matches[prev]
 	}
 	a.autoscroll = false
+	a.updateSearchStats()
 }
 
 func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -454,6 +684,10 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return a, tea.Quit
 	case "esc":
+		if a.statsPanel {
+			a.statsPanel = false
+			return a, nil
+		}
 		if a.visualMode {
 			a.visualMode = false
 			return a, nil
@@ -517,6 +751,10 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.cursor = max(0, len(a.filteredView)-1)
 		a.autoscroll = true
 		a.scrollAnchor = 0
+	case "n":
+		a.jumpSearchMatch(1)
+	case "N":
+		a.jumpSearchMatch(-1)
 	case "H":
 		a.cursor = a.offset
 		a.autoscroll = false
@@ -533,6 +771,23 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.scrollAnchor = 0
 		case "w":
 			a.wrapMode = !a.wrapMode
+		case "#":
+			a.showLineNum = !a.showLineNum
+		case "S":
+			a.statsPanel = !a.statsPanel
+		case "m":
+			if len(a.filteredView) > 0 && a.cursor >= 0 && a.cursor < len(a.filteredView) {
+				seq := a.filteredView[a.cursor].Raw.Seq
+				if a.bookmarks[seq] {
+					delete(a.bookmarks, seq)
+				} else {
+					a.bookmarks[seq] = true
+					a.bookmarkSeq = append(a.bookmarkSeq, seq)
+				}
+			}
+		case "'":
+			a.jumpBookmark()
+			_ = 0
 	case "e":
 		for _, g := range a.stGroups {
 			if a.cursor >= g.Start && a.cursor <= g.End {
@@ -669,6 +924,7 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.searchMode = false
 		a.starFields = nil
 		a.starCursor = 0
+		a.addSearchHistory(a.searchInput)
 		a.recomputeView()
 	case tea.KeyBackspace:
 		runes := []rune(a.searchInput)
@@ -722,6 +978,16 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.searchInput = ""
 			a.searchCursor = 0
 			a.recomputeView()
+		case "ctrl+r":
+			if len(a.searchHistory) > 0 {
+				if a.searchHistIdx == 0 {
+					a.searchHistIdx = len(a.searchHistory)
+				}
+				a.searchHistIdx--
+				a.searchInput = a.searchHistory[a.searchHistIdx]
+				a.searchCursor = len([]rune(a.searchInput))
+				a.recomputeView()
+			}
 		case " ":
 			runes := []rune(a.searchInput)
 			pos := a.searchCursor
@@ -942,8 +1208,11 @@ func (a *App) View() string {
 		pLabel = "raw"
 	}
 	title := TitleStyle.Width(w).Render(
-		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条 ", a.stream.Label(), pLabel, a.buffer.Len()),
+		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条", a.streamLabel(), pLabel, a.buffer.Len()),
 	)
+	if a.configToast != "" {
+		title += "  " + NewLogStyle.Render(a.configToast)
+	}
 
 	sep := strings.Repeat(HorizontalLine, w)
 
@@ -964,6 +1233,8 @@ func (a *App) View() string {
 		logLines = a.buildExportPopup(vl)
 	} else if a.panelFocus {
 		logLines = a.buildPopupLines(vl)
+	} else if a.statsPanel {
+		logLines = a.buildStatsPanel(vl)
 	} else {
 		logLines = a.buildLogLines(vl)
 	}
@@ -1062,4 +1333,19 @@ func copyToClipboard(text string) {
 	cmd := exec.Command("pbcopy")
 	cmd.Stdin = strings.NewReader(text)
 	cmd.Run()
+}
+
+func (a *App) ApplySession(s *SessionState) {
+	if s.SearchQuery != "" {
+		a.searchInput = s.SearchQuery
+		a.searchCursor = len([]rune(s.SearchQuery))
+	}
+	if s.LevelFilter != "" {
+		a.levelFilter = s.LevelFilter
+	}
+	if len(s.HiddenFields) > 0 {
+		a.hides = s.HiddenFields
+	}
+	a.showLineNum = s.ShowLineNum
+	a.recomputeView()
 }

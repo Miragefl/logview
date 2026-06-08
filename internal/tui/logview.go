@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -184,6 +186,19 @@ func (a *App) buildWrapLines(vl int) []string {
 			text = a.renderLineText(a.filteredView[i])
 		}
 		wrapped := wrapAnsiText(text, w)
+		if a.showLineNum {
+			total := len(a.filteredView)
+			nw := len(fmt.Sprintf("%d", total))
+			numStr := fmt.Sprintf("%*d │ ", nw, i+1)
+			pad := fmt.Sprintf("%*s │ ", nw, "")
+			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+			if len(wrapped) > 0 {
+				wrapped[0] = dimStyle.Render(numStr) + wrapped[0]
+				for j := 1; j < len(wrapped); j++ {
+					wrapped[j] = dimStyle.Render(pad) + wrapped[j]
+				}
+			}
+		}
 
 		for _, wl := range wrapped {
 			lines = append(lines, lipgloss.NewStyle().MaxWidth(w).Render(wl))
@@ -326,7 +341,19 @@ func (a *App) renderLineWrapped(line *model.ParsedLine, lineIdx int) []string {
 	if w < 1 {
 		w = 1
 	}
-	return wrapAnsiText(text, w)
+	result := wrapAnsiText(text, w)
+	if a.showLineNum && len(result) > 0 {
+		total := len(a.filteredView)
+		nw := len(fmt.Sprintf("%d", total))
+		numStr := fmt.Sprintf("%*d │ ", nw, lineIdx+1)
+		pad := fmt.Sprintf("%*s │ ", nw, "")
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+		result[0] = dimStyle.Render(numStr) + result[0]
+		for i := 1; i < len(result); i++ {
+			result[i] = dimStyle.Render(pad) + result[i]
+		}
+	}
+	return result
 }
 
 // renderLineText builds the full text of a line without truncation or selection styling.
@@ -344,13 +371,19 @@ func (a *App) renderLineText(line *model.ParsedLine) string {
 		case model.FieldLevel:
 			parts = append(parts, LevelStyle(val).Render(val))
 		case model.FieldSource:
-			parts = append(parts, SourceStyle.Render(fmt.Sprintf("[%s]", val)))
+			srcStyle := lipgloss.NewStyle().Foreground(SourceColors[0])
+			if idx, ok := a.sourceColorIdx[val]; ok {
+				srcStyle = lipgloss.NewStyle().Foreground(SourceColors[idx%len(SourceColors)])
+			}
+			parts = append(parts, srcStyle.Render(fmt.Sprintf("[%s]", val)))
 		case model.FieldTime:
 			parts = append(parts, TimeStyle.Render(val))
 		case model.FieldTraceID:
 			parts = append(parts, TraceIDStyle.Render(val))
 		case model.FieldThread:
 			parts = append(parts, ThreadStyle.Render(val))
+		case model.FieldMessage:
+			parts = append(parts, compactJSON(val))
 		default:
 			parts = append(parts, val)
 		}
@@ -420,6 +453,18 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 
 func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) string {
 	text := a.renderLineText(line)
+	if a.bookmarks[line.Raw.Seq] {
+		text = BookmarkStyle.Render("▸") + text
+	} else {
+		text = " " + text
+	}
+	if a.showLineNum {
+		total := len(a.filteredView)
+		w := len(fmt.Sprintf("%d", total))
+		numStr := fmt.Sprintf("%*d │ ", w, lineIdx+1)
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+		text = dimStyle.Render(numStr) + text
+	}
 	inVisualRange := a.visualMode && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
 	if selected && !inVisualRange {
 		truncated := lipgloss.NewStyle().MaxWidth(a.width).Render(text)
@@ -542,4 +587,20 @@ func wrapAnsiText(text string, width int) []string {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+// compactJSON compresses JSON string to single line, returns original if not JSON.
+func compactJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return s
+	}
+	if s[0] != '{' && s[0] != '[' {
+		return s
+	}
+	var buf bytes.Buffer
+	if json.Compact(&buf, []byte(s)) == nil {
+		return buf.String()
+	}
+	return s
 }

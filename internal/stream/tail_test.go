@@ -59,7 +59,6 @@ func TestTailSourceTailsNewLines(t *testing.T) {
 	dir := t.TempDir()
 	fpath := filepath.Join(dir, "test.log")
 
-	// Start with empty file
 	if err := os.WriteFile(fpath, []byte(""), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -73,10 +72,8 @@ func TestTailSourceTailsNewLines(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	// Wait a bit for the source to start reading
 	time.Sleep(100 * time.Millisecond)
 
-	// Write new lines
 	f, err := os.OpenFile(fpath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +83,6 @@ func TestTailSourceTailsNewLines(t *testing.T) {
 	}
 	f.Close()
 
-	// Wait for lines to be read
 	time.Sleep(100 * time.Millisecond)
 
 	var lines []string
@@ -127,7 +123,6 @@ func TestTailSourceFollowSkipsExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// followLines=1, should only get the last 1 line (old3)
 	src := NewTailSource([]string{fpath}, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -156,7 +151,6 @@ func TestTailSourceFollowSkipsExisting(t *testing.T) {
 func TestTailSourceFollowLastNLines(t *testing.T) {
 	dir := t.TempDir()
 	fpath := filepath.Join(dir, "test.log")
-	// 10 lines, follow with N=3 should get last 3
 	var content string
 	for i := 1; i <= 10; i++ {
 		content += fmt.Sprintf("line%d\n", i)
@@ -204,7 +198,6 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// followLines=2, get last 2 old lines then appended lines
 	src := NewTailSource([]string{fpath}, 2)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -214,7 +207,6 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	// read the 2 initial lines
 	var lines []string
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 2 {
@@ -230,7 +222,6 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 		t.Fatalf("initial lines = %v, want [old2, old3]", lines)
 	}
 
-	// append new content
 	f, err := os.OpenFile(fpath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +229,6 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 	f.WriteString("new1\nnew2\n")
 	f.Close()
 
-	// read appended lines
 	var appended []string
 	for len(appended) < 2 {
 		select {
