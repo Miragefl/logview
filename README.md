@@ -21,6 +21,49 @@ cd logview
 go build -o logview .
 ```
 
+### Linux
+
+**方式一：下载预编译二进制**
+
+```bash
+# x86_64
+curl -sL https://github.com/Miragefl/logview/releases/latest/download/logview_0.12.3_linux_amd64.tar.gz | tar xz
+sudo mv logview /usr/local/bin/
+
+# ARM64
+curl -sL https://github.com/Miragefl/logview/releases/latest/download/logview_0.12.3_linux_arm64.tar.gz | tar xz
+sudo mv logview /usr/local/bin/
+```
+
+**方式二：Homebrew（Linux）**
+
+```bash
+brew tap Miragefl/logview
+brew install logview
+```
+
+**方式三：从源码编译**
+
+```bash
+# 需要先安装 Go >= 1.21
+git clone https://github.com/Miragefl/logview.git
+cd logview
+go build -o logview .
+sudo mv logview /usr/local/bin/
+```
+
+### 国内镜像（Gitee）
+
+国内访问 GitHub 较慢时，可从 Gitee 镜像获取：
+
+```bash
+# 从 Gitee 克隆源码编译
+git clone https://gitee.com/Mtok/logview.git
+cd logview
+go build -o logview .
+sudo mv logview /usr/local/bin/
+```
+
 ## 使用
 
 ```bash
