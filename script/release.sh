@@ -19,8 +19,9 @@ if [[ -n $(git status --porcelain) ]]; then
     exit 1
 fi
 
-# get current version from latest tag
-CURRENT=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+# get current version from latest semver tag (skip nightly etc)
+CURRENT=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+CURRENT=${CURRENT:-v0.0.0}
 CURRENT=${CURRENT#v}
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
