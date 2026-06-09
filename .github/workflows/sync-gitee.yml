@@ -19,3 +19,44 @@ jobs:
           git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
           git push gitee --all --force
           git push gitee --tags --force
+
+      - name: Sync release assets to Gitee
+        if: github.event_name == 'release'
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "==> syncing release $TAG"
+
+          # get release ID from Gitee
+          GITEE_RELEASE_ID=$(curl -sf \
+            "https://gitee.com/api/v5/repos/${{ secrets.GITEE_REPO }}/releases/tags/$TAG" \
+            -d "access_token=${{ secrets.GITEE_TOKEN }}" | jq -r '.id // empty')
+
+          # create release if not exists
+          if [ -z "$GITEE_RELEASE_ID" ]; then
+            BODY=$(gh release view "$TAG" --json body -q '.body' 2>/dev/null || echo "")
+            GITEE_RELEASE_ID=$(curl -sf \
+              -X POST "https://gitee.com/api/v5/repos/${{ secrets.GITEE_REPO }}/releases" \
+              -d "access_token=${{ secrets.GITEE_TOKEN }}" \
+              -d "tag_name=$TAG" \
+              -d "name=$TAG" \
+              --data-urlencode "body=$BODY" | jq -r '.id')
+            echo "created Gitee release $TAG id=$GITEE_RELEASE_ID"
+          else
+            echo "Gitee release $TAG already exists id=$GITEE_RELEASE_ID"
+          fi
+
+          # download all assets from GitHub and upload to Gitee
+          mkdir -p /tmp/assets
+          gh release download "$TAG" -D /tmp/assets
+
+          for f in /tmp/assets/*; do
+            echo "uploading $(basename "$f")"
+            curl -sf \
+              -X POST "https://gitee.com/api/v5/repos/${{ secrets.GITEE_REPO }}/releases/$GITEE_RELEASE_ID/attach_files" \
+              -H "Content-Type: multipart/form-data" \
+              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
+              -F "file=@$f" > /dev/null
+          done
+          echo "==> done"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

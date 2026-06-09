@@ -57,7 +57,16 @@ sudo mv logview /usr/local/bin/
 国内访问 GitHub 较慢时，可从 Gitee 镜像获取：
 
 ```bash
-# 从 Gitee 克隆源码编译
+# 下载预编译二进制（从 Gitee Release）
+# x86_64
+curl -sL https://gitee.com/Mtok/logview/releases/download/v0.12.3/logview_0.12.3_linux_amd64.tar.gz | tar xz
+sudo mv logview /usr/local/bin/
+
+# ARM64
+curl -sL https://gitee.com/Mtok/logview/releases/download/v0.12.3/logview_0.12.3_linux_arm64.tar.gz | tar xz
+sudo mv logview /usr/local/bin/
+
+# 或从源码编译
 git clone https://gitee.com/Mtok/logview.git
 cd logview
 go build -o logview .
