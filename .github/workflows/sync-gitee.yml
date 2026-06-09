@@ -39,6 +39,7 @@ jobs:
               -d "access_token=${{ secrets.GITEE_TOKEN }}" \
               -d "tag_name=$TAG" \
               -d "name=$TAG" \
+              -d "target_commitish=main" \
               --data-urlencode "body=$BODY" | jq -r '.id')
             echo "created Gitee release $TAG id=$GITEE_RELEASE_ID"
           else
