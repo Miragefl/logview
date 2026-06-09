@@ -16,6 +16,6 @@ jobs:
 
       - name: Push to Gitee
         run: |
-          git remote add gitee https://${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
+          git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
           git push gitee --all --force
           git push gitee --tags --force
