@@ -59,9 +59,16 @@ git tag -d nightly 2>/dev/null || true
 git tag nightly
 git push origin nightly
 
-GITHUB_TOKEN=$(gh auth token) goreleaser release --clean --snapshot 2>/dev/null
+GITHUB_TOKEN=$(gh auth token) goreleaser release --clean --snapshot
 
-SNAPSHOT_ARTIFACTS=(dist/*_SNAPSHOT-*.tar.gz)
+SNAPSHOT_ARTIFACTS=()
+for f in dist/*.tar.gz; do
+    SNAPSHOT_ARTIFACTS+=("$f")
+done
+if [[ ${#SNAPSHOT_ARTIFACTS[@]} -eq 0 ]]; then
+    echo "ERROR: no snapshot artifacts found in dist/"
+    exit 1
+fi
 gh release create nightly \
     --title "Nightly ($(date +%Y-%m-%d))" \
     --prerelease \
