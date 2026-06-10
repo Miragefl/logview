@@ -58,12 +58,17 @@ sudo mv logview /usr/local/bin/
 
 ```bash
 # 下载预编译二进制（从 Gitee Release）
+# 请到 Gitee Releases 页面查看最新版本号，替换下方版本号
+# https://gitee.com/Mtok/logview/releases
+
 # x86_64
-curl -sL https://gitee.com/Mtok/logview/releases/download/v0.12.3/logview_0.12.3_linux_amd64.tar.gz | tar xz
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.4/logview_0.12.4_linux_amd64.tar.gz
+tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
 # ARM64
-curl -sL https://gitee.com/Mtok/logview/releases/download/v0.12.3/logview_0.12.3_linux_arm64.tar.gz | tar xz
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.4/logview_0.12.4_linux_arm64.tar.gz
+tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
 # 或从源码编译

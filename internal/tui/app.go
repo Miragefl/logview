@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -1322,7 +1323,19 @@ func wordAtPos(text string, pos int) string {
 }
 
 func copyToClipboard(text string) {
-	cmd := exec.Command("pbcopy")
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		if p, _ := exec.LookPath("wl-copy"); p != "" {
+			cmd = exec.Command("wl-copy")
+		} else {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		}
+	default:
+		cmd = exec.Command("pbcopy")
+	}
 	cmd.Stdin = strings.NewReader(text)
 	cmd.Run()
 }
