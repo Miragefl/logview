@@ -27,10 +27,10 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           echo "==> syncing release $TAG"
 
-          # get release ID from Gitee (query failure is non-fatal, fall through to create)
-          GITEE_RELEASE_ID=$(curl -sf \
+          # get release ID from Gitee (GET with token in query string; -d would turn this into POST and fail)
+          GITEE_RELEASE_ID=$(curl -sf -G \
             "https://gitee.com/api/v5/repos/${{ secrets.GITEE_REPO }}/releases/tags/$TAG" \
-            -d "access_token=${{ secrets.GITEE_TOKEN }}" | jq -r '.id // empty' || true)
+            --data-urlencode "access_token=${{ secrets.GITEE_TOKEN }}" | jq -r '.id // empty' || true)
 
           # create release if not exists
           if [ -z "$GITEE_RELEASE_ID" ]; then
