@@ -19,11 +19,11 @@ brew install logview
 
 ```bash
 # x86_64 — 下载预编译二进制
-curl -sL https://github.com/Miragefl/logview/releases/latest/download/logview_0.12.5_linux_amd64.tar.gz | tar xz
+curl -sL https://github.com/Miragefl/logview/releases/latest/download/logview_0.12.6_linux_amd64.tar.gz | tar xz
 sudo mv logview /usr/local/bin/
 
 # ARM64
-curl -sL https://github.com/Miragefl/logview/releases/latest/download/logview_0.12.5_linux_arm64.tar.gz | tar xz
+curl -sL https://github.com/Miragefl/logview/releases/latest/download/logview_0.12.6_linux_arm64.tar.gz | tar xz
 sudo mv logview /usr/local/bin/
 ```
 
@@ -33,12 +33,12 @@ GitHub 访问较慢时，从 Gitee 镜像下载（[查看最新版本](https://g
 
 ```bash
 # x86_64
-curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.5/logview_0.12.5_linux_amd64.tar.gz
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.6/logview_0.12.6_linux_amd64.tar.gz
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
 # ARM64
-curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.5/logview_0.12.5_linux_arm64.tar.gz
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.6/logview_0.12.6_linux_arm64.tar.gz
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
