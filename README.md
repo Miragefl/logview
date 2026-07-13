@@ -79,6 +79,11 @@ logview tail -R -f /var/log/app.log         # 恢复搜索、过滤、光标位�
 kubectl logs -f deploy/app | logview pipe
 echo "hello" | logview                      # 自动检测 stdin
 
+# 远程服务器日志（SSH + pipe，搜索/高亮/过滤全可用）
+ssh user@server "tail -f /var/log/app.log" | logview        # follow 远程日志
+ssh user@server "cat /var/log/app.log" | logview            # 只读整个远程文件
+ssh user@server "tail -200f /var/log/app.log" | logview     # 最后 200 行 + 追踪
+
 # 其他
 logview version                             # 版本信息
 logview --config /path/to/config ...        # 指定配置目录
