@@ -49,6 +49,7 @@ type App struct {
 	newLogs       int
 
 	searchMode  bool
+	searchTab   int // 0=搜索 1=高亮 2=隐藏
 	searchInput string
 	cachedQuery SearchQuery
 
@@ -76,13 +77,15 @@ type App struct {
 		helpMode      bool
 		yankMsg       string
 
-	highlights     []string
-	highlightMode  bool
-	highlightInput string
+	highlights      []string
+	highlightMode   bool
+	highlightInput  string
+	highlightCursor int
 
 	hides     []string
 	hideMode  bool
 	hideInput string
+	hideCursor int
 
 	parserName string
 
@@ -703,6 +706,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "/":
 		a.searchMode = true
+		a.searchTab = 0
 		a.populateSearchFields()
 		a.searchCursor = len([]rune(a.searchInput))
 	case "v":
@@ -717,6 +721,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.yankLines(a.cursor, a.cursor)
 	case "f":
 		a.searchMode = true
+		a.searchTab = 0
 		a.populateSearchFields()
 		a.searchCursor = len([]rune(a.searchInput))
 	case "F":
@@ -729,11 +734,13 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.highlightInput == "" && len(a.highlights) > 0 {
 			a.highlightInput = strings.Join(a.highlights, ", ")
 		}
+		a.highlightCursor = len([]rune(a.highlightInput))
 	case "x":
 		a.hideMode = true
 		if a.hideInput == "" && len(a.hides) > 0 {
 			a.hideInput = strings.Join(a.hides, ", ")
 		}
+		a.hideCursor = len([]rune(a.hideInput))
 	case "s":
 		a.exportMode = true
 	case "g":
@@ -890,12 +897,168 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	input, cursor := a.activeSearchInput()
 	switch msg.Type {
 	case tea.KeyEscape:
-		a.searchMode = false
-		a.starFields = nil
-		a.starCursor = 0
+		a.closeSearchPopup()
 	case tea.KeyEnter:
+		a.confirmSearchTab()
+	case tea.KeyBackspace:
+		runes := []rune(*input)
+		if *cursor > 0 && len(runes) > 0 {
+			*cursor--
+			runes = append(runes[:*cursor], runes[*cursor+1:]...)
+			*input = string(runes)
+			if a.searchTab == 0 {
+				a.recomputeView()
+			}
+		}
+	case tea.KeyTab:
+		a.searchTab = (a.searchTab + 1) % 3
+		input, cursor = a.activeSearchInput()
+		if *cursor > len([]rune(*input)) {
+			*cursor = len([]rune(*input))
+		}
+	case tea.KeyShiftTab:
+		a.searchTab = (a.searchTab + 2) % 3
+		input, cursor = a.activeSearchInput()
+		if *cursor > len([]rune(*input)) {
+			*cursor = len([]rune(*input))
+		}
+	case tea.KeyRunes:
+		insert := string(msg.Runes)
+		runes := []rune(*input)
+		pos := *cursor
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
+		*input = string(runes)
+		*cursor = pos + len([]rune(insert))
+		if a.searchTab == 0 {
+			a.recomputeView()
+		}
+	default:
+		switch msg.String() {
+		case "left":
+			if *cursor > 0 {
+				*cursor--
+			}
+		case "right":
+			if *cursor < len([]rune(*input)) {
+				*cursor++
+			}
+		case "home", "ctrl+a":
+			*cursor = 0
+		case "end", "ctrl+e":
+			*cursor = len([]rune(*input))
+		case "delete":
+			runes := []rune(*input)
+			if *cursor < len(runes) {
+				runes = append(runes[:*cursor], runes[*cursor+1:]...)
+				*input = string(runes)
+				if a.searchTab == 0 {
+					a.recomputeView()
+				}
+			}
+		case "ctrl+u":
+			*input = ""
+			*cursor = 0
+			if a.searchTab == 0 {
+				a.recomputeView()
+			}
+		case "ctrl+r":
+			if a.searchTab == 0 && len(a.searchHistory) > 0 {
+				if a.searchHistIdx == 0 {
+					a.searchHistIdx = len(a.searchHistory)
+				}
+				a.searchHistIdx--
+				*input = a.searchHistory[a.searchHistIdx]
+				*cursor = len([]rune(*input))
+				a.recomputeView()
+			}
+		case " ":
+			runes := []rune(*input)
+			pos := *cursor
+			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
+			*input = string(runes)
+			*cursor = pos + 1
+			if a.searchTab == 0 {
+				a.recomputeView()
+			}
+		case "ctrl+j":
+			if a.searchTab == 0 && len(a.starFields) > 0 {
+				a.starCursor = (a.starCursor + 1) % len(a.starFields)
+			}
+		case "ctrl+k":
+			if a.searchTab == 0 && len(a.starFields) > 0 {
+				a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
+			}
+		}
+	}
+	return a, nil
+}
+
+// activeSearchInput returns the input string and cursor for the current search tab.
+func (a *App) activeSearchInput() (input *string, cursor *int) {
+	switch a.searchTab {
+	case 1:
+		return &a.highlightInput, &a.highlightCursor
+	case 2:
+		return &a.hideInput, &a.hideCursor
+	default:
+		return &a.searchInput, &a.searchCursor
+	}
+}
+
+func (a *App) closeSearchPopup() {
+	a.searchMode = false
+	a.starFields = nil
+	a.starCursor = 0
+}
+
+// splitKeywords parses a comma-separated keyword string into a clean slice.
+func splitKeywords(kw string) []string {
+	parts := strings.Split(kw, ",")
+	var clean []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			clean = append(clean, p)
+		}
+	}
+	return clean
+}
+
+func (a *App) confirmHighlights() {
+	kw := strings.TrimSpace(a.highlightInput)
+	if kw != "" {
+		a.highlights = splitKeywords(kw)
+	} else {
+		a.highlights = nil
+	}
+}
+
+func (a *App) confirmHides() {
+	kw := strings.TrimSpace(a.hideInput)
+	if kw != "" {
+		a.hides = splitKeywords(kw)
+	} else {
+		a.hides = nil
+	}
+	a.recomputeView()
+}
+
+// confirmSearchTab handles Enter based on the current search tab.
+func (a *App) confirmSearchTab() {
+	switch a.searchTab {
+	case 1:
+		a.confirmHighlights()
+		a.closeSearchPopup()
+	case 2:
+		a.confirmHides()
+		a.closeSearchPopup()
+	default:
 		if len(a.starFields) > 0 && a.starCursor < len(a.starFields) {
 			sf := a.starFields[a.starCursor]
 			if sf.Name != "" {
@@ -912,93 +1075,13 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
 				a.searchInput = string(runes)
 				a.searchCursor = pos + len([]rune(insert))
+				return
 			}
 		}
-		a.searchMode = false
-		a.starFields = nil
-		a.starCursor = 0
 		a.addSearchHistory(a.searchInput)
 		a.recomputeView()
-	case tea.KeyBackspace:
-		runes := []rune(a.searchInput)
-		if a.searchCursor > 0 && len(runes) > 0 {
-			a.searchCursor--
-			runes = append(runes[:a.searchCursor], runes[a.searchCursor+1:]...)
-			a.searchInput = string(runes)
-			a.recomputeView()
-		}
-	case tea.KeyTab:
-		if len(a.starFields) > 0 {
-			a.starCursor = (a.starCursor + 1) % len(a.starFields)
-		}
-	case tea.KeyShiftTab:
-		if len(a.starFields) > 0 {
-			a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
-		}
-	case tea.KeyRunes:
-		insert := string(msg.Runes)
-		runes := []rune(a.searchInput)
-		pos := a.searchCursor
-		if pos > len(runes) {
-			pos = len(runes)
-		}
-		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
-		a.searchInput = string(runes)
-		a.searchCursor = pos + len([]rune(insert))
-		a.recomputeView()
-	default:
-		switch msg.String() {
-		case "left":
-			if a.searchCursor > 0 {
-				a.searchCursor--
-			}
-		case "right":
-			if a.searchCursor < len([]rune(a.searchInput)) {
-				a.searchCursor++
-			}
-		case "home", "ctrl+a":
-			a.searchCursor = 0
-		case "end", "ctrl+e":
-			a.searchCursor = len([]rune(a.searchInput))
-		case "delete":
-			runes := []rune(a.searchInput)
-			if a.searchCursor < len(runes) {
-				runes = append(runes[:a.searchCursor], runes[a.searchCursor+1:]...)
-				a.searchInput = string(runes)
-				a.recomputeView()
-			}
-		case "ctrl+u":
-			a.searchInput = ""
-			a.searchCursor = 0
-			a.recomputeView()
-		case "ctrl+r":
-			if len(a.searchHistory) > 0 {
-				if a.searchHistIdx == 0 {
-					a.searchHistIdx = len(a.searchHistory)
-				}
-				a.searchHistIdx--
-				a.searchInput = a.searchHistory[a.searchHistIdx]
-				a.searchCursor = len([]rune(a.searchInput))
-				a.recomputeView()
-			}
-		case " ":
-			runes := []rune(a.searchInput)
-			pos := a.searchCursor
-			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
-			a.searchInput = string(runes)
-			a.searchCursor = pos + 1
-			a.recomputeView()
-		case "ctrl+j":
-			if len(a.starFields) > 0 {
-				a.starCursor = (a.starCursor + 1) % len(a.starFields)
-			}
-		case "ctrl+k":
-			if len(a.starFields) > 0 {
-				a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
-			}
-		}
+		a.closeSearchPopup()
 	}
-	return a, nil
 }
 
 func (a *App) handleHighlightKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1006,38 +1089,54 @@ func (a *App) handleHighlightKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEscape:
 		a.highlightMode = false
 	case tea.KeyEnter:
-		// parse comma-separated keywords
-		kw := strings.TrimSpace(a.highlightInput)
-		if kw != "" {
-			a.highlights = strings.Split(kw, ",")
-			for i := range a.highlights {
-				a.highlights[i] = strings.TrimSpace(a.highlights[i])
-			}
-			// remove empty
-			var clean []string
-			for _, h := range a.highlights {
-				if h != "" {
-					clean = append(clean, h)
-				}
-			}
-			a.highlights = clean
-		} else {
-			a.highlights = nil
-		}
+		a.confirmHighlights()
 		a.highlightMode = false
 	case tea.KeyBackspace:
-		if len(a.highlightInput) > 0 {
-			runes := []rune(a.highlightInput)
-			a.highlightInput = string(runes[:len(runes)-1])
+		runes := []rune(a.highlightInput)
+		if a.highlightCursor > 0 && len(runes) > 0 {
+			a.highlightCursor--
+			runes = append(runes[:a.highlightCursor], runes[a.highlightCursor+1:]...)
+			a.highlightInput = string(runes)
 		}
 	case tea.KeyRunes:
-		a.highlightInput += string(msg.Runes)
+		insert := string(msg.Runes)
+		runes := []rune(a.highlightInput)
+		pos := a.highlightCursor
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
+		a.highlightInput = string(runes)
+		a.highlightCursor = pos + len([]rune(insert))
 	default:
 		switch msg.String() {
+		case "left":
+			if a.highlightCursor > 0 {
+				a.highlightCursor--
+			}
+		case "right":
+			if a.highlightCursor < len([]rune(a.highlightInput)) {
+				a.highlightCursor++
+			}
+		case "home", "ctrl+a":
+			a.highlightCursor = 0
+		case "end", "ctrl+e":
+			a.highlightCursor = len([]rune(a.highlightInput))
+		case "delete":
+			runes := []rune(a.highlightInput)
+			if a.highlightCursor < len(runes) {
+				runes = append(runes[:a.highlightCursor], runes[a.highlightCursor+1:]...)
+				a.highlightInput = string(runes)
+			}
 		case "ctrl+u":
 			a.highlightInput = ""
+			a.highlightCursor = 0
 		case " ":
-			a.highlightInput += " "
+			runes := []rune(a.highlightInput)
+			pos := a.highlightCursor
+			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
+			a.highlightInput = string(runes)
+			a.highlightCursor = pos + 1
 		}
 	}
 	return a, nil
@@ -1048,37 +1147,54 @@ func (a *App) handleHideKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEscape:
 		a.hideMode = false
 	case tea.KeyEnter:
-		kw := strings.TrimSpace(a.hideInput)
-		if kw != "" {
-			a.hides = strings.Split(kw, ",")
-			for i := range a.hides {
-				a.hides[i] = strings.TrimSpace(a.hides[i])
-			}
-			var clean []string
-			for _, h := range a.hides {
-				if h != "" {
-					clean = append(clean, h)
-				}
-			}
-			a.hides = clean
-		} else {
-			a.hides = nil
-		}
+		a.confirmHides()
 		a.hideMode = false
-		a.recomputeView()
 	case tea.KeyBackspace:
-		if len(a.hideInput) > 0 {
-			runes := []rune(a.hideInput)
-			a.hideInput = string(runes[:len(runes)-1])
+		runes := []rune(a.hideInput)
+		if a.hideCursor > 0 && len(runes) > 0 {
+			a.hideCursor--
+			runes = append(runes[:a.hideCursor], runes[a.hideCursor+1:]...)
+			a.hideInput = string(runes)
 		}
 	case tea.KeyRunes:
-		a.hideInput += string(msg.Runes)
+		insert := string(msg.Runes)
+		runes := []rune(a.hideInput)
+		pos := a.hideCursor
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
+		a.hideInput = string(runes)
+		a.hideCursor = pos + len([]rune(insert))
 	default:
 		switch msg.String() {
+		case "left":
+			if a.hideCursor > 0 {
+				a.hideCursor--
+			}
+		case "right":
+			if a.hideCursor < len([]rune(a.hideInput)) {
+				a.hideCursor++
+			}
+		case "home", "ctrl+a":
+			a.hideCursor = 0
+		case "end", "ctrl+e":
+			a.hideCursor = len([]rune(a.hideInput))
+		case "delete":
+			runes := []rune(a.hideInput)
+			if a.hideCursor < len(runes) {
+				runes = append(runes[:a.hideCursor], runes[a.hideCursor+1:]...)
+				a.hideInput = string(runes)
+			}
 		case "ctrl+u":
 			a.hideInput = ""
+			a.hideCursor = 0
 		case " ":
-			a.hideInput += " "
+			runes := []rune(a.hideInput)
+			pos := a.hideCursor
+			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
+			a.hideInput = string(runes)
+			a.hideCursor = pos + 1
 		}
 	}
 	return a, nil

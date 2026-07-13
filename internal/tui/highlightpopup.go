@@ -23,11 +23,18 @@ func (a *App) buildHighlightPopup(vl int) []string {
 		content.WriteString("\n")
 	}
 
-	inputDisplay := a.highlightInput
-	if inputDisplay == "" {
-		inputDisplay = DetailDimStyle.Render("输入关键词，逗号分隔...")
+	var inputLine string
+	if a.highlightInput == "" {
+		inputLine = fmt.Sprintf(" %s█", DetailDimStyle.Render("输入关键词，逗号分隔..."))
+	} else {
+		runes := []rune(a.highlightInput)
+		pos := a.highlightCursor
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+		inputLine = fmt.Sprintf(" %s█%s", string(runes[:pos]), string(runes[pos:]))
 	}
-	content.WriteString(fmt.Sprintf(" %s█\n", inputDisplay))
+	content.WriteString(inputLine + "\n")
 
 	content.WriteString("\n" + PopupTabStyle.Render(" Enter确认 Esc取消 C-u清空"))
 

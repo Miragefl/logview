@@ -17,12 +17,12 @@ func (a *App) helpItems() []helpItem {
 	case a.searchMode:
 		items := []helpItem{
 			{"Enter", "确认"},
-			{"Tab/S-Tab", "切换字段"},
-			{"C-j/C-k", "上下字段"},
+			{"Tab", "切换分区"},
+			{"C-j/C-k", "切换字段"},
 			{"C-u", "清空输入"},
 			{"Esc", "取消"},
 		}
-		if a.searchInput != "" {
+		if a.searchTab == 0 && a.searchInput != "" {
 			items = append(items, helpItem{"", fmt.Sprintf("[匹配: %d条]", len(a.filteredView))})
 		}
 		return items

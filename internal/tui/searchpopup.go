@@ -1,38 +1,108 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // buildSearchPopup returns the popup box lines (only the box itself, no full-area fill).
 func (a *App) buildSearchPopup() []string {
-	if len(a.starFields) == 0 {
-		return nil
-	}
-
-	nRows := len(a.starFields)
-	if nRows > 8 {
-		nRows = 8
-	}
 	var content strings.Builder
-	for i := 0; i < nRows; i++ {
-		sf := a.starFields[i]
-		prefix := "  "
-		if i == a.starCursor {
-			prefix = SelectedStyle.Render(" >")
-		}
-		if sf.Name == "" {
-			content.WriteString(prefix + " " + HelpKeyStyle.Render("确认搜索") + "\n")
+
+	// tab bar: 搜索 | 高亮 | 隐藏
+	tabs := []string{"搜索", "高亮", "隐藏"}
+	var tabParts []string
+	for i, t := range tabs {
+		if i == a.searchTab {
+			tabParts = append(tabParts, PopupActiveTabStyle.Render(" "+t+" "))
 		} else {
-			name := DetailLabelStyle.Render(sf.Name + ":")
-			val := DetailValueStyle.Render(sf.Value)
-			content.WriteString(prefix + " " + name + " " + val + "\n")
+			tabParts = append(tabParts, PopupTabStyle.Render(" "+t+" "))
 		}
 	}
-	hint := PopupTabStyle.Render(" Tab/S-Tab C-j/C-k Enter Esc")
-	content.WriteString(hint)
+	content.WriteString(strings.Join(tabParts, PopupTabStyle.Render("│")) + "\n\n")
 
+	switch a.searchTab {
+	case 1:
+		a.renderHighlightSection(&content)
+	case 2:
+		a.renderHideSection(&content)
+	default:
+		a.renderSearchSection(&content)
+	}
+
+	return a.popupBox(content.String())
+}
+
+func (a *App) renderSearchSection(content *strings.Builder) {
+	if len(a.starFields) > 0 {
+		nRows := len(a.starFields)
+		if nRows > 6 {
+			nRows = 6
+		}
+		for i := 0; i < nRows; i++ {
+			sf := a.starFields[i]
+			prefix := "  "
+			if i == a.starCursor {
+				prefix = SelectedStyle.Render(" >")
+			}
+			if sf.Name == "" {
+				content.WriteString(prefix + " " + HelpKeyStyle.Render("确认搜索") + "\n")
+			} else {
+				name := DetailLabelStyle.Render(sf.Name + ":")
+				val := DetailValueStyle.Render(sf.Value)
+				content.WriteString(prefix + " " + name + " " + val + "\n")
+			}
+		}
+		content.WriteString("\n")
+	}
+	content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
+	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 C-j/k字段 Enter确认 C-r历史 Esc取消"))
+}
+
+func (a *App) renderHighlightSection(content *strings.Builder) {
+	if len(a.highlights) > 0 {
+		content.WriteString(DetailDimStyle.Render("当前高亮:") + "\n")
+		for i, kw := range a.highlights {
+			colorIdx := i % len(HighlightColors)
+			style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
+			content.WriteString(fmt.Sprintf("  %s\n", style.Render(" "+kw+" ")))
+		}
+		content.WriteString("\n")
+	}
+	content.WriteString(a.inputLine(a.highlightInput, a.highlightCursor, "高亮关键词，逗号分隔") + "\n")
+	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 Esc取消"))
+}
+
+func (a *App) renderHideSection(content *strings.Builder) {
+	if len(a.hides) > 0 {
+		content.WriteString(DetailDimStyle.Render("当前隐藏:") + "\n")
+		for _, kw := range a.hides {
+			content.WriteString(fmt.Sprintf("  %s %s\n", HideMarkStyle.Render("✕"), DetailDimStyle.Render(kw)))
+		}
+		content.WriteString("\n")
+	}
+	content.WriteString(a.inputLine(a.hideInput, a.hideCursor, "隐藏关键词，逗号分隔") + "\n")
+	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 Esc取消"))
+}
+
+// inputLine renders an input field with a cursor block at cursor position.
+func (a *App) inputLine(input string, cursor int, placeholder string) string {
+	if input == "" {
+		return fmt.Sprintf(" %s█", DetailDimStyle.Render(placeholder))
+	}
+	runes := []rune(input)
+	pos := cursor
+	if pos > len(runes) {
+		pos = len(runes)
+	}
+	return fmt.Sprintf(" %s█%s", string(runes[:pos]), string(runes[pos:]))
+}
+
+// popupBox wraps content in a centered popup box and splits into lines.
+func (a *App) popupBox(content string) []string {
 	boxW := min(60, a.width-4)
-	box := PopupBoxStyle.Width(boxW).Render(content.String())
+	box := PopupBoxStyle.Width(boxW).Render(content)
 	return strings.Split(box, "\n")
 }
