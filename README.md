@@ -163,16 +163,20 @@ logview --config /path/to/config ...        # 指定配置目录
 
 ## 搜索语法
 
-支持关键词、字段匹配、布尔运算、时间范围：
+支持关键词、字段匹配、布尔运算（`AND`/`OR`/`NOT`，大小写不敏感）、括号分组、引号、时间范围。**裸关键词只在 `message` 字段搜索**，其它字段用 `field:value` 显式指定。
 
 ```
-ERROR                           关键词搜索
-level:ERROR                     按字段精确匹配
-traceId:abc123 thread:exec-3    多字段 AND
-ERROR OR WARN                   OR 匹配
-after:09:00 before:10:00        时间范围过滤
-after:09:00 ERROR AND WARN      混合使用
+JF350                            裸关键词（只在 message 搜索）
+level:ERROR                      level 字段精确匹配
+traceId:abc123 thread:exec-3     多字段 AND（相邻词默认 AND）
+ERROR OR WARN                    OR 匹配
+(ERROR OR WARN) AND timeout      括号分组
+message:"hello world"            引号匹配含空格的值
+level:ERROR NOT timeout          NOT 排除（level=ERROR 且 message 不含 timeout）
+after:09:00 before:10:00         时间范围过滤
 ```
+
+字段：`message` `source` `traceId` `thread` `logger`（包含匹配）、`level`（精确匹配）、`after`/`before`（时间 `HH:MM`）。
 
 搜索后搜索栏显示匹配位置和总数（如 `[3/15匹配]`）。`n` / `N` 跳转匹配结果，对高亮关键词同样有效。
 
@@ -303,7 +307,7 @@ logview k8s deploy/<tab>   # Deployment 列表
 | 只读模式 | `logview file` 读取后停止，不追踪 |
 | 会话恢复 | `-R` 恢复搜索、过滤、光标位置 |
 | 智能解析 | 自动识别 JSON、Logback 等格式，patterns 模板复用 |
-| 搜索语法 | `field:value`、`AND/OR`、`after:/before:` 时间范围 |
+| 搜索语法 | `field:value`、`AND/OR/NOT`、括号、引号、`after:/before:` 时间范围 |
 | 搜索导航 | `n`/`N` 跳转匹配，显示 `[当前/总数]` |
 | 搜索历史 | `C-r` 循环最近 20 条搜索词 |
 | 高亮与隐藏 | `h` 多色高亮，`x` 隐藏关键词，支持配置预设 |
