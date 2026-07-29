@@ -381,6 +381,27 @@ func parseSearchQuery(input string) SearchQuery {
 	return SearchQuery{Raw: input, root: root}
 }
 
+// isPartialQuery 报告 s 是否为仍在输入中的未完成查询。
+// 输入操作符/括号/引号时查询处于中间态，调用方应保持上次有效结果，
+// 而不是按残缺 parse 重新过滤（否则 and/or/not 会被当字面 keyword 搜，结果突变）。
+func isPartialQuery(s string) bool {
+	t := strings.TrimRight(s, " \t")
+	low := strings.ToLower(t)
+	switch {
+	case low == "and" || low == "or" || low == "not":
+		return true
+	case strings.HasSuffix(low, " and") || strings.HasSuffix(low, " or") || strings.HasSuffix(low, " not"):
+		return true
+	case strings.HasSuffix(t, "("):
+		return true
+	case strings.Count(s, "(") > strings.Count(s, ")"):
+		return true
+	case strings.Count(s, `"`)%2 != 0:
+		return true
+	}
+	return false
+}
+
 func (q SearchQuery) MatchLine(line *model.ParsedLine) bool {
 	if q.root == nil {
 		return true

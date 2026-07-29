@@ -365,3 +365,30 @@ func TestNestedParens(t *testing.T) {
 		t.Error("WARN without timeout should not match second branch")
 	}
 }
+
+// --- 中间态查询判定（输入操作符/括号/引号时不立即搜索） ---
+
+func TestIsPartialQuery(t *testing.T) {
+	trues := []string{
+		"and", "AND", "Or", "not",
+		"ERROR and", "a or", "level:ERROR NOT",
+		"(", "(ERROR", "(ERROR OR WARN",
+		`"hello`, `message:"a b`,
+	}
+	falses := []string{
+		"", "ERROR", "ERROR and timeout",
+		"(ERROR)", "(ERROR OR WARN)",
+		`"hello world"`, `message:"a b"`,
+		"after:09:00", "level:ERROR",
+	}
+	for _, s := range trues {
+		if !isPartialQuery(s) {
+			t.Errorf("isPartialQuery(%q) = false, want true", s)
+		}
+	}
+	for _, s := range falses {
+		if isPartialQuery(s) {
+			t.Errorf("isPartialQuery(%q) = true, want false", s)
+		}
+	}
+}
