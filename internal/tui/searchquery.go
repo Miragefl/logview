@@ -33,12 +33,7 @@ type termNode struct {
 func (n *termNode) match(line *model.ParsedLine) bool {
 	switch n.typ {
 	case keywordTerm:
-		return containsIgnoreCase(line.Message, n.value) ||
-			containsIgnoreCase(line.Raw.Text, n.value) ||
-			containsIgnoreCase(line.TraceID, n.value) ||
-			containsIgnoreCase(line.Thread, n.value) ||
-			containsIgnoreCase(line.Logger, n.value) ||
-			containsIgnoreCase(line.Level, n.value)
+		return containsIgnoreCase(line.Message, n.value)
 	case fieldTerm:
 		val := line.Get(model.Field(n.field))
 		if val == "" {
@@ -119,6 +114,14 @@ func (n *orNode) keywords() []string {
 	return kw
 }
 
+type notNode struct {
+	child queryNode
+}
+
+func (n *notNode) match(line *model.ParsedLine) bool { return !n.child.match(line) }
+
+func (n *notNode) keywords() []string { return nil } // 排除项不参与高亮
+
 // --- Tokenizer ---
 
 type tokenKind int
@@ -128,6 +131,9 @@ const (
 	tokField
 	tokAnd
 	tokOr
+	tokNot
+	tokLParen
+	tokRParen
 )
 
 type token struct {
@@ -138,35 +144,123 @@ type token struct {
 
 var fieldPrefixes = []string{
 	"after:", "before:",
-	"traceId:", "thread:", "level:", "logger:", "message:", "source:", "time:",
+	"traceId:", "thread:", "level:", "logger:", "message:", "source:",
 }
 
 func tokenize(input string) []token {
 	var tokens []token
-	for _, tok := range strings.Fields(input) {
-		if tok == "AND" {
+	s := input
+	i := 0
+	for i < len(s) {
+		// 跳过空白
+		if s[i] == ' ' || s[i] == '\t' {
+			i++
+			continue
+		}
+		// 括号
+		if s[i] == '(' {
+			tokens = append(tokens, token{kind: tokLParen})
+			i++
+			continue
+		}
+		if s[i] == ')' {
+			tokens = append(tokens, token{kind: tokRParen})
+			i++
+			continue
+		}
+		// 裸引号字符串 → keyword
+		if s[i] == '"' {
+			j := i + 1
+			for j < len(s) && s[j] != '"' {
+				j++
+			}
+			tokens = append(tokens, token{kind: tokKeyword, value: s[i+1 : j]})
+			if j < len(s) {
+				j++ // 跳过闭合引号
+			}
+			i = j
+			continue
+		}
+		// 读到下一个 空白/括号/引号
+		j := i
+		for j < len(s) && s[j] != ' ' && s[j] != '\t' && s[j] != '(' && s[j] != ')' && s[j] != '"' {
+			j++
+		}
+		word := s[i:j]
+		i = j
+		// 操作符（大小写不敏感）
+		switch strings.ToUpper(word) {
+		case "AND":
 			tokens = append(tokens, token{kind: tokAnd, value: "AND"})
 			continue
-		}
-		if tok == "OR" {
+		case "OR":
 			tokens = append(tokens, token{kind: tokOr, value: "OR"})
 			continue
+		case "NOT":
+			tokens = append(tokens, token{kind: tokNot, value: "NOT"})
+			continue
 		}
+		// field 前缀
 		matched := false
 		for _, prefix := range fieldPrefixes {
-			if strings.HasPrefix(tok, prefix) {
+			if strings.HasPrefix(word, prefix) {
 				field := strings.TrimSuffix(prefix, ":")
-				value := tok[len(prefix):]
+				value := word[len(prefix):]
+				// field: 后空格或引号的 value
+				if value == "" {
+					k := i
+					for k < len(s) && (s[k] == ' ' || s[k] == '\t') {
+						k++
+					}
+					if k < len(s) && s[k] == '"' {
+						// field:"a b"
+						m := k + 1
+						for m < len(s) && s[m] != '"' {
+							m++
+						}
+						value = s[k+1 : m]
+						if m < len(s) {
+							m++
+						}
+						i = m
+					} else if k < len(s) && s[k] != '(' && s[k] != ')' {
+						// field: value（空格）
+						n := k
+						for n < len(s) && s[n] != ' ' && s[n] != '\t' && s[n] != '(' && s[n] != ')' && s[n] != '"' {
+							n++
+						}
+						nextWord := s[k:n]
+						if nextWord != "" && !isOperatorOrField(nextWord) {
+							value = nextWord
+							i = n
+						}
+					}
+				}
 				tokens = append(tokens, token{kind: tokField, field: field, value: value})
 				matched = true
 				break
 			}
 		}
 		if !matched {
-			tokens = append(tokens, token{kind: tokKeyword, value: tok})
+			tokens = append(tokens, token{kind: tokKeyword, value: word})
 		}
 	}
 	return tokens
+}
+
+// isOperatorOrField reports whether tok is an AND/OR operator or a field: prefix,
+// i.e. it must NOT be swallowed as the value of a preceding "field:" token.
+func isOperatorOrField(tok string) bool {
+	switch strings.ToUpper(tok) {
+	case "AND", "OR":
+		return true
+	}
+	for _, prefix := range fieldPrefixes {
+		if strings.HasPrefix(tok, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Recursive descent parser ---
@@ -188,20 +282,20 @@ func parseOrExpr(tokens []token, pos int) (queryNode, int) {
 }
 
 func parseAndExpr(tokens []token, pos int) (queryNode, int) {
-	left, pos := parseTerm(tokens, pos)
+	left, pos := parseNotExpr(tokens, pos)
 	children := []queryNode{left}
 	for pos < len(tokens) {
-		if tokens[pos].kind == tokOr {
+		if tokens[pos].kind == tokOr || tokens[pos].kind == tokRParen {
 			break
 		}
 		if tokens[pos].kind == tokAnd {
 			pos++ // consume AND
 		}
 		// expect a term (implicit AND if adjacent terms)
-		if pos >= len(tokens) || tokens[pos].kind == tokOr {
+		if pos >= len(tokens) || tokens[pos].kind == tokOr || tokens[pos].kind == tokRParen {
 			break
 		}
-		next, newPos := parseTerm(tokens, pos)
+		next, newPos := parseNotExpr(tokens, pos)
 		children = append(children, next)
 		pos = newPos
 	}
@@ -211,11 +305,26 @@ func parseAndExpr(tokens []token, pos int) (queryNode, int) {
 	return &andNode{children: children}, pos
 }
 
+func parseNotExpr(tokens []token, pos int) (queryNode, int) {
+	if pos < len(tokens) && tokens[pos].kind == tokNot {
+		child, newPos := parseNotExpr(tokens, pos+1) // 支持 NOT NOT
+		return &notNode{child: child}, newPos
+	}
+	return parseTerm(tokens, pos)
+}
+
 func parseTerm(tokens []token, pos int) (queryNode, int) {
 	if pos >= len(tokens) {
 		return &termNode{typ: keywordTerm, value: ""}, pos
 	}
 	tok := tokens[pos]
+	if tok.kind == tokLParen {
+		node, newPos := parseOrExpr(tokens, pos+1)
+		if newPos < len(tokens) && tokens[newPos].kind == tokRParen {
+			newPos++ // 消费 )
+		}
+		return node, newPos
+	}
 	switch tok.kind {
 	case tokField:
 		n := &termNode{field: tok.field, value: tok.value}
