@@ -151,3 +151,41 @@ func TestSearchHistPopupEnterFills(t *testing.T) {
 		t.Fatalf("test 应匹配全部 20 行（实时过滤），实际 %d", len(app.filteredView))
 	}
 }
+
+// 列表内 ctrl+r 无操作（不关列表，且不重置光标位置）。
+func TestSearchHistPopupCtrlRNoop(t *testing.T) {
+	app := newTestApp()
+	app.searchHistory = []string{"ERROR", "WARN"} // n=2，使 KeyDown 能把 cursor 移到 1
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	app.Update(fakeKey("ctrl+r"))                     // 打开 → cursor=0
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})         // cursor=1
+	app.Update(fakeKey("ctrl+r"))                     // 列表内再 ctrl+r：应无操作
+	if !app.searchHistMode {
+		t.Fatalf("列表内 ctrl+r 应保持展开")
+	}
+	if app.searchHistCursor != 1 {
+		t.Fatalf("列表内 ctrl+r 不应重置光标，应保留 1，实际 %d", app.searchHistCursor)
+	}
+}
+
+// 列表内按其他字符：关列表，字符进入搜索框。
+func TestSearchHistPopupCharClosesAndTypes(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "ERROR" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	// 进入搜索不会清空 searchInput（app.go 进搜索分支仅重置 cursor），
+	// 这里显式清空，确保 'x' 是续输产生的唯一输入（与 EnterFills 测试一致）。
+	app.searchInput = ""
+	app.Update(fakeKey("ctrl+r")) // 打开
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}) // 续输字符
+	if app.searchHistMode {
+		t.Fatalf("字符键应关闭列表")
+	}
+	if app.searchInput != "x" {
+		t.Fatalf("字符应进入搜索框，实际 %q", app.searchInput)
+	}
+}

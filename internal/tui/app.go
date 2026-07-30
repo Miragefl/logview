@@ -1044,8 +1044,10 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.searchHistMode = false
 			return a.handleSearchKeys(msg)
 		}
+	case tea.KeyCtrlR:
+		// 列表内再按 ctrl+r：无操作（避免误关）
 	default:
-		// 其他未识别键（ctrl+r/Tab 等）：关闭列表，回正常搜索处理（Task 5 细化）
+		// 其他未识别键（Tab 等）：关闭列表，回正常搜索处理（Task 5 细化）
 		a.searchHistMode = false
 		return a.handleSearchKeys(msg)
 	}
