@@ -83,3 +83,45 @@ func TestSearchHistPopupEscCloses(t *testing.T) {
 		t.Fatalf("Esc 后 searchHistMode 应为 false")
 	}
 }
+
+// 历史 ["ERROR","WARN","INFO"]，倒序显示 WARN/INFO/ERROR... 展开后 cursor=0（最新=最后append的）。
+// j/↓ 往下（更旧），k/↑ 往上（更新），夹紧。
+func TestSearchHistPopupNavigate(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, q := range []string{"ERROR", "WARN", "INFO"} {
+		for _, r := range q {
+			app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	}
+	app.Update(fakeKey("ctrl+r")) // 打开，cursor=0
+	n := len(app.searchHistory)   // 3
+
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // 往下
+	if app.searchHistCursor != 1 {
+		t.Fatalf("j 后 cursor 应=1，实际 %d", app.searchHistCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyDown}) // ↓ 往下
+	if app.searchHistCursor != 2 {
+		t.Fatalf("↓ 后 cursor 应=2，实际 %d", app.searchHistCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyDown}) // 再 ↓ 夹紧
+	if app.searchHistCursor != 2 {
+		t.Fatalf("到底应夹紧 2，实际 %d", app.searchHistCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyUp}) // ↑ 往上
+	if app.searchHistCursor != 1 {
+		t.Fatalf("↑ 后 cursor 应=1，实际 %d", app.searchHistCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}) // k 往上
+	if app.searchHistCursor != 0 {
+		t.Fatalf("k 后 cursor 应=0，实际 %d", app.searchHistCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}) // 到顶夹紧
+	if app.searchHistCursor != 0 {
+		t.Fatalf("到顶应夹紧 0，实际 %d", app.searchHistCursor)
+	}
+	_ = n
+}

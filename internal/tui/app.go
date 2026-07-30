@@ -1012,13 +1012,39 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭）。
+// handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭/续输）。
 func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(a.searchHistory)
 	switch msg.Type {
 	case tea.KeyEscape:
 		a.searchHistMode = false
+	case tea.KeyUp:
+		if a.searchHistCursor > 0 {
+			a.searchHistCursor--
+		}
+	case tea.KeyDown:
+		if a.searchHistCursor < n-1 {
+			a.searchHistCursor++
+		}
+	case tea.KeyRunes:
+		switch string(msg.Runes) {
+		case "k":
+			if a.searchHistCursor > 0 {
+				a.searchHistCursor--
+			}
+		case "j":
+			if a.searchHistCursor < n-1 {
+				a.searchHistCursor++
+			}
+		default:
+			// 其他字符：关闭列表，按正常逻辑进入搜索框（Task 5 续输）
+			a.searchHistMode = false
+			return a.handleSearchKeys(msg)
+		}
 	default:
-		// 导航(j/k/↑↓)、选中(Enter)、字符续输 在后续任务补全
+		// 其他未识别键（Enter/ctrl+r/Tab 等）：关闭列表，回正常搜索处理（Task 4/5 细化）
+		a.searchHistMode = false
+		return a.handleSearchKeys(msg)
 	}
 	return a, nil
 }
