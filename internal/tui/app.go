@@ -29,24 +29,24 @@ type starField struct {
 }
 
 type App struct {
-	stream      stream.LogStream
-	parsers     *parser.AutoDetect
-	buffer      *buffer.RingBuffer
-	searchIdx   *buffer.SearchIndex
-	keymap      KeyMap
-	fieldAlias  map[string]string // custom field -> standard field mapping
+	stream     stream.LogStream
+	parsers    *parser.AutoDetect
+	buffer     *buffer.RingBuffer
+	searchIdx  *buffer.SearchIndex
+	keymap     KeyMap
+	fieldAlias map[string]string // custom field -> standard field mapping
 
 	filteredView []*model.ParsedLine
 	stGroups     []stacktrace.Group
 	expanded     map[int]bool
 
-	width      int
-	height     int
-	cursor     int
-	offset     int
-	autoscroll    bool
-	scrollAnchor  int // 0=auto, 1=top, 2=center, 3=bottom
-	newLogs       int
+	width        int
+	height       int
+	cursor       int
+	offset       int
+	autoscroll   bool
+	scrollAnchor int // 0=auto, 1=top, 2=center, 3=bottom
+	newLogs      int
 
 	searchMode  bool
 	searchTab   int // 0=搜索 1=高亮 2=隐藏
@@ -65,27 +65,28 @@ type App struct {
 	visualMode  bool
 	visualStart int
 
-	pendingKey  string
+	pendingKey string
 
 	levelFilter string
-	wrapMode  bool
+	wrapMode    bool
 
-	starFields  []starField
+	starFields   []starField
 	starCursor   int
-		searchCursor int
+	searchCursor int
 
-		helpMode      bool
-		yankMsg       string
+	helpMode bool
+	yankMsg  string
 
 	highlights      []string
 	highlightMode   bool
 	highlightInput  string
 	highlightCursor int
 
-	hides     []string
-	hideMode  bool
-	hideInput string
-	hideCursor int
+	hides         []string
+	hideMode      bool
+	hideInput     string
+	hideCursor    int
+	hiddenByHides int // recomputeView 统计：当前被 hides 隐藏的行数（供 helpBar 提示）
 
 	parserName string
 
@@ -142,17 +143,17 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		fm = overrideFieldMask
 	}
 	return &App{
-		stream:      src,
-		parsers:     parsers,
-		buffer:      buffer.NewRingBuffer(bufSize),
-		searchIdx:   buffer.NewSearchIndex(),
-		keymap:      DefaultKeyMap(),
-		fieldMask:   fm,
-		fieldAlias:  overrideFieldAlias,
-		expanded:    make(map[int]bool),
-		hides:       hides,
-		autoscroll:  true,
-		exportState: newExportState(),
+		stream:         src,
+		parsers:        parsers,
+		buffer:         buffer.NewRingBuffer(bufSize),
+		searchIdx:      buffer.NewSearchIndex(),
+		keymap:         DefaultKeyMap(),
+		fieldMask:      fm,
+		fieldAlias:     overrideFieldAlias,
+		expanded:       make(map[int]bool),
+		hides:          hides,
+		autoscroll:     true,
+		exportState:    newExportState(),
 		sourceColorIdx: make(map[string]int),
 		bookmarks:      make(map[uint64]bool),
 	}
@@ -192,7 +193,6 @@ func tickEvery() tea.Cmd {
 		return tickMsg{}
 	})
 }
-
 
 var streamCh <-chan model.RawLine
 
@@ -317,6 +317,9 @@ func (a *App) processBatch(lines []model.RawLine) {
 		}
 		a.buffer.Push(pl)
 		a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
+		if len(a.hides) > 0 && a.matchHides(pl) {
+			a.hiddenByHides++
+		}
 		if a.matchLineForFilter(pl) {
 			a.filteredView = append(a.filteredView, pl)
 		}
@@ -351,6 +354,9 @@ func (a *App) processLine(raw model.RawLine) {
 	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
 	a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
+	if len(a.hides) > 0 && a.matchHides(pl) {
+		a.hiddenByHides++
+	}
 	if a.matchLineForFilter(pl) {
 		a.filteredView = append(a.filteredView, pl)
 	}
@@ -396,9 +402,14 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 
 func (a *App) recomputeView() {
 	var view []*model.ParsedLine
+	hiddenByHides := 0
 	for i := 0; i < a.buffer.Len(); i++ {
 		line := a.buffer.Get(i)
 		if line == nil {
+			continue
+		}
+		if len(a.hides) > 0 && a.matchHides(line) {
+			hiddenByHides++
 			continue
 		}
 		if a.searchInput != "" {
@@ -411,13 +422,9 @@ func (a *App) recomputeView() {
 				continue
 			}
 		}
-		if len(a.hides) > 0 {
-			if a.matchHides(line) {
-				continue
-			}
-		}
 		view = append(view, line)
 	}
+	a.hiddenByHides = hiddenByHides
 	a.filteredView = view
 	if a.cursor >= len(a.filteredView) {
 		a.cursor = max(0, len(a.filteredView)-1)
@@ -764,33 +771,37 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.scrollAnchor = 0
 	case "M":
 		a.cursor = a.offset + a.visibleLines()/2
-		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
+		if a.cursor >= len(a.filteredView) {
+			a.cursor = len(a.filteredView) - 1
+		}
 		a.autoscroll = false
 		a.scrollAnchor = 0
 	case "L":
 		a.cursor = a.offset + a.visibleLines() - 1
-		if a.cursor >= len(a.filteredView) { a.cursor = len(a.filteredView)-1 }
+		if a.cursor >= len(a.filteredView) {
+			a.cursor = len(a.filteredView) - 1
+		}
 		a.autoscroll = false
 		a.scrollAnchor = 0
-		case "w":
-			a.wrapMode = !a.wrapMode
-		case "#":
-			a.showLineNum = !a.showLineNum
-		case "S":
-			a.statsPanel = !a.statsPanel
-		case "m":
-			if len(a.filteredView) > 0 && a.cursor >= 0 && a.cursor < len(a.filteredView) {
-				seq := a.filteredView[a.cursor].Raw.Seq
-				if a.bookmarks[seq] {
-					delete(a.bookmarks, seq)
-				} else {
-					a.bookmarks[seq] = true
-					a.bookmarkSeq = append(a.bookmarkSeq, seq)
-				}
+	case "w":
+		a.wrapMode = !a.wrapMode
+	case "#":
+		a.showLineNum = !a.showLineNum
+	case "S":
+		a.statsPanel = !a.statsPanel
+	case "m":
+		if len(a.filteredView) > 0 && a.cursor >= 0 && a.cursor < len(a.filteredView) {
+			seq := a.filteredView[a.cursor].Raw.Seq
+			if a.bookmarks[seq] {
+				delete(a.bookmarks, seq)
+			} else {
+				a.bookmarks[seq] = true
+				a.bookmarkSeq = append(a.bookmarkSeq, seq)
 			}
-		case "'":
-			a.jumpBookmark()
-			_ = 0
+		}
+	case "'":
+		a.jumpBookmark()
+		_ = 0
 	case "e":
 		for _, g := range a.stGroups {
 			if a.cursor >= g.Start && a.cursor <= g.End {
@@ -1423,9 +1434,13 @@ func wordAtPos(text string, pos int) string {
 	isSpace := func(c byte) bool { return c == ' ' || c == '	' }
 	if isSpace(text[pos]) {
 		left := pos
-		for left >= 0 && isSpace(text[left]) { left-- }
+		for left >= 0 && isSpace(text[left]) {
+			left--
+		}
 		right := pos
-		for right < len(text) && isSpace(text[right]) { right++ }
+		for right < len(text) && isSpace(text[right]) {
+			right++
+		}
 		if left >= 0 {
 			pos = left
 		} else if right < len(text) {
@@ -1435,9 +1450,13 @@ func wordAtPos(text string, pos int) string {
 		}
 	}
 	start := pos
-	for start > 0 && !isSpace(text[start-1]) { start-- }
+	for start > 0 && !isSpace(text[start-1]) {
+		start--
+	}
 	end := pos
-	for end < len(text) && !isSpace(text[end]) { end++ }
+	for end < len(text) && !isSpace(text[end]) {
+		end++
+	}
 	return text[start:end]
 }
 

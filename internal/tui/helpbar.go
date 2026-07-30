@@ -25,6 +25,7 @@ func (a *App) helpItems() []helpItem {
 		if a.searchTab == 0 && a.searchInput != "" {
 			items = append(items, helpItem{"", fmt.Sprintf("[匹配: %d条]", len(a.filteredView))})
 		}
+		items = append(items, a.activeFilterBadges()...)
 		return items
 	case a.visualMode:
 		return []helpItem{
@@ -64,22 +65,32 @@ func (a *App) helpItems() []helpItem {
 			{"w", "换行"},
 			{"e", "展开"},
 			{"S-c", "清屏"},
-				{"?", "帮助"},
+			{"?", "帮助"},
 		}
-		if a.levelFilter != "" {
-			items = append(items, helpItem{"", LevelStyle(a.levelFilter).Render(fmt.Sprintf("[过滤: %s]", a.levelFilter))})
-		}
+		items = append(items, a.activeFilterBadges()...)
 		if a.searchInput != "" {
 			items = append(items, helpItem{"", fmt.Sprintf("[搜索: %s]", a.searchInput)})
-		}
-		if len(a.hides) > 0 {
-			items = append(items, helpItem{"", fmt.Sprintf("[隐藏: %d词]", len(a.hides))})
 		}
 		if a.yankMsg != "" {
 			items = append(items, helpItem{"", NewLogStyle.Render(a.yankMsg)})
 		}
 		return items
 	}
+}
+
+// activeFilterBadges 返回持久过滤器（级别/隐藏）的醒目状态提示。
+// 在所有模式（含搜索模式）下都显示，避免用户误激活过滤器后误以为行数显示有 bug
+// （如误按 Tab 切到 hide tab 输词回车，hides 激活却毫无察觉）。
+func (a *App) activeFilterBadges() []helpItem {
+	var items []helpItem
+	if a.levelFilter != "" {
+		items = append(items, helpItem{"", LevelStyle(a.levelFilter).Render(fmt.Sprintf("[过滤: %s]", a.levelFilter))})
+	}
+	if len(a.hides) > 0 {
+		words := runewidth.Truncate(strings.Join(a.hides, ","), 16, "…")
+		items = append(items, helpItem{"", HideMarkStyle.Render(fmt.Sprintf("[隐藏:%s 藏%d行]", words, a.hiddenByHides))})
+	}
+	return items
 }
 
 // renderHelpBarContent returns 1-2 lines of help text.
