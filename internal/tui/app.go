@@ -93,8 +93,9 @@ type App struct {
 	searchMatchCount int
 	searchMatchIdx   int
 
-	searchHistory []string
-	searchHistIdx int
+	searchHistory    []string
+	searchHistMode   bool // ctrl+r 历史列表 overlay 是否展开
+	searchHistCursor int  // 列表选中索引，0=最新（列表倒序）
 
 	showLineNum bool
 
@@ -508,7 +509,6 @@ func (a *App) addSearchHistory(query string) {
 	if len(a.searchHistory) > 20 {
 		a.searchHistory = a.searchHistory[len(a.searchHistory)-20:]
 	}
-	a.searchHistIdx = 0
 }
 
 func containsIgnoreCase(s, sub string) bool {
@@ -911,6 +911,9 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.searchHistMode {
+		return a.handleSearchHistKeys(msg)
+	}
 	input, cursor := a.activeSearchInput()
 	switch msg.Type {
 	case tea.KeyEscape:
@@ -982,14 +985,10 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.recomputeView()
 			}
 		case "ctrl+r":
+			// 打开搜索历史列表（替换旧的循环切换）
 			if a.searchTab == 0 && len(a.searchHistory) > 0 {
-				if a.searchHistIdx == 0 {
-					a.searchHistIdx = len(a.searchHistory)
-				}
-				a.searchHistIdx--
-				*input = a.searchHistory[a.searchHistIdx]
-				*cursor = len([]rune(*input))
-				a.recomputeView()
+				a.searchHistMode = true
+				a.searchHistCursor = 0
 			}
 		case " ":
 			runes := []rune(*input)
@@ -1011,6 +1010,25 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭）。
+func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.searchHistMode = false
+	default:
+		// 导航(j/k/↑↓)、选中(Enter)、字符续输 在后续任务补全
+	}
+	return a, nil
+}
+
+// applySearchHistory 把选中的历史词填入搜索框、关闭列表、重新过滤。
+func (a *App) applySearchHistory(q string) {
+	a.searchHistMode = false
+	a.searchInput = q
+	a.searchCursor = len([]rune(q))
+	a.recomputeView()
 }
 
 // activeSearchInput returns the input string and cursor for the current search tab.
