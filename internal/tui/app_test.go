@@ -410,3 +410,25 @@ func stripANSI(s string) string {
 	}
 	return result
 }
+
+func TestRecomputeViewPartialFreezes(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	// 输入 "no"（非中间态，搜 message 含 "no"，test message 不含 → 0）
+	for _, r := range "no" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	noView := len(app.filteredView)
+	// 输入 t → "not"（中间态，应冻结保持 "no" 的 filteredView）
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if len(app.filteredView) != noView {
+		t.Errorf("not 中间态应冻结 filteredView=%d，实际 %d", noView, len(app.filteredView))
+	}
+	// 输完 timeout → "not timeout"（非中间态，应重算）
+	for _, r := range " timeout" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if isPartialQuery(app.searchInput) {
+		t.Errorf("not timeout 应非中间态，searchInput=%q", app.searchInput)
+	}
+}

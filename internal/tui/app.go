@@ -395,6 +395,9 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 }
 
 func (a *App) recomputeView() {
+	if isPartialQuery(a.searchInput) {
+		return // 中间态（操作符/括号/引号未完成）：冻结当前 filteredView，不重算
+	}
 	var view []*model.ParsedLine
 	for i := 0; i < a.buffer.Len(); i++ {
 		line := a.buffer.Get(i)
