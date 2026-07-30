@@ -1018,6 +1018,9 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		a.searchHistMode = false
+	case tea.KeyEnter:
+		// 倒序：cursor=0 对应最新（searchHistory 末尾）
+		a.applySearchHistory(a.searchHistory[n-1-a.searchHistCursor])
 	case tea.KeyUp:
 		if a.searchHistCursor > 0 {
 			a.searchHistCursor--
@@ -1042,7 +1045,7 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a.handleSearchKeys(msg)
 		}
 	default:
-		// 其他未识别键（Enter/ctrl+r/Tab 等）：关闭列表，回正常搜索处理（Task 4/5 细化）
+		// 其他未识别键（ctrl+r/Tab 等）：关闭列表，回正常搜索处理（Task 5 细化）
 		a.searchHistMode = false
 		return a.handleSearchKeys(msg)
 	}

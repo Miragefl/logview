@@ -125,3 +125,29 @@ func TestSearchHistPopupNavigate(t *testing.T) {
 	}
 	_ = n
 }
+
+// Enter 选中：填入 searchInput、关闭列表、按该词过滤。
+func TestSearchHistPopupEnterFills(t *testing.T) {
+	app := newTestApp() // 20 行 "test message"
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "test" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 历史 ["test"]，过滤到全部含 test
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	// 进入搜索不会清空 searchInput（app.go 进搜索分支仅重置 cursor），
+	// 这里显式清空，确保后续 Enter 必须真正从历史“填入”，否则 RED。
+	app.searchInput = ""
+	app.Update(fakeKey("ctrl+r"))              // 打开，cursor=0 → 选中 "test"
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选中填入
+
+	if app.searchHistMode {
+		t.Fatalf("Enter 后应关闭列表")
+	}
+	if app.searchInput != "test" {
+		t.Fatalf("应填入 test，实际 %q", app.searchInput)
+	}
+	if len(app.filteredView) != 20 {
+		t.Fatalf("test 应匹配全部 20 行（实时过滤），实际 %d", len(app.filteredView))
+	}
+}
