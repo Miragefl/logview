@@ -189,3 +189,15 @@ func TestSearchHistPopupCharClosesAndTypes(t *testing.T) {
 		t.Fatalf("字符应进入搜索框，实际 %q", app.searchInput)
 	}
 }
+
+// 无历史时若意外进入列表模式，按键不应 panic，且列表应关闭。
+func TestSearchHistPopupEmptyNoPanic(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}) // 进搜索
+	app.searchHistMode = true                                      // 绕过 ctrl+r 守门，强制进入列表模式
+	app.searchHistory = nil                                        // 空历史
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})                     // 之前会 panic，现在应被 guard 拦截
+	if app.searchHistMode {
+		t.Fatalf("空历史时 guard 应关闭列表")
+	}
+}

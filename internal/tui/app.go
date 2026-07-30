@@ -1015,6 +1015,11 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭/续输）。
 func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(a.searchHistory)
+	if n == 0 {
+		// 无历史时不应进入列表（ctrl+r 打开有 len>0 守门），防御性关闭
+		a.searchHistMode = false
+		return a, nil
+	}
 	switch msg.Type {
 	case tea.KeyEscape:
 		a.searchHistMode = false
