@@ -566,7 +566,7 @@ func (a *App) applyFieldAlias(pl *model.ParsedLine) {
 
 func (a *App) currentQuery() SearchQuery {
 	if isPartialQuery(a.searchInput) {
-		return a.cachedQuery // 中间态：保持上次有效结果，不重新过滤
+		return SearchQuery{} // 中间态：不搜（显示全部），等查询完整再过滤
 	}
 	if a.cachedQuery.Raw != a.searchInput {
 		a.cachedQuery = parseSearchQuery(a.searchInput)

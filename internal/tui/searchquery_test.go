@@ -368,6 +368,26 @@ func TestNestedParens(t *testing.T) {
 
 // --- 中间态查询判定（输入操作符/括号/引号时不立即搜索） ---
 
+func TestCurrentQueryPartialShowsAll(t *testing.T) {
+	a := &App{}
+	line := &model.ParsedLine{Message: "hello world", Raw: model.RawLine{Text: "hello world"}}
+	for _, in := range []string{"not", "NOT", "and", "or", "(ERR", `"hello`, "ERROR not"} {
+		a.searchInput = in
+		q := a.currentQuery()
+		if !q.IsEmpty() {
+			t.Errorf("input %q: partial query should be empty (show all)", in)
+		}
+		if !q.MatchLine(line) {
+			t.Errorf("input %q: partial query should match all lines", in)
+		}
+	}
+	// 非中间态正常搜
+	a.searchInput = "hello"
+	if a.currentQuery().IsEmpty() {
+		t.Error("non-partial query should not be empty")
+	}
+}
+
 func TestIsPartialQuery(t *testing.T) {
 	trues := []string{
 		"and", "AND", "Or", "not",
