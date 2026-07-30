@@ -395,9 +395,6 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 }
 
 func (a *App) recomputeView() {
-	if isPartialQuery(a.searchInput) {
-		return // 中间态（操作符/括号/引号未完成）：冻结当前 filteredView，不重算
-	}
 	var view []*model.ParsedLine
 	for i := 0; i < a.buffer.Len(); i++ {
 		line := a.buffer.Get(i)
@@ -569,7 +566,7 @@ func (a *App) applyFieldAlias(pl *model.ParsedLine) {
 
 func (a *App) currentQuery() SearchQuery {
 	if isPartialQuery(a.searchInput) {
-		return SearchQuery{} // 中间态：不搜（显示全部），等查询完整再过滤
+		return parseSearchQuery(strippedQuery(a.searchInput)) // 中间态：去掉末尾未完成操作符，用剩余搜索
 	}
 	if a.cachedQuery.Raw != a.searchInput {
 		a.cachedQuery = parseSearchQuery(a.searchInput)

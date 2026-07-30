@@ -368,23 +368,49 @@ func TestNestedParens(t *testing.T) {
 
 // --- 中间态查询判定（输入操作符/括号/引号时不立即搜索） ---
 
-func TestCurrentQueryPartialShowsAll(t *testing.T) {
+func TestCurrentQueryPartialStripsOperator(t *testing.T) {
 	a := &App{}
 	line := &model.ParsedLine{Message: "hello world", Raw: model.RawLine{Text: "hello world"}}
-	for _, in := range []string{"not", "NOT", "and", "or", "(ERR", `"hello`, "ERROR not"} {
+	// 纯操作符中间态：剥离为空 → 显示全部
+	for _, in := range []string{"not", "NOT", "and", "or"} {
 		a.searchInput = in
 		q := a.currentQuery()
 		if !q.IsEmpty() {
-			t.Errorf("input %q: partial query should be empty (show all)", in)
+			t.Errorf("input %q: 纯操作符应剥离为空", in)
 		}
 		if !q.MatchLine(line) {
-			t.Errorf("input %q: partial query should match all lines", in)
+			t.Errorf("input %q: 剥离空应匹配全部", in)
 		}
+	}
+	// "ERROR not" → 剥离末尾 not → "ERROR" → 搜 message 含 ERROR（hello world 不含）
+	a.searchInput = "ERROR not"
+	if a.currentQuery().MatchLine(line) {
+		t.Error(`"ERROR not" 应剥离为搜 ERROR，hello world 不含`)
 	}
 	// 非中间态正常搜
 	a.searchInput = "hello"
 	if a.currentQuery().IsEmpty() {
-		t.Error("non-partial query should not be empty")
+		t.Error("非中间态应正常搜")
+	}
+}
+
+func TestStrippedQuery(t *testing.T) {
+	cases := map[string]string{
+		"not": "",
+		"NOT": "",
+		"and": "",
+		"or": "",
+		"ERROR not": "ERROR",
+		"error and": "error",
+		"ERROR OR": "ERROR",
+		"ERROR timeout": "ERROR timeout",
+		"n": "n",
+		"no": "no",
+	}
+	for in, want := range cases {
+		if got := strippedQuery(in); got != want {
+			t.Errorf("strippedQuery(%q)=%q, want %q", in, got, want)
+		}
 	}
 }
 

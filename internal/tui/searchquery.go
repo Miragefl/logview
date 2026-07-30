@@ -402,6 +402,22 @@ func isPartialQuery(s string) bool {
 	return false
 }
 
+// strippedQuery 去掉查询末尾未完成的操作符（and/or/not），
+// 用于中间态时用"剩余完整部分"搜索（如 "ERROR not" → "ERROR"，"not" → ""）。
+func strippedQuery(s string) string {
+	t := strings.TrimRight(s, " \t")
+	low := strings.ToLower(t)
+	for _, op := range []string{" and", " or", " not"} {
+		if strings.HasSuffix(low, op) {
+			return strings.TrimRight(t[:len(t)-len(op)], " \t")
+		}
+	}
+	if low == "and" || low == "or" || low == "not" {
+		return ""
+	}
+	return s
+}
+
 func (q SearchQuery) MatchLine(line *model.ParsedLine) bool {
 	if q.root == nil {
 		return true
