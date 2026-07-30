@@ -36,6 +36,12 @@ func (a *App) buildSearchPopup() []string {
 }
 
 func (a *App) renderSearchSection(content *strings.Builder) {
+	if a.searchHistMode {
+		a.renderSearchHistoryList(content)
+		content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
+		content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 j/k选择 Enter填入 Esc取消"))
+		return
+	}
 	if len(a.starFields) > 0 {
 		nRows := len(a.starFields)
 		if nRows > 6 {
@@ -59,6 +65,37 @@ func (a *App) renderSearchSection(content *strings.Builder) {
 	}
 	content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
 	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 C-j/k字段 Enter确认 C-r历史 Esc取消"))
+}
+
+// renderSearchHistoryList 渲染倒序搜索历史列表（最新在上），最多 8 行，光标跟随滚动。
+func (a *App) renderSearchHistoryList(content *strings.Builder) {
+	n := len(a.searchHistory)
+	if n == 0 {
+		return
+	}
+	content.WriteString(HelpKeyStyle.Render("搜索历史") + "\n")
+	maxRows := 8
+	if n < maxRows {
+		maxRows = n
+	}
+	// 滚动窗口起点：保证 searchHistCursor 可见
+	start := 0
+	if a.searchHistCursor > maxRows-1 {
+		start = a.searchHistCursor - maxRows + 1
+	}
+	for i := 0; i < maxRows; i++ {
+		row := start + i // 列表第 i 个可见行
+		if row >= n {
+			break
+		}
+		histIdx := n - 1 - row // 倒序映射到 searchHistory
+		prefix := "  "
+		if row == a.searchHistCursor {
+			prefix = SelectedStyle.Render(" >")
+		}
+		content.WriteString(prefix + " " + DetailDimStyle.Render(a.searchHistory[histIdx]) + "\n")
+	}
+	content.WriteString("\n")
 }
 
 func (a *App) renderHighlightSection(content *strings.Builder) {

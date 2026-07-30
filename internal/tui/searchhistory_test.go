@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,7 +25,7 @@ func TestSearchHistPopupOpens(t *testing.T) {
 	for _, r := range "ERROR" {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})                    // 确认 → 历史记 "ERROR" + 关弹窗
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})                     // 确认 → 历史记 "ERROR" + 关弹窗
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}) // 再进搜索
 	app.Update(fakeKey("ctrl+r"))                                  // 打开历史列表
 	if !app.searchHistMode {
@@ -42,6 +43,28 @@ func TestSearchHistPopupEmpty(t *testing.T) {
 	app.Update(fakeKey("ctrl+r"))
 	if app.searchHistMode {
 		t.Fatalf("空历史时 searchHistMode 应保持 false")
+	}
+}
+
+// 列表展开时，搜索弹窗应渲染出历史词条与选中标记、改提示行。
+func TestSearchHistPopupRender(t *testing.T) {
+	app := newTestApp()
+	app.searchHistory = []string{"ERROR", "WARN"} // append 顺序，WARN 最新
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}) // 进搜索
+	app.Update(fakeKey("ctrl+r"))                                  // 打开列表
+
+	view := app.View()
+	if !strings.Contains(view, "搜索历史") {
+		t.Fatalf("应渲染“搜索历史”标题，view=\n%s", view)
+	}
+	// 倒序：WARN（最新）在 ERROR 之上
+	warnPos := strings.Index(view, "WARN")
+	errPos := strings.Index(view, "ERROR")
+	if warnPos < 0 || errPos < 0 || warnPos > errPos {
+		t.Fatalf("最新历史 WARN 应在 ERROR 之上，warnPos=%d errPos=%d", warnPos, errPos)
+	}
+	if !strings.Contains(view, "j/k选择") {
+		t.Fatalf("列表展开时提示行应为 j/k选择，view=\n%s", view)
 	}
 }
 
