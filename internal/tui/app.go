@@ -1418,20 +1418,35 @@ func (a *App) View() string {
 
 	allLines := make([]string, 0, vl+6)
 	allLines = append(allLines, title, sep, bar, sep)
-	// 搜索 popup 作为浮层垂直居中叠在日志上：上下保留日志可见，
-	// 避免 popup 行数 >= 匹配结果数时把日志全盖成空白。
-	popupLines := a.buildSearchPopup()
-	ph := len(popupLines)
-	popupTop := 0
-	if a.searchMode && ph > 0 && ph < vl {
-		popupTop = (vl - ph) / 2
-	}
-	for i, l := range logLines {
-		rendered := trunc.Render(l)
-		if a.searchMode && ph > 0 && i >= popupTop && i < popupTop+ph {
-			rendered = lipgloss.NewStyle().Width(w).MaxWidth(w).Render(popupLines[i-popupTop])
+	if a.searchMode {
+		// 搜索 popup 紧贴搜索栏 inline 显示，日志在下方独立渲染，互不覆盖。
+		// 按可用高度限制 popup（先砍 starFields 字段建议），保证匹配日志始终可见。
+		logReserve := vl / 3
+		if logReserve < 3 {
+			logReserve = 3
 		}
-		allLines = append(allLines, rendered)
+		popupMaxH := vl - logReserve
+		if popupMaxH < 1 {
+			popupMaxH = 1
+		}
+		popupLines := a.buildSearchPopup(popupMaxH)
+		popStyle := lipgloss.NewStyle().Width(w).MaxWidth(w)
+		for _, p := range popupLines {
+			allLines = append(allLines, popStyle.Render(p))
+		}
+		ph := len(popupLines)
+		if ph > vl {
+			ph = vl
+		}
+		if remain := vl - ph; remain > 0 {
+			for _, l := range a.buildLogLines(remain) {
+				allLines = append(allLines, trunc.Render(l))
+			}
+		}
+	} else {
+		for _, l := range logLines {
+			allLines = append(allLines, trunc.Render(l))
+		}
 	}
 	allLines = append(allLines, sep, helpBar)
 	out := strings.Join(allLines, "\n")
