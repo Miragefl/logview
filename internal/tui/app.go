@@ -1418,12 +1418,18 @@ func (a *App) View() string {
 
 	allLines := make([]string, 0, vl+6)
 	allLines = append(allLines, title, sep, bar, sep)
-	// overlay search popup on top of log lines if active
+	// 搜索 popup 作为浮层垂直居中叠在日志上：上下保留日志可见，
+	// 避免 popup 行数 >= 匹配结果数时把日志全盖成空白。
 	popupLines := a.buildSearchPopup()
+	ph := len(popupLines)
+	popupTop := 0
+	if a.searchMode && ph > 0 && ph < vl {
+		popupTop = (vl - ph) / 2
+	}
 	for i, l := range logLines {
 		rendered := trunc.Render(l)
-		if a.searchMode && len(popupLines) > 0 && i < len(popupLines) {
-			rendered = lipgloss.NewStyle().Width(w).MaxWidth(w).Render(popupLines[i])
+		if a.searchMode && ph > 0 && i >= popupTop && i < popupTop+ph {
+			rendered = lipgloss.NewStyle().Width(w).MaxWidth(w).Render(popupLines[i-popupTop])
 		}
 		allLines = append(allLines, rendered)
 	}
