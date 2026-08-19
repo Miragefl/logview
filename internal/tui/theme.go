@@ -15,8 +15,6 @@ type ThemeConfig struct {
 	Source      string
 	TraceID     string
 	Thread      string
-	ErrorLineBg string
-	WarnLineBg  string
 	Highlight   string
 	Selected    string
 	Visual      string
@@ -39,8 +37,6 @@ var DarkTheme = ThemeConfig{
 	Source:      "#D7AFFF",
 	TraceID:     "#87FFFF",
 	Thread:      "#9E9E9E",
-	ErrorLineBg: "#5F0000",
-	WarnLineBg:  "#5F5F00",
 	Highlight:   "#FFFF00",
 	Selected:    "#5F5FAF",
 	Visual:      "#008700",
@@ -63,8 +59,6 @@ var LightTheme = ThemeConfig{
 	Source:      "#AF00AF",
 	TraceID:     "#0087AF",
 	Thread:      "#6C6C6C",
-	ErrorLineBg: "#FFD7D7",
-	WarnLineBg:  "#FFFFD7",
 	Highlight:   "#FFFF00",
 	Selected:    "#005FAF",
 	Visual:      "#005F00",
@@ -91,9 +85,6 @@ func ApplyTheme(cfg ThemeConfig) {
 	SourceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Source))
 	TraceIDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.TraceID))
 	ThreadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Thread))
-
-	ErrorLineBg = lipgloss.Color(cfg.ErrorLineBg)
-	WarnLineBg = lipgloss.Color(cfg.WarnLineBg)
 
 	HighlightStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(cfg.Highlight)).
@@ -203,12 +194,6 @@ func ResolveTheme(name string, overrides map[string]string) ThemeConfig {
 	}
 	if v, ok := overrides["thread"]; ok {
 		base.Thread = v
-	}
-	if v, ok := overrides["error_line_bg"]; ok {
-		base.ErrorLineBg = v
-	}
-	if v, ok := overrides["warn_line_bg"]; ok {
-		base.WarnLineBg = v
 	}
 	if v, ok := overrides["highlight"]; ok {
 		base.Highlight = v

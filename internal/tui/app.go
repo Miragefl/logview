@@ -3,9 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -21,8 +19,6 @@ import (
 	"github.com/justfun/logview/internal/stream"
 )
 
-var cancelFunc context.CancelFunc
-
 type starField struct {
 	Name  string
 	Value string
@@ -32,9 +28,11 @@ type App struct {
 	stream     stream.LogStream
 	parsers    *parser.AutoDetect
 	buffer     *buffer.RingBuffer
-	searchIdx  *buffer.SearchIndex
 	keymap     KeyMap
 	fieldAlias map[string]string // custom field -> standard field mapping
+
+	cancelFunc context.CancelFunc
+	streamCh   <-chan model.RawLine
 
 	filteredView []*model.ParsedLine
 	stGroups     []stacktrace.Group
@@ -101,10 +99,7 @@ type App struct {
 
 	sourceColorIdx map[string]int
 
-	rulesPath     string
-	configWatcher io.Closer
-	configToast   string
-	reloadFunc    func()
+	rulesPath string
 
 	bookmarks   map[uint64]bool
 	bookmarkSeq []uint64
@@ -116,6 +111,7 @@ type ExportState struct {
 	FilePath string
 	Cursor   int
 	Done     bool
+	Err      error
 	Exported int
 }
 
@@ -147,7 +143,6 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		stream:         src,
 		parsers:        parsers,
 		buffer:         buffer.NewRingBuffer(bufSize),
-		searchIdx:      buffer.NewSearchIndex(),
 		keymap:         DefaultKeyMap(),
 		fieldMask:      fm,
 		fieldAlias:     overrideFieldAlias,
@@ -162,8 +157,6 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 
 type batchMsg struct{ lines []model.RawLine }
 type tickMsg struct{}
-type configReloadMsg struct{}
-type configToastMsg struct{}
 
 func waitForStream(ch <-chan model.RawLine) tea.Cmd {
 	return func() tea.Msg {
@@ -195,37 +188,16 @@ func tickEvery() tea.Cmd {
 	})
 }
 
-var streamCh <-chan model.RawLine
-
 func (a *App) Init() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancelFunc = cancel
+	a.cancelFunc = cancel
 	ch, err := a.stream.Start(ctx)
 	if err != nil {
 		cancel()
 		return nil
 	}
-	streamCh = ch
-	cmds := []tea.Cmd{waitForStream(ch), tickEvery()}
-	if a.rulesPath != "" {
-		reloadCh := make(chan struct{}, 1)
-		if w, err := parser.WatchRules(a.rulesPath, func() {
-			if a.reloadFunc != nil {
-				a.reloadFunc()
-			}
-			select {
-			case reloadCh <- struct{}{}:
-			default:
-			}
-		}); err == nil {
-			a.configWatcher = w
-			cmds = append(cmds, func() tea.Msg {
-				<-reloadCh
-				return configReloadMsg{}
-			})
-		}
-	}
-	return tea.Batch(cmds...)
+	a.streamCh = ch
+	return tea.Batch(waitForStream(ch), tickEvery())
 }
 
 func (a *App) shutdown() tea.Cmd {
@@ -235,8 +207,8 @@ func (a *App) shutdown() tea.Cmd {
 		HiddenFields: a.hides,
 		ShowLineNum:  a.showLineNum,
 	})
-	if cancelFunc != nil {
-		cancelFunc()
+	if a.cancelFunc != nil {
+		a.cancelFunc()
 	}
 	a.stream.Cleanup()
 	return tea.Quit
@@ -250,18 +222,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case batchMsg:
 		a.processBatch(msg.lines)
-		return a, waitForStream(streamCh)
+		return a, waitForStream(a.streamCh)
 	case tickMsg:
 		return a, tickEvery()
-	case configReloadMsg:
-		if a.reloadFunc != nil {
-			a.reloadFunc()
-			a.configToast = "配置已重新加载"
-			return a, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return configToastMsg{} })
-		}
-		return a, nil
-	case configToastMsg:
-		a.configToast = ""
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return a, a.shutdown()
@@ -291,42 +254,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-
 func (a *App) processBatch(lines []model.RawLine) {
 	for _, raw := range lines {
-		cleaned := ansiRe.ReplaceAllString(raw.Text, "")
-		raw.Text = cleaned
-		var pl *model.ParsedLine
-		if a.parsers != nil {
-			if p := a.parsers.Detect(raw); p != nil {
-				pl = p.Parse(raw)
-				a.parserName = p.Name()
-				a.reparsePending(p)
-			}
-		}
-		if pl == nil {
-			pl = &model.ParsedLine{
-				Raw:     raw,
-				Message: raw.Text,
-				Fields:  map[model.Field]string{model.FieldMessage: raw.Text},
-			}
-		}
-		a.applyFieldAlias(pl)
-		if _, ok := a.sourceColorIdx[pl.Raw.Source]; !ok {
-			a.sourceColorIdx[pl.Raw.Source] = len(a.sourceColorIdx) % len(SourceColors)
-		}
-		a.buffer.Push(pl)
-		a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
-		if len(a.hides) > 0 && a.matchHides(pl) {
-			a.hiddenByHides++
-		}
-		if a.matchLineForFilter(pl) {
-			a.filteredView = append(a.filteredView, pl)
-		}
-	}
-	if !a.autoscroll {
-		a.newLogs += len(lines)
+		a.processLine(raw)
 	}
 	if a.cursor >= len(a.filteredView) {
 		a.cursor = max(0, len(a.filteredView)-1)
@@ -335,8 +265,7 @@ func (a *App) processBatch(lines []model.RawLine) {
 }
 
 func (a *App) processLine(raw model.RawLine) {
-	cleaned := ansiRe.ReplaceAllString(raw.Text, "")
-	raw.Text = cleaned
+	raw.Text = model.StripANSI(raw.Text)
 	var pl *model.ParsedLine
 	if a.parsers != nil {
 		if p := a.parsers.Detect(raw); p != nil {
@@ -354,7 +283,6 @@ func (a *App) processLine(raw model.RawLine) {
 	}
 	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
-	a.searchIdx.Add(int(a.buffer.TotalReceived()-1), raw.Text)
 	if len(a.hides) > 0 && a.matchHides(pl) {
 		a.hiddenByHides++
 	}
@@ -434,33 +362,8 @@ func (a *App) recomputeView() {
 	a.updateSearchStats()
 }
 
-func (a *App) updateSearchStats() {
-	if a.searchInput == "" {
-		a.searchMatchCount = 0
-		a.searchMatchIdx = 0
-		return
-	}
-	q := a.currentQuery()
-	count := 0
-	idx := 0
-	for i, line := range a.filteredView {
-		if q.MatchLine(line) {
-			count++
-			if i <= a.cursor {
-				idx = count
-			}
-		}
-	}
-	a.searchMatchCount = count
-	a.searchMatchIdx = idx
-}
-
 func (a *App) SetRulesPath(path string) {
 	a.rulesPath = path
-}
-
-func (a *App) SetReloadFunc(fn func()) {
-	a.reloadFunc = fn
 }
 
 func (a *App) jumpBookmark() {
@@ -494,23 +397,6 @@ func (a *App) streamLabel() string {
 	return "跟踪中"
 }
 
-func (a *App) addSearchHistory(query string) {
-	if query == "" {
-		return
-	}
-	// deduplicate
-	for i, h := range a.searchHistory {
-		if h == query {
-			a.searchHistory = append(a.searchHistory[:i], a.searchHistory[i+1:]...)
-			break
-		}
-	}
-	a.searchHistory = append(a.searchHistory, query)
-	if len(a.searchHistory) > 20 {
-		a.searchHistory = a.searchHistory[len(a.searchHistory)-20:]
-	}
-}
-
 func containsIgnoreCase(s, sub string) bool {
 	ls, lsub := strings.ToLower(s), strings.ToLower(sub)
 	return len(ls) >= len(lsub) && strings.Contains(ls, lsub)
@@ -529,16 +415,6 @@ func (a *App) matchLevelFilter(line *model.ParsedLine) bool {
 		return true
 	}
 	return true
-}
-
-func (a *App) matchHides(line *model.ParsedLine) bool {
-	text := line.Raw.Text
-	for _, kw := range a.hides {
-		if containsIgnoreCase(text, kw) {
-			return true
-		}
-	}
-	return false
 }
 
 // applyFieldAlias maps custom field names to standard struct fields.
@@ -571,64 +447,6 @@ func (a *App) applyFieldAlias(pl *model.ParsedLine) {
 	}
 }
 
-func (a *App) currentQuery() SearchQuery {
-	if isPartialQuery(a.searchInput) {
-		return parseSearchQuery(strippedQuery(a.searchInput)) // 中间态：去掉末尾未完成操作符，用剩余搜索
-	}
-	if a.cachedQuery.Raw != a.searchInput {
-		a.cachedQuery = parseSearchQuery(a.searchInput)
-	}
-	return a.cachedQuery
-}
-
-func (a *App) jumpSearchMatch(dir int) {
-	if len(a.filteredView) == 0 {
-		return
-	}
-	var matches []int
-	if a.searchInput != "" {
-		q := a.currentQuery()
-		if q.IsEmpty() {
-			return
-		}
-		for i, line := range a.filteredView {
-			if q.MatchLine(line) {
-				matches = append(matches, i)
-			}
-		}
-	} else if len(a.highlights) > 0 {
-		for i, line := range a.filteredView {
-			msg := line.Get(model.FieldMessage)
-			for _, kw := range a.highlights {
-				if strings.Contains(msg, kw) {
-					matches = append(matches, i)
-					break
-				}
-			}
-		}
-	}
-	if len(matches) == 0 {
-		return
-	}
-	cur := a.cursor
-	idx := sort.Search(len(matches), func(i int) bool { return matches[i] >= cur })
-	if dir > 0 {
-		next := idx + 1
-		if next >= len(matches) {
-			next = 0
-		}
-		a.cursor = matches[next]
-	} else {
-		prev := idx - 1
-		if prev < 0 {
-			prev = len(matches) - 1
-		}
-		a.cursor = matches[prev]
-	}
-	a.autoscroll = false
-	a.updateSearchStats()
-}
-
 func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
@@ -650,139 +468,41 @@ func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	a.yankMsg = ""
-	// handle pending key sequences (viw, zt/zz/zb)
-	if a.pendingKey != "" {
-		key := msg.String()
-		switch a.pendingKey {
-		case "z":
-			switch key {
-			case "t":
-				a.scrollAnchor = 1
-			case "z":
-				a.scrollAnchor = 2
-			case "b":
-				a.scrollAnchor = 3
-			}
-			a.autoscroll = false
-			a.pendingKey = ""
-			return a, nil
-		}
-		a.pendingKey = ""
+	if a.handlePendingKey(msg) {
 		return a, nil
 	}
-
 	if a.visualMode {
 		return a.handleVisualKeys(msg)
 	}
 
 	switch msg.String() {
-	case "C":
-		a.buffer.Clear()
-		a.searchIdx.Clear()
-		a.filteredView = nil
-		a.stGroups = nil
-		a.expanded = make(map[int]bool)
-		a.cursor = 0
-		a.offset = 0
-		a.newLogs = 0
-		a.yankMsg = "屏幕已清空"
-		return a, nil
 	case "q":
 		return a, tea.Quit
+	case "C":
+		a.clearScreen()
 	case "esc":
-		if a.statsPanel {
-			a.statsPanel = false
-			return a, nil
-		}
-		if a.visualMode {
-			a.visualMode = false
-			return a, nil
-		}
-		if a.searchInput != "" {
-			var curLine *model.ParsedLine
-			if a.cursor >= 0 && a.cursor < len(a.filteredView) {
-				curLine = a.filteredView[a.cursor]
-			}
-			a.searchInput = ""
-			a.recomputeView()
-			if curLine != nil {
-				for i, l := range a.filteredView {
-					if l == curLine {
-						a.cursor = i
-						break
-					}
-				}
-			}
-		}
-	case "/":
-		a.searchMode = true
-		a.searchTab = 0
-		a.populateSearchFields()
-		a.searchCursor = len([]rune(a.searchInput))
-	case "v":
-		a.visualMode = true
-		a.visualStart = a.cursor
-		a.autoscroll = false
-	case "V":
-		a.visualMode = true
-		a.visualStart = a.cursor
-		a.autoscroll = false
+		a.escapeToNormal()
+	case "/", "f":
+		a.openSearch()
+	case "v", "V":
+		a.beginVisual()
 	case "y":
 		a.yankLines(a.cursor, a.cursor)
-	case "f":
-		a.searchMode = true
-		a.searchTab = 0
-		a.populateSearchFields()
-		a.searchCursor = len([]rune(a.searchInput))
 	case "F":
 		a.panelFocus = true
 		a.fieldCursor = 0
 	case "?":
 		a.helpMode = true
 	case "h":
-		a.highlightMode = true
-		if a.highlightInput == "" && len(a.highlights) > 0 {
-			a.highlightInput = strings.Join(a.highlights, ", ")
-		}
-		a.highlightCursor = len([]rune(a.highlightInput))
+		a.openHighlightPopup()
 	case "x":
-		a.hideMode = true
-		if a.hideInput == "" && len(a.hides) > 0 {
-			a.hideInput = strings.Join(a.hides, ", ")
-		}
-		a.hideCursor = len([]rune(a.hideInput))
+		a.openHidePopup()
 	case "s":
 		a.exportMode = true
-	case "g":
-		a.cursor = 0
-		a.autoscroll = false
-		a.scrollAnchor = 0
-	case "G":
-		a.cursor = max(0, len(a.filteredView)-1)
-		a.autoscroll = true
-		a.scrollAnchor = 0
 	case "n":
 		a.jumpSearchMatch(1)
 	case "N":
 		a.jumpSearchMatch(-1)
-	case "H":
-		a.cursor = a.offset
-		a.autoscroll = false
-		a.scrollAnchor = 0
-	case "M":
-		a.cursor = a.offset + a.visibleLines()/2
-		if a.cursor >= len(a.filteredView) {
-			a.cursor = len(a.filteredView) - 1
-		}
-		a.autoscroll = false
-		a.scrollAnchor = 0
-	case "L":
-		a.cursor = a.offset + a.visibleLines() - 1
-		if a.cursor >= len(a.filteredView) {
-			a.cursor = len(a.filteredView) - 1
-		}
-		a.autoscroll = false
-		a.scrollAnchor = 0
 	case "w":
 		a.wrapMode = !a.wrapMode
 	case "#":
@@ -790,25 +510,11 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "S":
 		a.statsPanel = !a.statsPanel
 	case "m":
-		if len(a.filteredView) > 0 && a.cursor >= 0 && a.cursor < len(a.filteredView) {
-			seq := a.filteredView[a.cursor].Raw.Seq
-			if a.bookmarks[seq] {
-				delete(a.bookmarks, seq)
-			} else {
-				a.bookmarks[seq] = true
-				a.bookmarkSeq = append(a.bookmarkSeq, seq)
-			}
-		}
+		a.toggleBookmark()
 	case "'":
 		a.jumpBookmark()
-		_ = 0
 	case "e":
-		for _, g := range a.stGroups {
-			if a.cursor >= g.Start && a.cursor <= g.End {
-				a.expanded[g.Start] = !a.expanded[g.Start]
-				break
-			}
-		}
+		a.toggleFold()
 	case "z":
 		a.pendingKey = "z"
 	case "I":
@@ -821,33 +527,175 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleLevelFilter("WARN")
 	case "A":
 		a.toggleLevelFilter("")
+	case "g", "G", "H", "M", "L",
+		"ctrl+d", "ctrl+f", "ctrl+u", "ctrl+b",
+		"up", "k", "down", "j", "pgup", "pgdown":
+		a.moveCursor(msg.String())
+	}
+	return a, nil
+}
+
+// handlePendingKey 处理 zt/zz/zb 等多键序列的第二键；返回 true 表示已消费。
+func (a *App) handlePendingKey(msg tea.KeyMsg) bool {
+	if a.pendingKey == "" {
+		return false
+	}
+	key := msg.String()
+	switch a.pendingKey {
+	case "z":
+		switch key {
+		case "t":
+			a.scrollAnchor = 1
+		case "z":
+			a.scrollAnchor = 2
+		case "b":
+			a.scrollAnchor = 3
+		}
+		a.autoscroll = false
+	}
+	a.pendingKey = ""
+	return true
+}
+
+func (a *App) clearScreen() {
+	a.buffer.Clear()
+	a.filteredView = nil
+	a.stGroups = nil
+	a.expanded = make(map[int]bool)
+	a.cursor = 0
+	a.offset = 0
+	a.newLogs = 0
+	a.yankMsg = "屏幕已清空"
+}
+
+// escapeToNormal：Esc 逐层退出（统计面板 → 清空搜索词并保持当前行）。
+func (a *App) escapeToNormal() {
+	if a.statsPanel {
+		a.statsPanel = false
+		return
+	}
+	if a.searchInput != "" {
+		var curLine *model.ParsedLine
+		if a.cursor >= 0 && a.cursor < len(a.filteredView) {
+			curLine = a.filteredView[a.cursor]
+		}
+		a.searchInput = ""
+		a.recomputeView()
+		if curLine != nil {
+			for i, l := range a.filteredView {
+				if l == curLine {
+					a.cursor = i
+					break
+				}
+			}
+		}
+	}
+}
+
+func (a *App) openSearch() {
+	a.searchMode = true
+	a.searchTab = 0
+	a.populateSearchFields()
+	a.searchCursor = len([]rune(a.searchInput))
+}
+
+func (a *App) beginVisual() {
+	a.visualMode = true
+	a.visualStart = a.cursor
+	a.autoscroll = false
+}
+
+func (a *App) openHighlightPopup() {
+	a.highlightMode = true
+	if a.highlightInput == "" && len(a.highlights) > 0 {
+		a.highlightInput = strings.Join(a.highlights, ", ")
+	}
+	a.highlightCursor = len([]rune(a.highlightInput))
+}
+
+func (a *App) openHidePopup() {
+	a.hideMode = true
+	if a.hideInput == "" && len(a.hides) > 0 {
+		a.hideInput = strings.Join(a.hides, ", ")
+	}
+	a.hideCursor = len([]rune(a.hideInput))
+}
+
+func (a *App) toggleBookmark() {
+	if len(a.filteredView) > 0 && a.cursor >= 0 && a.cursor < len(a.filteredView) {
+		seq := a.filteredView[a.cursor].Raw.Seq
+		if a.bookmarks[seq] {
+			delete(a.bookmarks, seq)
+		} else {
+			a.bookmarks[seq] = true
+			a.bookmarkSeq = append(a.bookmarkSeq, seq)
+		}
+	}
+}
+
+// toggleFold 展开或折叠光标所在的堆栈组。
+func (a *App) toggleFold() {
+	for _, g := range a.stGroups {
+		if a.cursor >= g.Start && a.cursor <= g.End {
+			a.expanded[g.Start] = !a.expanded[g.Start]
+			return
+		}
+	}
+}
+
+// moveCursor 统一处理光标移动键族（gg/G/H/M/L/半页/整页/上下/pgup/pgdown）。
+func (a *App) moveCursor(key string) {
+	last := len(a.filteredView) - 1
+	switch key {
+	case "g":
+		a.cursor = 0
+		a.autoscroll = false
+		a.scrollAnchor = 0
+	case "G":
+		a.cursor = max(0, last)
+		a.autoscroll = true
+		a.scrollAnchor = 0
+	case "H":
+		a.cursor = a.offset
+		a.autoscroll = false
+		a.scrollAnchor = 0
+	case "M":
+		a.cursor = a.offset + a.visibleLines()/2
+		if a.cursor > last {
+			a.cursor = last
+		}
+		a.autoscroll = false
+		a.scrollAnchor = 0
+	case "L":
+		a.cursor = a.offset + a.visibleLines() - 1
+		if a.cursor > last {
+			a.cursor = last
+		}
+		a.autoscroll = false
+		a.scrollAnchor = 0
 	case "ctrl+d":
-		hs := a.visibleLines() / 2
-		a.cursor += hs
-		if a.cursor >= len(a.filteredView) {
-			a.cursor = max(0, len(a.filteredView)-1)
+		a.cursor += a.visibleLines() / 2
+		if a.cursor > last {
+			a.cursor = max(0, last)
 		}
 		a.cursor = a.skipFolded(a.cursor, 1)
-		a.autoscroll = (a.cursor == len(a.filteredView)-1)
+		a.autoscroll = (a.cursor == last)
 	case "ctrl+f":
-		ps := a.visibleLines()
-		a.cursor += ps
-		if a.cursor >= len(a.filteredView) {
-			a.cursor = len(a.filteredView) - 1
+		a.cursor += a.visibleLines()
+		if a.cursor > last {
+			a.cursor = last
 		}
 		a.cursor = a.skipFolded(a.cursor, 1)
-		a.autoscroll = (a.cursor == len(a.filteredView)-1)
+		a.autoscroll = (a.cursor == last)
 	case "ctrl+u":
-		hs := a.visibleLines() / 2
-		a.cursor -= hs
+		a.cursor -= a.visibleLines() / 2
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
 		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "ctrl+b":
-		ps := a.visibleLines()
-		a.cursor -= ps
+		a.cursor -= a.visibleLines()
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
@@ -860,32 +708,29 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.autoscroll = false
 		}
 	case "down", "j":
-		if a.cursor < len(a.filteredView)-1 {
+		if a.cursor < last {
 			a.cursor++
 			a.cursor = a.skipFolded(a.cursor, 1)
-			if a.cursor >= len(a.filteredView) {
-				a.cursor = len(a.filteredView) - 1
+			if a.cursor > last {
+				a.cursor = last
 			}
 		}
-		a.autoscroll = (a.cursor == len(a.filteredView)-1)
+		a.autoscroll = (a.cursor == last)
 	case "pgup":
-		ps := a.visibleLines()
-		a.cursor -= ps
+		a.cursor -= a.visibleLines()
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
 		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "pgdown":
-		ps := a.visibleLines()
-		a.cursor += ps
-		if a.cursor >= len(a.filteredView) {
-			a.cursor = len(a.filteredView) - 1
+		a.cursor += a.visibleLines()
+		if a.cursor > last {
+			a.cursor = last
 		}
 		a.cursor = a.skipFolded(a.cursor, 1)
-		a.autoscroll = (a.cursor == len(a.filteredView)-1)
+		a.autoscroll = (a.cursor == last)
 	}
-	return a, nil
 }
 
 func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -906,364 +751,6 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.cursor = max(0, len(a.filteredView)-1)
 	case "g":
 		a.cursor = 0
-	}
-	return a, nil
-}
-
-func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if a.searchHistMode {
-		return a.handleSearchHistKeys(msg)
-	}
-	input, cursor := a.activeSearchInput()
-	switch msg.Type {
-	case tea.KeyEscape:
-		a.closeSearchPopup()
-	case tea.KeyEnter:
-		a.confirmSearchTab()
-	case tea.KeyBackspace:
-		runes := []rune(*input)
-		if *cursor > 0 && len(runes) > 0 {
-			*cursor--
-			runes = append(runes[:*cursor], runes[*cursor+1:]...)
-			*input = string(runes)
-			if a.searchTab == 0 {
-				a.recomputeView()
-			}
-		}
-	case tea.KeyTab:
-		a.searchTab = (a.searchTab + 1) % 3
-		input, cursor = a.activeSearchInput()
-		if *cursor > len([]rune(*input)) {
-			*cursor = len([]rune(*input))
-		}
-	case tea.KeyShiftTab:
-		a.searchTab = (a.searchTab + 2) % 3
-		input, cursor = a.activeSearchInput()
-		if *cursor > len([]rune(*input)) {
-			*cursor = len([]rune(*input))
-		}
-	case tea.KeyRunes:
-		insert := string(msg.Runes)
-		runes := []rune(*input)
-		pos := *cursor
-		if pos > len(runes) {
-			pos = len(runes)
-		}
-		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
-		*input = string(runes)
-		*cursor = pos + len([]rune(insert))
-		if a.searchTab == 0 {
-			a.recomputeView()
-		}
-	default:
-		switch msg.String() {
-		case "left":
-			if *cursor > 0 {
-				*cursor--
-			}
-		case "right":
-			if *cursor < len([]rune(*input)) {
-				*cursor++
-			}
-		case "home", "ctrl+a":
-			*cursor = 0
-		case "end", "ctrl+e":
-			*cursor = len([]rune(*input))
-		case "delete":
-			runes := []rune(*input)
-			if *cursor < len(runes) {
-				runes = append(runes[:*cursor], runes[*cursor+1:]...)
-				*input = string(runes)
-				if a.searchTab == 0 {
-					a.recomputeView()
-				}
-			}
-		case "ctrl+u":
-			*input = ""
-			*cursor = 0
-			if a.searchTab == 0 {
-				a.recomputeView()
-			}
-		case "ctrl+r":
-			// 打开搜索历史列表（替换旧的循环切换）
-			if a.searchTab == 0 && len(a.searchHistory) > 0 {
-				a.searchHistMode = true
-				a.searchHistCursor = 0
-			}
-		case " ":
-			runes := []rune(*input)
-			pos := *cursor
-			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
-			*input = string(runes)
-			*cursor = pos + 1
-			if a.searchTab == 0 {
-				a.recomputeView()
-			}
-		case "ctrl+j":
-			if a.searchTab == 0 && len(a.starFields) > 0 {
-				a.starCursor = (a.starCursor + 1) % len(a.starFields)
-			}
-		case "ctrl+k":
-			if a.searchTab == 0 && len(a.starFields) > 0 {
-				a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
-			}
-		}
-	}
-	return a, nil
-}
-
-// handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭/续输）。
-func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(a.searchHistory)
-	if n == 0 {
-		// 无历史时不应进入列表（ctrl+r 打开有 len>0 守门），防御性关闭
-		a.searchHistMode = false
-		return a, nil
-	}
-	switch msg.Type {
-	case tea.KeyEscape:
-		a.searchHistMode = false
-	case tea.KeyEnter:
-		// 倒序：cursor=0 对应最新（searchHistory 末尾）
-		a.applySearchHistory(a.searchHistory[n-1-a.searchHistCursor])
-	case tea.KeyUp:
-		if a.searchHistCursor > 0 {
-			a.searchHistCursor--
-		}
-	case tea.KeyDown:
-		if a.searchHistCursor < n-1 {
-			a.searchHistCursor++
-		}
-	case tea.KeyRunes:
-		switch string(msg.Runes) {
-		case "k":
-			if a.searchHistCursor > 0 {
-				a.searchHistCursor--
-			}
-		case "j":
-			if a.searchHistCursor < n-1 {
-				a.searchHistCursor++
-			}
-		default:
-			// 其他字符：关闭列表，按正常逻辑进入搜索框（Task 5 续输）
-			a.searchHistMode = false
-			return a.handleSearchKeys(msg)
-		}
-	case tea.KeyCtrlR:
-		// 列表内再按 ctrl+r：无操作（避免误关）
-	default:
-		// 其他未识别键（Tab 等）：关闭列表，回正常搜索处理（Task 5 细化）
-		a.searchHistMode = false
-		return a.handleSearchKeys(msg)
-	}
-	return a, nil
-}
-
-// applySearchHistory 把选中的历史词填入搜索框、关闭列表、重新过滤。
-func (a *App) applySearchHistory(q string) {
-	a.searchHistMode = false
-	a.searchInput = q
-	a.searchCursor = len([]rune(q))
-	a.recomputeView()
-}
-
-// activeSearchInput returns the input string and cursor for the current search tab.
-func (a *App) activeSearchInput() (input *string, cursor *int) {
-	switch a.searchTab {
-	case 1:
-		return &a.highlightInput, &a.highlightCursor
-	case 2:
-		return &a.hideInput, &a.hideCursor
-	default:
-		return &a.searchInput, &a.searchCursor
-	}
-}
-
-func (a *App) closeSearchPopup() {
-	a.searchMode = false
-	a.starFields = nil
-	a.starCursor = 0
-}
-
-// splitKeywords parses a comma-separated keyword string into a clean slice.
-func splitKeywords(kw string) []string {
-	parts := strings.Split(kw, ",")
-	var clean []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			clean = append(clean, p)
-		}
-	}
-	return clean
-}
-
-func (a *App) confirmHighlights() {
-	kw := strings.TrimSpace(a.highlightInput)
-	if kw != "" {
-		a.highlights = splitKeywords(kw)
-	} else {
-		a.highlights = nil
-	}
-}
-
-func (a *App) confirmHides() {
-	kw := strings.TrimSpace(a.hideInput)
-	if kw != "" {
-		a.hides = splitKeywords(kw)
-	} else {
-		a.hides = nil
-	}
-	a.recomputeView()
-}
-
-// confirmSearchTab handles Enter based on the current search tab.
-func (a *App) confirmSearchTab() {
-	switch a.searchTab {
-	case 1:
-		a.confirmHighlights()
-		a.closeSearchPopup()
-	case 2:
-		a.confirmHides()
-		a.closeSearchPopup()
-	default:
-		if len(a.starFields) > 0 && a.starCursor < len(a.starFields) {
-			sf := a.starFields[a.starCursor]
-			if sf.Name != "" {
-				term := sf.Name + ":" + sf.Value
-				runes := []rune(a.searchInput)
-				pos := a.searchCursor
-				insert := term
-				if a.searchInput != "" && pos > 0 && runes[pos-1] != ' ' {
-					insert = " " + insert
-				}
-				if a.searchInput != "" && pos < len(runes) && runes[pos] != ' ' {
-					insert = insert + " "
-				}
-				runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
-				a.searchInput = string(runes)
-				a.searchCursor = pos + len([]rune(insert))
-				return
-			}
-		}
-		a.addSearchHistory(a.searchInput)
-		a.recomputeView()
-		a.closeSearchPopup()
-	}
-}
-
-func (a *App) handleHighlightKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		a.highlightMode = false
-	case tea.KeyEnter:
-		a.confirmHighlights()
-		a.highlightMode = false
-	case tea.KeyBackspace:
-		runes := []rune(a.highlightInput)
-		if a.highlightCursor > 0 && len(runes) > 0 {
-			a.highlightCursor--
-			runes = append(runes[:a.highlightCursor], runes[a.highlightCursor+1:]...)
-			a.highlightInput = string(runes)
-		}
-	case tea.KeyRunes:
-		insert := string(msg.Runes)
-		runes := []rune(a.highlightInput)
-		pos := a.highlightCursor
-		if pos > len(runes) {
-			pos = len(runes)
-		}
-		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
-		a.highlightInput = string(runes)
-		a.highlightCursor = pos + len([]rune(insert))
-	default:
-		switch msg.String() {
-		case "left":
-			if a.highlightCursor > 0 {
-				a.highlightCursor--
-			}
-		case "right":
-			if a.highlightCursor < len([]rune(a.highlightInput)) {
-				a.highlightCursor++
-			}
-		case "home", "ctrl+a":
-			a.highlightCursor = 0
-		case "end", "ctrl+e":
-			a.highlightCursor = len([]rune(a.highlightInput))
-		case "delete":
-			runes := []rune(a.highlightInput)
-			if a.highlightCursor < len(runes) {
-				runes = append(runes[:a.highlightCursor], runes[a.highlightCursor+1:]...)
-				a.highlightInput = string(runes)
-			}
-		case "ctrl+u":
-			a.highlightInput = ""
-			a.highlightCursor = 0
-		case " ":
-			runes := []rune(a.highlightInput)
-			pos := a.highlightCursor
-			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
-			a.highlightInput = string(runes)
-			a.highlightCursor = pos + 1
-		}
-	}
-	return a, nil
-}
-
-func (a *App) handleHideKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		a.hideMode = false
-	case tea.KeyEnter:
-		a.confirmHides()
-		a.hideMode = false
-	case tea.KeyBackspace:
-		runes := []rune(a.hideInput)
-		if a.hideCursor > 0 && len(runes) > 0 {
-			a.hideCursor--
-			runes = append(runes[:a.hideCursor], runes[a.hideCursor+1:]...)
-			a.hideInput = string(runes)
-		}
-	case tea.KeyRunes:
-		insert := string(msg.Runes)
-		runes := []rune(a.hideInput)
-		pos := a.hideCursor
-		if pos > len(runes) {
-			pos = len(runes)
-		}
-		runes = append(runes[:pos], append([]rune(insert), runes[pos:]...)...)
-		a.hideInput = string(runes)
-		a.hideCursor = pos + len([]rune(insert))
-	default:
-		switch msg.String() {
-		case "left":
-			if a.hideCursor > 0 {
-				a.hideCursor--
-			}
-		case "right":
-			if a.hideCursor < len([]rune(a.hideInput)) {
-				a.hideCursor++
-			}
-		case "home", "ctrl+a":
-			a.hideCursor = 0
-		case "end", "ctrl+e":
-			a.hideCursor = len([]rune(a.hideInput))
-		case "delete":
-			runes := []rune(a.hideInput)
-			if a.hideCursor < len(runes) {
-				runes = append(runes[:a.hideCursor], runes[a.hideCursor+1:]...)
-				a.hideInput = string(runes)
-			}
-		case "ctrl+u":
-			a.hideInput = ""
-			a.hideCursor = 0
-		case " ":
-			runes := []rune(a.hideInput)
-			pos := a.hideCursor
-			runes = append(runes[:pos], append([]rune(" "), runes[pos:]...)...)
-			a.hideInput = string(runes)
-			a.hideCursor = pos + 1
-		}
 	}
 	return a, nil
 }
@@ -1308,32 +795,6 @@ func (a *App) handleExportKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) populateSearchFields() {
-	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
-		a.starFields = nil
-		return
-	}
-	line := a.filteredView[a.cursor]
-	var fields []starField
-	fields = append(fields, starField{Name: "", Value: ""})
-	for _, f := range model.AllFields {
-		val := line.Get(f)
-		if val == "" {
-			continue
-		}
-		if f == model.FieldMessage {
-			for _, w := range strings.Fields(val) {
-				if len(w) > 1 {
-					fields = append(fields, starField{Name: string(f), Value: w})
-				}
-			}
-			continue
-		}
-		fields = append(fields, starField{Name: string(f), Value: val})
-	}
-	a.starFields = fields
-}
-
 func (a *App) toggleLevelFilter(level string) {
 	if a.levelFilter == level {
 		a.levelFilter = ""
@@ -1359,8 +820,9 @@ func (a *App) doExport() {
 	if s.Format == 1 {
 		format = export.FormatJSON
 	}
-	n, _ := export.ToFile(lines, s.FilePath, format)
+	n, err := export.ToFile(lines, s.FilePath, format)
 	s.Done = true
+	s.Err = err
 	s.Exported = n
 }
 
@@ -1387,9 +849,6 @@ func (a *App) View() string {
 	title := TitleStyle.Width(w).Render(
 		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条", a.streamLabel(), pLabel, a.buffer.Len()),
 	)
-	if a.configToast != "" {
-		title += "  " + NewLogStyle.Render(a.configToast)
-	}
 
 	sep := strings.Repeat(HorizontalLine, w)
 
@@ -1400,7 +859,9 @@ func (a *App) View() string {
 
 	vl := a.visibleLines()
 	var logLines []string
-	if a.helpMode {
+	if a.searchMode {
+		logLines = a.buildSearchModeLines(vl)
+	} else if a.helpMode {
 		logLines = a.buildHelpPopup(vl)
 	} else if a.highlightMode {
 		logLines = a.buildHighlightPopup(vl)
@@ -1418,35 +879,8 @@ func (a *App) View() string {
 
 	allLines := make([]string, 0, vl+6)
 	allLines = append(allLines, title, sep, bar, sep)
-	if a.searchMode {
-		// 搜索 popup 紧贴搜索栏 inline 显示，日志在下方独立渲染，互不覆盖。
-		// 按可用高度限制 popup（先砍 starFields 字段建议），保证匹配日志始终可见。
-		logReserve := vl / 3
-		if logReserve < 3 {
-			logReserve = 3
-		}
-		popupMaxH := vl - logReserve
-		if popupMaxH < 1 {
-			popupMaxH = 1
-		}
-		popupLines := a.buildSearchPopup(popupMaxH)
-		popStyle := lipgloss.NewStyle().Width(w).MaxWidth(w)
-		for _, p := range popupLines {
-			allLines = append(allLines, popStyle.Render(p))
-		}
-		ph := len(popupLines)
-		if ph > vl {
-			ph = vl
-		}
-		if remain := vl - ph; remain > 0 {
-			for _, l := range a.buildLogLines(remain) {
-				allLines = append(allLines, trunc.Render(l))
-			}
-		}
-	} else {
-		for _, l := range logLines {
-			allLines = append(allLines, trunc.Render(l))
-		}
+	for _, l := range logLines {
+		allLines = append(allLines, trunc.Render(l))
 	}
 	allLines = append(allLines, sep, helpBar)
 	out := strings.Join(allLines, "\n")
@@ -1458,6 +892,35 @@ func (a *App) View() string {
 	return out
 }
 
+// buildSearchModeLines 渲染搜索模式下的日志区：popup 紧贴搜索栏 inline 显示，
+// 日志在下方独立渲染，互不覆盖。按可用高度限制 popup（先砍 starFields 字段建议），
+// 保证匹配日志始终可见。
+func (a *App) buildSearchModeLines(vl int) []string {
+	logReserve := vl / 3
+	if logReserve < 3 {
+		logReserve = 3
+	}
+	popupMaxH := vl - logReserve
+	if popupMaxH < 1 {
+		popupMaxH = 1
+	}
+	popupLines := a.buildSearchPopup(popupMaxH)
+	popStyle := lipgloss.NewStyle().Width(a.width).MaxWidth(a.width)
+
+	var lines []string
+	for _, p := range popupLines {
+		lines = append(lines, popStyle.Render(p))
+	}
+	ph := len(popupLines)
+	if ph > vl {
+		ph = vl
+	}
+	if remain := vl - ph; remain > 0 {
+		lines = append(lines, a.buildLogLines(remain)...)
+	}
+	return lines
+}
+
 func (a *App) yankLines(start, end int) {
 	if start > end {
 		start, end = end, start
@@ -1467,75 +930,15 @@ func (a *App) yankLines(start, end int) {
 		buf.WriteString(a.filteredView[i].Raw.Text)
 		buf.WriteByte('\n')
 	}
-	copyToClipboard(buf.String())
-	a.yankMsg = fmt.Sprintf("已复制 %d 行", end-start+1)
+	if err := copyToClipboard(buf.String()); err != nil {
+		a.yankMsg = fmt.Sprintf("复制失败: %v", err)
+	} else {
+		a.yankMsg = fmt.Sprintf("已复制 %d 行", end-start+1)
+	}
 	a.visualMode = false
 }
 
-func (a *App) yankWord() {
-	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
-		return
-	}
-	line := a.filteredView[a.cursor]
-	var parts []string
-	for _, f := range model.AllFields {
-		if !a.fieldMask.IsVisible(f) {
-			continue
-		}
-		val := line.Get(f)
-		if val == "" {
-			continue
-		}
-		parts = append(parts, val)
-	}
-	text := strings.Join(parts, "  ")
-	center := len(text) / 2
-	if center > a.width/2 {
-		center = a.width / 2
-	}
-	word := wordAtPos(text, center)
-	if word != "" {
-		copyToClipboard(word)
-	}
-}
-
-func wordAtPos(text string, pos int) string {
-	if pos >= len(text) {
-		pos = len(text) - 1
-	}
-	if pos < 0 {
-		return ""
-	}
-	isSpace := func(c byte) bool { return c == ' ' || c == '	' }
-	if isSpace(text[pos]) {
-		left := pos
-		for left >= 0 && isSpace(text[left]) {
-			left--
-		}
-		right := pos
-		for right < len(text) && isSpace(text[right]) {
-			right++
-		}
-		if left >= 0 {
-			pos = left
-		} else if right < len(text) {
-			pos = right
-		} else {
-			return ""
-		}
-	}
-	start := pos
-	for start > 0 && !isSpace(text[start-1]) {
-		start--
-	}
-	end := pos
-	for end < len(text) && !isSpace(text[end]) {
-		end++
-	}
-	return text[start:end]
-}
-
-func copyToClipboard(text string) {
+func copyToClipboard(text string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -1550,7 +953,10 @@ func copyToClipboard(text string) {
 		cmd = exec.Command("pbcopy")
 	}
 	cmd.Stdin = strings.NewReader(text)
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("clipboard command %s: %w", cmd.Path, err)
+	}
+	return nil
 }
 
 func (a *App) ApplySession(s *SessionState) {

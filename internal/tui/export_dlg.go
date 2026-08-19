@@ -3,12 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (a *App) buildExportPopup(vl int) []string {
-	lines := make([]string, vl)
 	s := a.exportState
 
 	var content strings.Builder
@@ -40,24 +37,16 @@ func (a *App) buildExportPopup(vl int) []string {
 	content.WriteString(fmt.Sprintf("%s 路径:  %s\n", pathMarker, s.FilePath))
 
 	if s.Done {
-		content.WriteString(fmt.Sprintf("\n✓ 已导出 %d 条 → %s", s.Exported, s.FilePath))
+		if s.Err != nil {
+			content.WriteString(fmt.Sprintf("\n✗ 导出失败: %v", s.Err))
+		} else {
+			content.WriteString(fmt.Sprintf("\n✓ 已导出 %d 条 → %s", s.Exported, s.FilePath))
+		}
 	}
 
 	content.WriteString("\n\n" + PopupTabStyle.Render(" Enter确认  Esc取消  ←→切换"))
 
 	boxW := min(52, a.width-4)
 	box := PopupBoxStyle.Width(boxW).Render(content.String())
-
-	overlay := lipgloss.NewStyle().Width(a.width).Height(vl).
-		Render(lipgloss.Place(a.width, vl,
-			lipgloss.Center, lipgloss.Center,
-			box))
-
-	parts := strings.Split(overlay, "\n")
-	for i := 0; i < vl; i++ {
-		if i < len(parts) {
-			lines[i] = parts[i]
-		}
-	}
-	return lines
+	return a.overlayToVL(box, vl)
 }

@@ -123,28 +123,3 @@ func (fm FieldMask) IsVisible(f Field) bool {
 func (fm FieldMask) Toggle(f Field) {
 	fm[f] = !fm[f]
 }
-
-// Level represents a log severity level.
-type Level int
-
-const (
-	LevelDebug Level = iota
-	LevelInfo
-	LevelWarn
-	LevelError
-)
-
-// ParseLevel parses a level string (case-insensitive).
-func ParseLevel(s string) Level {
-	switch s {
-	case "DEBUG", "debug", "DBG":
-		return LevelDebug
-	case "INFO", "info":
-		return LevelInfo
-	case "WARN", "warn", "WARNING", "warning":
-		return LevelWarn
-	case "ERROR", "error", "ERR", "FATAL", "fatal":
-		return LevelError
-	}
-	return LevelInfo
-}

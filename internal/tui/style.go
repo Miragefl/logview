@@ -22,13 +22,6 @@ var (
 	TraceIDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("123"))
 	ThreadStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
 
-	ErrorLineBg = lipgloss.Color("52")
-	WarnLineBg  = lipgloss.Color("58")
-
-	SearchStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15")).
-			Background(lipgloss.Color("62"))
-
 	HighlightStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("227")).
 			Foreground(lipgloss.Color("0"))
@@ -46,8 +39,6 @@ var (
 
 	CheckboxChecked   = "☑"
 	CheckboxUnchecked = "☐"
-
-	FieldSeparator = " │ "
 
 	FoldedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 	NewLogStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
@@ -92,9 +83,6 @@ var (
 		lipgloss.Color("196"), // red
 	}
 )
-
-// selectedAnsi tracks the ANSI sequences to restore selected bg/fg after inner style resets
-var selectedAnsiRestore string
 
 var VisualBgColor lipgloss.Color = lipgloss.Color("28")
 var VisualFgColor lipgloss.Color = lipgloss.Color("15")

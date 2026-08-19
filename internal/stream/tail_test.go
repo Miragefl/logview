@@ -48,6 +48,38 @@ func TestTailSourceReadsFile(t *testing.T) {
 	}
 }
 
+func TestTailSourceLastLineWithoutNewline(t *testing.T) {
+	dir := t.TempDir()
+	fpath := filepath.Join(dir, "test.log")
+	if err := os.WriteFile(fpath, []byte("line1\nline2\npartial-last"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewTailSource([]string{fpath}, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch, err := src.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for len(lines) < 3 {
+		select {
+		case raw := <-ch:
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("timed out, got %d/3 lines: %v", len(lines), lines)
+		}
+	}
+
+	if lines[2] != "partial-last" {
+		t.Errorf("lines[2] = %q, want %q", lines[2], "partial-last")
+	}
+}
+
 func TestTailSourceLabel(t *testing.T) {
 	src := NewTailSource([]string{"/var/log/a.log", "/var/log/b.log"}, 0)
 	if src.Label() != "tail" {

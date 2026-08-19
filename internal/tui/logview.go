@@ -13,6 +13,24 @@ import (
 
 const scrollOff = 5
 
+// lineNumStyle 行号前缀的暗淡样式。
+var lineNumStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+
+// prefixLineNums 给 wrap 后的行首加行号前缀（首行行号、续行空白对齐）。
+func prefixLineNums(wrapped []string, lineIdx, total int) []string {
+	if len(wrapped) == 0 {
+		return wrapped
+	}
+	nw := len(fmt.Sprintf("%d", total))
+	numStr := fmt.Sprintf("%*d │ ", nw, lineIdx+1)
+	pad := fmt.Sprintf("%*s │ ", nw, "")
+	wrapped[0] = lineNumStyle.Render(numStr) + wrapped[0]
+	for j := 1; j < len(wrapped); j++ {
+		wrapped[j] = lineNumStyle.Render(pad) + wrapped[j]
+	}
+	return wrapped
+}
+
 // buildLogLines returns rendered lines for the log area.
 func (a *App) buildLogLines(vl int) []string {
 	if vl < 1 {
@@ -187,17 +205,7 @@ func (a *App) buildWrapLines(vl int) []string {
 		}
 		wrapped := wrapAnsiText(text, w)
 		if a.showLineNum {
-			total := len(a.filteredView)
-			nw := len(fmt.Sprintf("%d", total))
-			numStr := fmt.Sprintf("%*d │ ", nw, i+1)
-			pad := fmt.Sprintf("%*s │ ", nw, "")
-			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-			if len(wrapped) > 0 {
-				wrapped[0] = dimStyle.Render(numStr) + wrapped[0]
-				for j := 1; j < len(wrapped); j++ {
-					wrapped[j] = dimStyle.Render(pad) + wrapped[j]
-				}
-			}
+			wrapped = prefixLineNums(wrapped, i, len(a.filteredView))
 		}
 
 		for _, wl := range wrapped {
@@ -343,17 +351,28 @@ func (a *App) renderLineWrapped(line *model.ParsedLine, lineIdx int) []string {
 	}
 	result := wrapAnsiText(text, w)
 	if a.showLineNum && len(result) > 0 {
-		total := len(a.filteredView)
-		nw := len(fmt.Sprintf("%d", total))
-		numStr := fmt.Sprintf("%*d │ ", nw, lineIdx+1)
-		pad := fmt.Sprintf("%*s │ ", nw, "")
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-		result[0] = dimStyle.Render(numStr) + result[0]
-		for i := 1; i < len(result); i++ {
-			result[i] = dimStyle.Render(pad) + result[i]
-		}
+		result = prefixLineNums(result, lineIdx, len(a.filteredView))
 	}
 	return result
+}
+
+// applyHighlights 叠加搜索命中高亮与用户自定义高亮词。
+func (a *App) applyHighlights(text string) string {
+	if a.searchInput != "" {
+		q := a.currentQuery()
+		for _, kw := range q.HighlightKeywords() {
+			text = highlightText(text, kw)
+		}
+	}
+	for i, kw := range a.highlights {
+		if kw == "" {
+			continue
+		}
+		colorIdx := i % len(HighlightColors)
+		style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
+		text = highlightTextWithStyle(text, kw, style)
+	}
+	return text
 }
 
 // renderLineText builds the full text of a line without truncation or selection styling.
@@ -388,22 +407,7 @@ func (a *App) renderLineText(line *model.ParsedLine) string {
 			parts = append(parts, val)
 		}
 	}
-	text := strings.Join(parts, "  ")
-	if a.searchInput != "" {
-		q := a.currentQuery()
-		for _, kw := range q.HighlightKeywords() {
-			text = highlightText(text, kw)
-		}
-	}
-	for i, kw := range a.highlights {
-		if kw == "" {
-			continue
-		}
-		colorIdx := i % len(HighlightColors)
-		style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
-		text = highlightTextWithStyle(text, kw, style)
-	}
-	return text
+	return a.applyHighlights(strings.Join(parts, "  "))
 }
 
 // renderLineTextWithBg renders line text with a forced background color on every field,
@@ -434,21 +438,7 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 		}
 	}
 	text := strings.Join(parts, "  ")
-	if a.searchInput != "" {
-		q := a.currentQuery()
-		for _, kw := range q.HighlightKeywords() {
-			text = highlightText(text, kw)
-		}
-	}
-	for i, kw := range a.highlights {
-		if kw == "" {
-			continue
-		}
-		colorIdx := i % len(HighlightColors)
-		style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
-		text = highlightTextWithStyle(text, kw, style)
-	}
-	return text
+	return a.applyHighlights(text)
 }
 
 func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) string {
@@ -462,8 +452,7 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 		total := len(a.filteredView)
 		w := len(fmt.Sprintf("%d", total))
 		numStr := fmt.Sprintf("%*d │ ", w, lineIdx+1)
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-		text = dimStyle.Render(numStr) + text
+		text = lineNumStyle.Render(numStr) + text
 	}
 	inVisualRange := a.visualMode && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
 	if selected && !inVisualRange {
@@ -478,27 +467,7 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 }
 
 func highlightText(text, query string) string {
-	if query == "" {
-		return text
-	}
-	lowerText := strings.ToLower(text)
-	lowerQuery := strings.ToLower(query)
-	qLen := len(lowerQuery)
-	var result strings.Builder
-	i := 0
-	for i <= len(lowerText)-qLen {
-		if lowerText[i:i+qLen] == lowerQuery {
-			result.WriteString(HighlightStyle.Render(text[i : i+qLen]))
-			i += qLen
-		} else {
-			result.WriteByte(text[i])
-			i++
-		}
-	}
-	for ; i < len(text); i++ {
-		result.WriteByte(text[i])
-	}
-	return result.String()
+	return highlightTextWithStyle(text, query, HighlightStyle)
 }
 
 func highlightTextWithStyle(text, query string, style lipgloss.Style) string {

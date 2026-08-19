@@ -52,23 +52,3 @@ func TestFieldMaskToggle(t *testing.T) {
 		t.Error("time should be visible after second toggle")
 	}
 }
-
-func TestParseLevel(t *testing.T) {
-	tests := []struct {
-		input string
-		want  Level
-	}{
-		{"INFO", LevelInfo},
-		{"error", LevelError},
-		{"WARN", LevelWarn},
-		{"debug", LevelDebug},
-		{"FATAL", LevelError},
-		{"unknown", LevelInfo},
-	}
-	for _, tt := range tests {
-		got := ParseLevel(tt.input)
-		if got != tt.want {
-			t.Errorf("ParseLevel(%q) = %v, want %v", tt.input, got, tt.want)
-		}
-	}
-}

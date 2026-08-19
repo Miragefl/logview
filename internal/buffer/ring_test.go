@@ -6,6 +6,14 @@ import (
 	"github.com/justfun/logview/internal/model"
 )
 
+func TestRingBufferNonPositiveCapacity(t *testing.T) {
+	rb := NewRingBuffer(0)
+	rb.Push(&model.ParsedLine{Message: "a"})
+	if rb.Len() != 1 || rb.Get(0).Message != "a" {
+		t.Fatalf("capacity=0 should not panic and hold 1 line, got len=%d", rb.Len())
+	}
+}
+
 func TestRingBufferAppendAndGet(t *testing.T) {
 	rb := NewRingBuffer(5)
 	for i := 0; i < 7; i++ {

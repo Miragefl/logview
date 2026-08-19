@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/model"
 )
 
@@ -68,18 +67,5 @@ func (a *App) buildStatsPanel(vl int) []string {
 	content := "统计\n\n" + strings.Join(rows, "\n") + "\n\n" + PopupTabStyle.Render("[S或Esc关闭]")
 	boxW := min(40, a.width-6)
 	box := PopupBoxStyle.Width(boxW).Render(content)
-
-	overlay := lipgloss.NewStyle().Width(a.width).Height(vl).
-		Render(lipgloss.Place(a.width, vl,
-			lipgloss.Center, lipgloss.Center,
-			box))
-
-	lines := make([]string, vl)
-	parts := strings.Split(overlay, "\n")
-	for i := 0; i < vl; i++ {
-		if i < len(parts) {
-			lines[i] = parts[i]
-		}
-	}
-	return lines
+	return a.overlayToVL(box, vl)
 }

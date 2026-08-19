@@ -63,7 +63,7 @@ rules:
 	}
 
 	// verify the patterns were expanded correctly
-	parsers := MustCompileRules(rules)
+	parsers, _ := CompileRules(rules)
 	line := "2026-05-18 12:40:35.676 [park-pool-1-thread2] INFO  c.p.h.manager.CheckDeviceSchedule:78 - LK CAM 192.168.0.226 can not ping"
 	parsed := parsers[1].Parse(model.RawLine{Text: line})
 	if parsed == nil {
@@ -82,7 +82,7 @@ func TestAutoDetect(t *testing.T) {
 		{Name: "java", Pattern: `(?P<level>\w+) (?P<message>.*)`},
 		{Name: "fallback", Pattern: `(?P<message>.*)`},
 	}
-	parsers := MustCompileRules(rules)
+	parsers, _ := CompileRules(rules)
 	ad := NewAutoDetect(parsers)
 
 	raw := model.RawLine{Text: "INFO hello world"}
@@ -92,5 +92,85 @@ func TestAutoDetect(t *testing.T) {
 	}
 	if p.Name() != "java" {
 		t.Errorf("matched %q, want %q", p.Name(), "java")
+	}
+}
+
+func TestCompileRulesInvalidRegexReturnsError(t *testing.T) {
+	rules := []RuleConfig{{Name: "bad-rule", Pattern: `(?P<broken>[`}}
+	if _, err := CompileRules(rules); err == nil {
+		t.Fatal("CompileRules should return error for invalid regex, got nil")
+	}
+}
+
+func TestCompileRulesFallbackMarker(t *testing.T) {
+	// fallback: true 的规则无论叫什么名字都应被编译为兜底解析器
+	rules := []RuleConfig{
+		{Name: "java", Pattern: `(?P<level>\w+) (?P<message>.*)`},
+		{Name: "my-custom-name", Pattern: `(?P<message>.*)`, Fallback: true},
+	}
+	parsers, err := CompileRules(rules)
+	if err != nil {
+		t.Fatalf("CompileRules() error: %v", err)
+	}
+	if parsers[1].Name() != "plain-text" {
+		t.Errorf("fallback rule name = %q, want %q", parsers[1].Name(), "plain-text")
+	}
+}
+
+func TestAutoDetectBuffersPendingLines(t *testing.T) {
+	rules := []RuleConfig{
+		{Name: "java", Pattern: `^INFO `},
+		{Name: "plain-text", Pattern: `(?P<message>.*)`},
+	}
+	parsers, _ := CompileRules(rules)
+	ad := NewAutoDetect(parsers)
+
+	// 不匹配结构化规则的行：前 maxPending-1 行返回 nil 并缓冲
+	for i := 0; i < maxPending-1; i++ {
+		if p := ad.Detect(model.RawLine{Text: "plain line", Source: "s1"}); p != nil {
+			t.Fatalf("Detect() should buffer line %d, got parser %q", i, p.Name())
+		}
+	}
+	if got := len(ad.DrainPending()); got != maxPending-1 {
+		t.Errorf("pending = %d, want %d", got, maxPending-1)
+	}
+}
+
+func TestAutoDetectFallsBackAfterMaxPending(t *testing.T) {
+	rules := []RuleConfig{
+		{Name: "java", Pattern: `^INFO `},
+		{Name: "plain-text", Pattern: `(?P<message>.*)`},
+	}
+	parsers, _ := CompileRules(rules)
+	ad := NewAutoDetect(parsers)
+
+	var p Parser
+	for i := 0; i < maxPending; i++ {
+		p = ad.Detect(model.RawLine{Text: "plain line", Source: "s1"})
+	}
+	if p == nil || p.Name() != "plain-text" {
+		t.Fatalf("after %d unmatched lines, want plain-text fallback, got %v", maxPending, p)
+	}
+}
+
+func TestAutoDetectUpgradesFromFallback(t *testing.T) {
+	rules := []RuleConfig{
+		{Name: "java", Pattern: `^INFO `},
+		{Name: "plain-text", Pattern: `(?P<message>.*)`},
+	}
+	parsers, _ := CompileRules(rules)
+	ad := NewAutoDetect(parsers)
+
+	// 先降级到 plain-text
+	for i := 0; i < maxPending; i++ {
+		ad.Detect(model.RawLine{Text: "plain line", Source: "s1"})
+	}
+	// 之后结构化行到达：应升级为 java 并清空 pending
+	p := ad.Detect(model.RawLine{Text: "INFO structured now", Source: "s1"})
+	if p == nil || p.Name() != "java" {
+		t.Fatalf("fallback should upgrade to java, got %v", p)
+	}
+	if got := len(ad.DrainPending()); got != 0 {
+		t.Errorf("pending after upgrade = %d, want 0", got)
 	}
 }

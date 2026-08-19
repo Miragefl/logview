@@ -14,7 +14,7 @@ func TestANSILogParsing(t *testing.T) {
 		Name:    "java-logback",
 		Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`,
 	}
-	parsers := MustCompileRules([]RuleConfig{rule})
+	parsers, _ := CompileRules([]RuleConfig{rule})
 	ad := NewAutoDetect(parsers)
 
 	rl := model.RawLine{Text: raw, Source: "billing-rule"}
@@ -53,7 +53,7 @@ func TestCleanLogParsing(t *testing.T) {
 		Name:    "java-logback",
 		Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`,
 	}
-	parsers := MustCompileRules([]RuleConfig{rule})
+	parsers, _ := CompileRules([]RuleConfig{rule})
 	ad := NewAutoDetect(parsers)
 
 	rl := model.RawLine{Text: raw, Source: "billing-rule"}

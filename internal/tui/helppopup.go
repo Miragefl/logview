@@ -3,13 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (a *App) buildHelpPopup(vl int) []string {
-	lines := make([]string, vl)
-
 	sections := []struct {
 		title string
 		items []helpItem
@@ -74,17 +70,5 @@ func (a *App) buildHelpPopup(vl int) []string {
 
 	boxW := min(52, a.width-4)
 	box := PopupBoxStyle.Width(boxW).Render(content.String())
-
-	overlay := lipgloss.NewStyle().Width(a.width).Height(vl).
-		Render(lipgloss.Place(a.width, vl,
-			lipgloss.Center, lipgloss.Center,
-			box))
-
-	parts := strings.Split(overlay, "\n")
-	for i := 0; i < vl; i++ {
-		if i < len(parts) {
-			lines[i] = parts[i]
-		}
-	}
-	return lines
+	return a.overlayToVL(box, vl)
 }

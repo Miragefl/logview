@@ -75,19 +75,22 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 			}
 			line, err := reader.ReadString('\n')
 			if err != nil {
+				// 末行无换行符时 ReadString 仍返回数据，先消费再退出
+				if line != "" {
+					if !t.sendLine(ctx, ch, trimNewline(line), source) {
+						return
+					}
+				}
 				break
 			}
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
-			if !t.sendLine(ctx, ch, line, source) {
+			if !t.sendLine(ctx, ch, trimNewline(line), source) {
 				return
 			}
 		}
 	} else {
 		// follow mode: read last N lines from end, then follow
-		info, _ := f.Stat()
-		if info.Size() > 0 {
+		info, statErr := f.Stat()
+		if statErr == nil && info.Size() > 0 {
 			seekBack := int64(t.followLines) * 1024
 			if seekBack > info.Size() {
 				seekBack = info.Size()
@@ -104,12 +107,15 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 			for {
 				line, err := reader.ReadString('\n')
 				if err != nil {
+					if line != "" {
+						ring = append(ring, trimNewline(line))
+						if len(ring) > t.followLines {
+							ring = ring[1:]
+						}
+					}
 					break
 				}
-				if len(line) > 0 && line[len(line)-1] == '\n' {
-					line = line[:len(line)-1]
-				}
-				ring = append(ring, line)
+				ring = append(ring, trimNewline(line))
 				if len(ring) > t.followLines {
 					ring = ring[1:]
 				}
@@ -135,16 +141,26 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 		}
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			// 部分行也立即显示，避免丢行（与 GNU tail 行为一致）
+			if line != "" {
+				if !t.sendLine(ctx, ch, trimNewline(line), source) {
+					return
+				}
+			}
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		if len(line) > 0 && line[len(line)-1] == '\n' {
-			line = line[:len(line)-1]
-		}
-		if !t.sendLine(ctx, ch, line, source) {
+		if !t.sendLine(ctx, ch, trimNewline(line), source) {
 			return
 		}
 	}
+}
+
+func trimNewline(line string) string {
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		return line[:len(line)-1]
+	}
+	return line
 }
 
 func (t *TailSource) Cleanup() error { return nil }

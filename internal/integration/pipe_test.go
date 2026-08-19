@@ -34,7 +34,7 @@ func TestPipeToBuffer(t *testing.T) {
 			Pattern: `(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`,
 		},
 	}
-	parsers := parser.MustCompileRules(rules)
+	parsers, _ := parser.CompileRules(rules)
 	ad := parser.NewAutoDetect(parsers)
 	buf := buffer.NewRingBuffer(100)
 

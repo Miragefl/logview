@@ -392,23 +392,7 @@ func TestParserNameInTitle(t *testing.T) {
 }
 
 func stripANSI(s string) string {
-	// simple ANSI strip
-	result := ""
-	inEscape := false
-	for _, c := range s {
-		if c == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-				inEscape = false
-			}
-			continue
-		}
-		result += string(c)
-	}
-	return result
+	return model.StripANSI(s)
 }
 
 func TestPartialOperatorStrippedSearch(t *testing.T) {

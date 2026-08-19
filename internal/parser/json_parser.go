@@ -27,7 +27,7 @@ type jsonFields struct {
 }
 
 func (p *JSONParser) Parse(raw model.RawLine) *model.ParsedLine {
-	cleaned := ansiRe.ReplaceAllString(raw.Text, "")
+	cleaned := model.StripANSI(raw.Text)
 	var f jsonFields
 	if err := json.Unmarshal([]byte(cleaned), &f); err != nil {
 		return nil

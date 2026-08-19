@@ -3,13 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (a *App) buildHidePopup(vl int) []string {
-	lines := make([]string, vl)
-
 	var content strings.Builder
 	content.WriteString(HelpKeyStyle.Render("隐藏关键词") + "\n\n")
 
@@ -21,34 +17,10 @@ func (a *App) buildHidePopup(vl int) []string {
 		content.WriteString("\n")
 	}
 
-	var inputLine string
-	if a.hideInput == "" {
-		inputLine = fmt.Sprintf(" %s█", DetailDimStyle.Render("输入关键词，逗号分隔..."))
-	} else {
-		runes := []rune(a.hideInput)
-		pos := a.hideCursor
-		if pos > len(runes) {
-			pos = len(runes)
-		}
-		inputLine = fmt.Sprintf(" %s█%s", string(runes[:pos]), string(runes[pos:]))
-	}
-	content.WriteString(inputLine + "\n")
-
+	content.WriteString(a.inputLine(a.hideInput, a.hideCursor, "输入关键词，逗号分隔...") + "\n")
 	content.WriteString("\n" + PopupTabStyle.Render(" Enter确认 Esc取消 C-u清空"))
 
 	boxW := min(50, a.width-4)
 	box := PopupBoxStyle.Width(boxW).Render(content.String())
-
-	overlay := lipgloss.NewStyle().Width(a.width).Height(vl).
-		Render(lipgloss.Place(a.width, vl,
-			lipgloss.Center, lipgloss.Center,
-			box))
-
-	parts := strings.Split(overlay, "\n")
-	for i := 0; i < vl; i++ {
-		if i < len(parts) {
-			lines[i] = parts[i]
-		}
-	}
-	return lines
+	return a.overlayToVL(box, vl)
 }

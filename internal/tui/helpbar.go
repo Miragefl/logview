@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/justfun/logview/internal/model"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -136,24 +137,5 @@ func (a *App) helpBarHeight() int {
 }
 
 func displayWidth(s string) int {
-	return runewidth.StringWidth(stripAnsi(s))
-}
-
-func stripAnsi(s string) string {
-	var result strings.Builder
-	esc := false
-	for _, c := range s {
-		if c == '\x1b' {
-			esc = true
-			continue
-		}
-		if esc {
-			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-				esc = false
-			}
-			continue
-		}
-		result.WriteRune(c)
-	}
-	return result.String()
+	return runewidth.StringWidth(model.StripANSI(s))
 }

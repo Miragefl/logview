@@ -53,7 +53,7 @@ var k8sCmd = &cobra.Command{
 	Args:             cobra.MinimumNArgs(1),
 	ValidArgsFunction: completeK8sResource,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, history, defaultHides, rulesPath, _, err := loadParsers()
+		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
@@ -62,12 +62,18 @@ var k8sCmd = &cobra.Command{
 		k8sTail, _ := cmd.Flags().GetInt("tail")
 
 		if k8sFollow && k8sTail == 0 {
-			k8sTail = history
+			k8sTail = cfg.history
 		}
 
 		if len(namespaces) > 1 && len(namespaces) != len(args) {
 			return fmt.Errorf("namespace count (%d) must match resource count (%d), or provide exactly 1 namespace for all resources",
 				len(namespaces), len(args))
+		}
+
+		for _, res := range args {
+			if _, err := stream.ParseK8sResource(res); err != nil {
+				return err
+			}
 		}
 
 		var src stream.LogStream
@@ -83,11 +89,7 @@ var k8sCmd = &cobra.Command{
 			src = stream.NewMultiK8sSource(sources)
 		}
 
-		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
-		app.SetRulesPath(rulesPath)
-		p := tea.NewProgram(app, tea.WithAltScreen())
-		_, err = p.Run()
-		return err
+		return runTUI(src, false, cfg)
 	},
 }
 
@@ -150,47 +152,26 @@ var tailCmd = &cobra.Command{
 	Short: "View logs from local files",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, history, defaultHides, rulesPath, _, err := loadParsers()
+		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
 		followMode, _ := cmd.Flags().GetBool("follow")
 		readOnly, _ := cmd.Flags().GetBool("read-only")
 		tailLines, _ := cmd.Flags().GetInt("tail")
+		resume, _ := cmd.Flags().GetBool("resume")
 		if readOnly {
-			src := stream.NewFileSource(args)
-			app := tui.NewApp(src, parsers, bufferSize, defaultHides)
-			app.SetRulesPath(rulesPath)
-			resume, _ := cmd.Flags().GetBool("resume")
-			if resume {
-				if s, err := tui.LoadSession(); err == nil {
-					app.ApplySession(s)
-				}
-			}
-			p := tea.NewProgram(app, tea.WithAltScreen())
-			_, err = p.Run()
-			return err
+			return runTUI(stream.NewFileSource(args), resume, cfg)
 		}
 		followLines := 0
 		if followMode {
 			if tailLines > 0 {
 				followLines = tailLines
 			} else {
-				followLines = history
+				followLines = cfg.history
 			}
 		}
-		src := stream.NewTailSource(args, followLines)
-		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
-		app.SetRulesPath(rulesPath)
-		resume, _ := cmd.Flags().GetBool("resume")
-		if resume {
-			if s, err := tui.LoadSession(); err == nil {
-				app.ApplySession(s)
-			}
-		}
-		p := tea.NewProgram(app, tea.WithAltScreen())
-		_, err = p.Run()
-		return err
+		return runTUI(stream.NewTailSource(args, followLines), resume, cfg)
 	},
 }
 
@@ -198,16 +179,11 @@ var pipeCmd = &cobra.Command{
 	Use:   "pipe",
 	Short: "View logs from stdin (pipe)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, _, defaultHides, rulesPath, _, err := loadParsers()
+		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
-		src := stream.NewPipeSource(os.Stdin)
-		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
-		app.SetRulesPath(rulesPath)
-		p := tea.NewProgram(app, tea.WithAltScreen())
-		_, err = p.Run()
-		return err
+		return runTUI(stream.NewPipeSource(os.Stdin), false, cfg)
 	},
 }
 
@@ -216,23 +192,36 @@ var fileCmd = &cobra.Command{
 	Short: "Open log file(s) in read-only mode",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsers, _, defaultHides, rulesPath, _, err := loadParsers()
+		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
-		src := stream.NewFileSource(args)
-		app := tui.NewApp(src, parsers, bufferSize, defaultHides)
-		app.SetRulesPath(rulesPath)
 		resume, _ := cmd.Flags().GetBool("resume")
-		if resume {
-			if s, err := tui.LoadSession(); err == nil {
-				app.ApplySession(s)
-			}
-		}
-		p := tea.NewProgram(app, tea.WithAltScreen())
-		_, err = p.Run()
-		return err
+		return runTUI(stream.NewFileSource(args), resume, cfg)
 	},
+}
+
+// appConfig 承载 rules.yaml 的加载结果，供各子命令装配 TUI。
+type appConfig struct {
+	parsers      *parser.AutoDetect
+	history      int
+	defaultHides []string
+	rulesPath    string
+	keyBindings  map[string]string // 预留：自定义按键（尚未接线）
+}
+
+// runTUI 以统一路径装配并启动 TUI（各子命令共用）。
+func runTUI(src stream.LogStream, resume bool, cfg appConfig) error {
+	app := tui.NewApp(src, cfg.parsers, bufferSize, cfg.defaultHides)
+	app.SetRulesPath(cfg.rulesPath)
+	if resume {
+		if s, err := tui.LoadSession(); err == nil {
+			app.ApplySession(s)
+		}
+	}
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
 
 func init() {
@@ -327,7 +316,11 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "logview")
 }
 
-func loadParsers() (*parser.AutoDetect, int, []string, string, map[string]string, error) {
+// loadConfig 读取并装配 rules.yaml 配置（含默认配置落盘与主题应用）。
+func loadConfig() (appConfig, error) {
+	if bufferSize < 1 {
+		return appConfig{}, fmt.Errorf("--buffer-size must be >= 1, got %d", bufferSize)
+	}
 	cfgDir := getConfigDir()
 	rulesPath := filepath.Join(cfgDir, "rules.yaml")
 
@@ -339,11 +332,19 @@ func loadParsers() (*parser.AutoDetect, int, []string, string, map[string]string
 	var defaultHides []string
 	var keyBindings map[string]string
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, _ = parser.LoadRules(rulesPath)
+		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, err = parser.LoadRules(rulesPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: 加载 %s 失败，使用默认配置: %v\n", rulesPath, err)
+		}
 	} else {
 		os.MkdirAll(cfgDir, 0755)
-		os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644)
-		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, _ = parser.LoadRules(rulesPath)
+		if err := os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644); err != nil {
+			return appConfig{}, fmt.Errorf("write default config: %w", err)
+		}
+		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, err = parser.LoadRules(rulesPath)
+		if err != nil {
+			return appConfig{}, fmt.Errorf("parse default config: %w", err)
+		}
 	}
 	if history <= 0 {
 		history = 5000
@@ -382,10 +383,18 @@ func loadParsers() (*parser.AutoDetect, int, []string, string, map[string]string
 		tui.SetFieldAlias(aliases)
 	}
 
-	parsers := parser.MustCompileRules(rules)
-	cfg := tui.ResolveTheme(themeName, themeColors)
-	tui.ApplyTheme(cfg)
-	return parser.NewAutoDetect(parsers), history, defaultHides, rulesPath, keyBindings, nil
+	parsers, err := parser.CompileRules(rules)
+	if err != nil {
+		return appConfig{}, err
+	}
+	tui.ApplyTheme(tui.ResolveTheme(themeName, themeColors))
+	return appConfig{
+		parsers:      parser.NewAutoDetect(parsers),
+		history:      history,
+		defaultHides: defaultHides,
+		rulesPath:    rulesPath,
+		keyBindings:  keyBindings,
+	}, nil
 }
 
 const defaultRulesYAML = `# ============================================================
@@ -428,7 +437,6 @@ theme: dark
 #   level.warn                WARN 级别色
 #   level.error               ERROR 级别色
 #   time / source / traceId / thread    字段颜色
-#   error_line_bg / warn_line_bg        ERROR/WARN 行背景
 #   highlight                 搜索高亮背景色
 #   selected                  选中项背景色
 #   visual                    可视选择背景色

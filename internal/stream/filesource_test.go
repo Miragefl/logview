@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,6 +45,79 @@ done:
 	}
 	if lines[0] != "line1" || lines[1] != "line2" || lines[2] != "line3" {
 		t.Errorf("lines = %v, want [line1 line2 line3]", lines)
+	}
+}
+
+func TestFileSourceLastLineWithoutNewline(t *testing.T) {
+	dir := t.TempDir()
+	fpath := filepath.Join(dir, "no-newline.log")
+	if err := os.WriteFile(fpath, []byte("line1\nline2\nno-trailing-newline"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewFileSource([]string{fpath})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch, err := src.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case raw, ok := <-ch:
+			if !ok {
+				goto done
+			}
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("timed out, got %d lines", len(lines))
+		}
+	}
+done:
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %v", len(lines), lines)
+	}
+	if lines[2] != "no-trailing-newline" {
+		t.Errorf("last line = %q, want %q", lines[2], "no-trailing-newline")
+	}
+}
+
+func TestFileSourceOpenErrorReportsLine(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.log")
+
+	src := NewFileSource([]string{missing})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch, err := src.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case raw, ok := <-ch:
+			if !ok {
+				goto done
+			}
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("timed out, got %d lines", len(lines))
+		}
+	}
+done:
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 error line, got %d: %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "missing.log") {
+		t.Errorf("error line should mention the file, got %q", lines[0])
 	}
 }
 

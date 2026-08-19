@@ -2,11 +2,9 @@ package parser
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/justfun/logview/internal/model"
 	"gopkg.in/yaml.v3"
 )
@@ -15,7 +13,12 @@ type RuleConfig struct {
 	Name    string `yaml:"name"`
 	Pattern string `yaml:"pattern"`
 	Parse   string `yaml:"parse,omitempty"`
+	// Fallback 显式声明该规则为兜底解析器（默认规则名为 plain-text 时也视为兜底）。
+	Fallback bool `yaml:"fallback,omitempty"`
 }
+
+// plainTextName 兜底解析器的固定名称：AutoDetect 依赖它识别"无结构化规则命中时"的降级目标。
+const plainTextName = "plain-text"
 
 type FieldConfig struct {
 	Name    string `yaml:"name"`
@@ -62,20 +65,24 @@ func expandPatterns(pattern string, vars map[string]string) string {
 	return pattern
 }
 
-func MustCompileRules(rules []RuleConfig) []Parser {
+// CompileRules 把规则配置编译为解析器列表；坏正则返回错误而非 panic。
+func CompileRules(rules []RuleConfig) ([]Parser, error) {
 	parsers := make([]Parser, 0, len(rules))
 	for _, r := range rules {
+		if r.Fallback {
+			r.Name = plainTextName
+		}
 		if r.Parse == "json" {
 			parsers = append(parsers, NewJSONParser(r.Name))
 			continue
 		}
 		p, err := NewRegexParser(r.Name, r.Pattern)
 		if err != nil {
-			panic(fmt.Sprintf("invalid regex in rule %q: %v", r.Name, err))
+			return nil, fmt.Errorf("rule %q: invalid regex: %w", r.Name, err)
 		}
 		parsers = append(parsers, p)
 	}
-	return parsers
+	return parsers, nil
 }
 
 type AutoDetect struct {
@@ -103,12 +110,12 @@ const maxPending = 50
 func (ad *AutoDetect) Detect(raw model.RawLine) Parser {
 	// Fast path: structured parser already chosen
 	if p, ok := ad.chosen[raw.Source]; ok {
-		if p.Name() != "plain-text" {
+		if p.Name() != plainTextName {
 			return p
 		}
 		// plain-text fallback: keep trying structured parsers
 		for _, sp := range ad.parsers {
-			if sp.Name() == "plain-text" {
+			if sp.Name() == plainTextName {
 				continue
 			}
 			if sp.Parse(raw) != nil {
@@ -122,7 +129,7 @@ func (ad *AutoDetect) Detect(raw model.RawLine) Parser {
 
 	// No parser chosen yet: try structured parsers
 	for _, p := range ad.parsers {
-		if p.Name() == "plain-text" {
+		if p.Name() == plainTextName {
 			continue
 		}
 		if p.Parse(raw) != nil {
@@ -138,7 +145,7 @@ func (ad *AutoDetect) Detect(raw model.RawLine) Parser {
 	// Force plain-text if we've buffered too many lines without a match
 	if len(ad.pending[raw.Source]) >= maxPending {
 		for _, p := range ad.parsers {
-			if p.Name() == "plain-text" {
+			if p.Name() == plainTextName {
 				ad.chosen[raw.Source] = p
 				delete(ad.pending, raw.Source)
 				return p
@@ -157,33 +164,4 @@ func (ad *AutoDetect) DrainPending() []model.RawLine {
 		delete(ad.pending, src)
 	}
 	return all
-}
-
-// WatchRules watches a rules file for changes and calls onChange when modified.
-// Returns a Closer that stops the watcher.
-func WatchRules(path string, onChange func()) (io.Closer, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, fmt.Errorf("create watcher: %w", err)
-	}
-	if err := watcher.Add(path); err != nil {
-		watcher.Close()
-		return nil, fmt.Errorf("watch %s: %w", path, err)
-	}
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					onChange()
-				}
-			case <-watcher.Errors:
-				return
-			}
-		}
-	}()
-	return watcher, nil
 }

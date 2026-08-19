@@ -38,7 +38,7 @@ func TestSearchPopupDoesNotBlankLog(t *testing.T) {
 	vl := app.visibleLines()
 	hasLog := false
 	for i := 4; i < 4+vl && i < len(lines); i++ {
-		if strings.Contains(stripAnsi(lines[i]), "boom") {
+		if strings.Contains(stripANSI(lines[i]), "boom") {
 			hasLog = true
 			break
 		}
@@ -95,7 +95,7 @@ func TestSearchPopupKeepsMatchesVisibleWhenFew(t *testing.T) {
 			lines := strings.Split(view, "\n")
 			hasVisible := false
 			for i := 4 + ph; i < 4+vl && i < len(lines); i++ {
-				if strings.Contains(stripAnsi(lines[i]), "service") {
+				if strings.Contains(stripANSI(lines[i]), "service") {
 					hasVisible = true
 					break
 				}

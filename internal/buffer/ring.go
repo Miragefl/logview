@@ -11,6 +11,9 @@ type RingBuffer struct {
 }
 
 func NewRingBuffer(capacity int) *RingBuffer {
+	if capacity < 1 {
+		capacity = 1
+	}
 	return &RingBuffer{
 		buf: make([]*model.ParsedLine, capacity),
 		cap: capacity,
