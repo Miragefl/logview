@@ -39,6 +39,18 @@ echo ""
 read -rp "    proceed? [y/N] " confirm
 [[ "$confirm" != "y" && "$confirm" != "Y" ]] && echo "aborted." && exit 0
 
+# update gitee download urls in README (gitee has no latest/download alias)
+echo "==> updating gitee download urls in README to v$NEXT"
+if sed -i '' -e "s|gitee.com/Mtok/logview/releases/download/v[0-9][0-9.]*/|gitee.com/Mtok/logview/releases/download/v$NEXT/|g" README.md; then
+    if [[ -n $(git status --porcelain README.md) ]]; then
+        git add README.md
+        git commit -m "docs: update gitee download urls to v$NEXT"
+        git push origin main
+    else
+        echo "    README already up to date"
+    fi
+fi
+
 # tag and push
 echo "==> tagging v$NEXT"
 git tag "v$NEXT"
