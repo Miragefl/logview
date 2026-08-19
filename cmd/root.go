@@ -13,6 +13,7 @@ import (
 	"github.com/justfun/logview/internal/parser"
 	"github.com/justfun/logview/internal/stream"
 	"github.com/justfun/logview/internal/tui"
+	"github.com/justfun/logview/internal/upgrade"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,89 @@ var versionCmd = &cobra.Command{
 	Short: "Print version info",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("logview %s (commit: %s, built: %s)\n", buildVersion, buildCommit, buildDate)
+	},
+}
+
+var upgradeCmd = &cobra.Command{
+	Use:   "upgrade",
+	Short: "Upgrade logview to the latest release",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mirror, _ := cmd.Flags().GetString("mirror")
+		force, _ := cmd.Flags().GetBool("force")
+
+		if buildVersion == "dev" {
+			return fmt.Errorf("cannot upgrade a dev build (install a release binary first)")
+		}
+
+		self, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to locate executable: %w", err)
+		}
+
+		// brew install: delegate to brew upgrade
+		if upgrade.IsBrewInstall(self) {
+			fmt.Println("==> detected Homebrew install, running brew upgrade")
+			brew := exec.Command("brew", "upgrade", "logview")
+			brew.Stdout = os.Stdout
+			brew.Stderr = os.Stderr
+			brew.Stdin = os.Stdin
+			return brew.Run()
+		}
+
+		fmt.Printf("==> checking latest version (%s)\n", mirror)
+		latest, err := upgrade.Latest(mirror)
+		if err != nil {
+			if mirror == upgrade.MirrorGitee {
+				return fmt.Errorf("%w\nretry with: logview upgrade --mirror github", err)
+			}
+			return err
+		}
+		fmt.Printf("    current: v%s, latest: %s\n", buildVersion, latest)
+
+		if !force && upgrade.CompareVersions(latest, buildVersion) <= 0 {
+			fmt.Println("==> already up to date")
+			return nil
+		}
+
+		url, err := upgrade.AssetURL(mirror, latest)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("==> downloading %s\n", url)
+		archive, err := upgrade.Download(url)
+		if err != nil {
+			os.Remove(archive)
+			if mirror == upgrade.MirrorGitee {
+				return fmt.Errorf("%w\nretry with: logview upgrade --mirror github", err)
+			}
+			return err
+		}
+
+		tmpDir, err := os.MkdirTemp("", "logview-upgrade-*")
+		if err != nil {
+			os.Remove(archive)
+			return fmt.Errorf("failed to create temp dir: %w", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		bin, err := upgrade.ExtractBinary(archive, tmpDir)
+		os.Remove(archive)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("==> installing")
+		if err := upgrade.ReplaceSelf(bin); err != nil {
+			return err
+		}
+
+		out, err := exec.Command(self, "version").Output()
+		if err != nil {
+			fmt.Println("==> upgrade completed (failed to verify: ", err.Error(), ")")
+			return nil
+		}
+		fmt.Printf("==> upgraded to %s", strings.TrimSpace(string(out)))
+		return nil
 	},
 }
 
@@ -242,6 +326,9 @@ func init() {
 	rootCmd.AddCommand(fileCmd)
 	rootCmd.AddCommand(pipeCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(upgradeCmd)
+	upgradeCmd.Flags().String("mirror", upgrade.MirrorGitee, "download mirror (gitee or github)")
+	upgradeCmd.Flags().Bool("force", false, "upgrade even if already at the latest version")
 	rootCmd.AddCommand(completionCmd())
 }
 
