@@ -32,16 +32,13 @@ sudo mv logview /usr/local/bin/
 GitHub 访问较慢时，从 Gitee 镜像下载（[查看最新版本](https://gitee.com/Mtok/logview/releases)）：
 
 ```bash
-# 获取最新版本号（Gitee 不支持 latest 直链）
-VER=$(curl -s https://gitee.com/api/v5/repos/Mtok/logview/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-
 # x86_64
-curl -L -o logview.tar.gz "https://gitee.com/Mtok/logview/releases/download/$VER/logview_linux_amd64.tar.gz"
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.17/logview_linux_amd64.tar.gz
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
 # ARM64
-curl -L -o logview.tar.gz "https://gitee.com/Mtok/logview/releases/download/$VER/logview_linux_arm64.tar.gz"
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.12.17/logview_linux_arm64.tar.gz
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
