@@ -60,9 +60,15 @@ git push origin "v$NEXT"
 echo "==> goreleaser release"
 GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
 
-# upgrade local brew
+# upgrade local brew (proxy if direct GitHub access is unavailable)
 echo "==> upgrading local brew"
-brew update && brew upgrade logview
+if [[ -n "${RELEASE_PROXY:-}" ]] || nc -z -w1 127.0.0.1 7890 2>/dev/null; then
+    PROXY="${RELEASE_PROXY:-http://127.0.0.1:7890}"
+    echo "    using proxy $PROXY (set RELEASE_PROXY to override)"
+    HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew update && HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew upgrade logview
+else
+    brew update && brew upgrade logview
+fi
 
 # update nightly
 echo "==> updating nightly release"
