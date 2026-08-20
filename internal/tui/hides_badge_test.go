@@ -25,12 +25,12 @@ func TestHidesBadgeInSearchMode(t *testing.T) {
 
 	// 进搜索模式
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	items := app.helpItems()
+	items := app.statusItems()
 	if !containsItem(items, "隐藏") {
 		t.Fatalf("搜索模式下应显示 hides badge，items=%v", itemDescs(items))
 	}
-	if !containsItem(items, "藏") {
-		t.Fatalf("hides badge 应含隐藏行数提示，items=%v", itemDescs(items))
+	if !containsItem(items, "词") {
+		t.Fatalf("hides badge 应含隐藏词数提示，items=%v", itemDescs(items))
 	}
 }
 
@@ -61,6 +61,29 @@ func containsItem(items []helpItem, sub string) bool {
 		}
 	}
 	return false
+}
+
+// \ 切换快捷键提示栏：隐藏后 footer 只剩状态栏，且提示 \ 显示快捷键。
+func TestKeyHintsToggle(t *testing.T) {
+	app := newTestApp()
+	if !app.showKeyHints {
+		t.Fatal("showKeyHints 默认应为 true")
+	}
+	h1 := app.footerHeight()
+	if h1 != 2 {
+		t.Fatalf("显示提示时 footer 应占 2 行，实际 %d", h1)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\\'}})
+	if app.showKeyHints {
+		t.Fatal("按 \\ 后 showKeyHints 应为 false")
+	}
+	if h2 := app.footerHeight(); h2 != 1 {
+		t.Fatalf("隐藏提示后 footer 应占 1 行，实际 %d", h2)
+	}
+	footer := app.renderFooter()
+	if !strings.Contains(model.StripANSI(footer), "显示快捷键") {
+		t.Fatalf("隐藏后应保留 \\显示快捷键 提示，footer=%q", footer)
+	}
 }
 
 func itemDescs(items []helpItem) []string {

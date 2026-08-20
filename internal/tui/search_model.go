@@ -295,32 +295,6 @@ func (a *App) confirmSearchTab() {
 	}
 }
 
-func (a *App) handleHighlightKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		a.highlightMode = false
-	case tea.KeyEnter:
-		a.confirmHighlights()
-		a.highlightMode = false
-	default:
-		inputRef{&a.highlightInput, &a.highlightCursor}.handleEditKeys(msg)
-	}
-	return a, nil
-}
-
-func (a *App) handleHideKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		a.hideMode = false
-	case tea.KeyEnter:
-		a.confirmHides()
-		a.hideMode = false
-	default:
-		inputRef{&a.hideInput, &a.hideCursor}.handleEditKeys(msg)
-	}
-	return a, nil
-}
-
 func (a *App) populateSearchFields() {
 	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
 		a.starFields = nil

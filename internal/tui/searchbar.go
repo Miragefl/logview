@@ -6,6 +6,19 @@ import (
 
 func (a *App) renderSearchBar() string {
 	if a.searchMode {
+		labels := []string{"搜索", "高亮", "隐藏"}
+		label := labels[a.searchTab]
+		input := a.activeSearchInput()
+		runes := []rune(*input.text)
+		pos := *input.cursor
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+		before := string(runes[:pos])
+		after := string(runes[pos:])
+		if a.searchTab != 0 {
+			return fmt.Sprintf(" %s: %s█%s  [Esc取消] [Enter确认]", label, before, after)
+		}
 		q := parseSearchQuery(a.searchInput)
 		hint := ""
 		if tr := q.TimeRangeHint(); tr != "" {
@@ -15,15 +28,7 @@ func (a *App) renderSearchBar() string {
 		if len(a.starFields) > 0 {
 			fieldHint = " [Tab插入字段]"
 		}
-		// insert cursor indicator at searchCursor position
-		runes := []rune(a.searchInput)
-		pos := a.searchCursor
-		if pos > len(runes) {
-			pos = len(runes)
-		}
-		before := string(runes[:pos])
-		after := string(runes[pos:])
-		return fmt.Sprintf(" 搜索: %s█%s  [Esc取消] [Enter确认]%s%s", before, after, hint, fieldHint)
+		return fmt.Sprintf(" %s: %s█%s  [Esc取消] [Enter确认]%s%s", label, before, after, hint, fieldHint)
 	}
 	if a.searchInput != "" {
 		q := parseSearchQuery(a.searchInput)

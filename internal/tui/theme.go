@@ -79,7 +79,10 @@ func ApplyTheme(cfg ThemeConfig) {
 	LevelDebug = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelDebug))
 	LevelInfo = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelInfo))
 	LevelWarn = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelWarn))
-	LevelError = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelError)).Bold(true)
+	LevelError = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(cfg.LevelErrorFg())).
+		Background(lipgloss.Color(cfg.LevelErrorBg())).
+		Bold(true)
 
 	TimeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Time))
 	SourceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Source))
@@ -155,6 +158,20 @@ func ApplyTheme(cfg ThemeConfig) {
 		PopupTabStyle = PopupTabStyle.Background(bg)
 		HideMarkStyle = HideMarkStyle.Background(bg)
 	}
+}
+
+func (c ThemeConfig) LevelErrorBg() string {
+	if c.Bg == "#FFFFFF" || c.Bg == "#E4E4E4" {
+		return "#FFD7D7" // light theme: pale red band, keep dark text readable
+	}
+	return "#87005F" // dark theme: deep magenta-red band
+}
+
+func (c ThemeConfig) LevelErrorFg() string {
+	if c.Bg == "#FFFFFF" || c.Bg == "#E4E4E4" {
+		return c.LevelError
+	}
+	return "#FFFFFF"
 }
 
 func ResolveTheme(name string, overrides map[string]string) ThemeConfig {

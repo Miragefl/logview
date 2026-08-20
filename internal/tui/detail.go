@@ -22,9 +22,6 @@ func (a *App) renderDetailBar() string {
 	for _, f := range model.AllFields {
 		val := line.Get(f)
 		if val == "" {
-			parts = append(parts, fmt.Sprintf("%s %s",
-				DetailLabelStyle.Render(string(f)+":"),
-				DetailDimStyle.Render("-")))
 			continue
 		}
 		parts = append(parts, fmt.Sprintf("%s %s",
@@ -36,7 +33,7 @@ func (a *App) renderDetailBar() string {
 	if msg == "" {
 		msg = line.Raw.Text
 	}
-	msg = prettyPrintJSON(msg)
+	msg = compactDetailJSON(msg)
 	parts = append(parts, fmt.Sprintf("%s %s",
 		DetailLabelStyle.Render("msg:"),
 		DetailValueStyle.Render(msg)))
@@ -55,6 +52,19 @@ func prettyPrintJSON(s string) string {
 	var buf bytes.Buffer
 	if json.Indent(&buf, []byte(s), "", "  ") == nil {
 		return buf.String()
+	}
+	return s
+}
+
+// compactDetailJSON 把多行 JSON 压缩成单行（详情栏单行显示，避免撑破布局）。
+func compactDetailJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 || (s[0] != '{' && s[0] != '[') {
+		return s
+	}
+	var out bytes.Buffer
+	if json.Compact(&out, []byte(s)) == nil {
+		return out.String()
 	}
 	return s
 }

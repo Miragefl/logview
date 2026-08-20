@@ -76,15 +76,16 @@ type App struct {
 	yankMsg  string
 
 	highlights      []string
-	highlightMode   bool
 	highlightInput  string
 	highlightCursor int
 
 	hides         []string
-	hideMode      bool
 	hideInput     string
 	hideCursor    int
-	hiddenByHides int // recomputeView 统计：当前被 hides 隐藏的行数（供 helpBar 提示）
+	hiddenByHides int // recomputeView 统计：当前被 hides 隐藏的行数（供状态栏提示）
+
+	levelCounts map[string]int // 缓冲内级别统计（标题栏用）
+	showKeyHints bool          // 底部快捷键提示栏开关（\ 切换）
 
 	parserName string
 
@@ -149,6 +150,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		expanded:       make(map[int]bool),
 		hides:          hides,
 		autoscroll:     true,
+		showKeyHints:   true,
 		exportState:    newExportState(),
 		sourceColorIdx: make(map[string]int),
 		bookmarks:      make(map[uint64]bool),
@@ -232,12 +234,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.helpMode {
 			return a.handleHelpKeys(msg)
 		}
-		if a.highlightMode {
-			return a.handleHighlightKeys(msg)
-		}
-		if a.hideMode {
-			return a.handleHideKeys(msg)
-		}
 		if a.exportMode {
 			return a.handleExportKeys(msg)
 		}
@@ -283,6 +279,12 @@ func (a *App) processLine(raw model.RawLine) {
 	}
 	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
+	if lv := pl.Get(model.FieldLevel); lv != "" {
+		if a.levelCounts == nil {
+			a.levelCounts = make(map[string]int)
+		}
+		a.levelCounts[lv]++
+	}
 	if len(a.hides) > 0 && a.matchHides(pl) {
 		a.hiddenByHides++
 	}
@@ -332,10 +334,14 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 func (a *App) recomputeView() {
 	var view []*model.ParsedLine
 	hiddenByHides := 0
+	levelCounts := make(map[string]int)
 	for i := 0; i < a.buffer.Len(); i++ {
 		line := a.buffer.Get(i)
 		if line == nil {
 			continue
+		}
+		if lv := line.Get(model.FieldLevel); lv != "" {
+			levelCounts[lv]++
 		}
 		if len(a.hides) > 0 && a.matchHides(line) {
 			hiddenByHides++
@@ -354,6 +360,7 @@ func (a *App) recomputeView() {
 		view = append(view, line)
 	}
 	a.hiddenByHides = hiddenByHides
+	a.levelCounts = levelCounts
 	a.filteredView = view
 	if a.cursor >= len(a.filteredView) {
 		a.cursor = max(0, len(a.filteredView)-1)
@@ -364,6 +371,21 @@ func (a *App) recomputeView() {
 
 func (a *App) SetRulesPath(path string) {
 	a.rulesPath = path
+}
+
+// recountLevels 重算缓冲内级别统计（recomputeView 内已同步维护，此函数供特殊路径调用）。
+func (a *App) recountLevels() {
+	counts := make(map[string]int)
+	for i := 0; i < a.buffer.Len(); i++ {
+		line := a.buffer.Get(i)
+		if line == nil {
+			continue
+		}
+		if lv := line.Get(model.FieldLevel); lv != "" {
+			counts[lv]++
+		}
+	}
+	a.levelCounts = counts
 }
 
 func (a *App) jumpBookmark() {
@@ -494,9 +516,11 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		a.helpMode = true
 	case "h":
-		a.openHighlightPopup()
+		a.openUnifiedPopup(1)
 	case "x":
-		a.openHidePopup()
+		a.openUnifiedPopup(2)
+	case "\\":
+		a.showKeyHints = !a.showKeyHints
 	case "s":
 		a.exportMode = true
 	case "n":
@@ -562,6 +586,7 @@ func (a *App) clearScreen() {
 	a.filteredView = nil
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
+	a.levelCounts = make(map[string]int)
 	a.cursor = 0
 	a.offset = 0
 	a.newLogs = 0
@@ -593,10 +618,7 @@ func (a *App) escapeToNormal() {
 }
 
 func (a *App) openSearch() {
-	a.searchMode = true
-	a.searchTab = 0
-	a.populateSearchFields()
-	a.searchCursor = len([]rune(a.searchInput))
+	a.openUnifiedPopup(0)
 }
 
 func (a *App) beginVisual() {
@@ -605,20 +627,25 @@ func (a *App) beginVisual() {
 	a.autoscroll = false
 }
 
-func (a *App) openHighlightPopup() {
-	a.highlightMode = true
-	if a.highlightInput == "" && len(a.highlights) > 0 {
-		a.highlightInput = strings.Join(a.highlights, ", ")
+// openUnifiedPopup 打开统一弹窗（搜索/高亮/隐藏三 tab），tab 指定直达分区。
+func (a *App) openUnifiedPopup(tab int) {
+	a.searchMode = true
+	a.searchTab = tab
+	a.searchHistMode = false
+	if tab == 0 {
+		a.populateSearchFields()
+		a.searchCursor = len([]rune(a.searchInput))
+	} else if tab == 1 {
+		if a.highlightInput == "" && len(a.highlights) > 0 {
+			a.highlightInput = strings.Join(a.highlights, ", ")
+		}
+		a.highlightCursor = len([]rune(a.highlightInput))
+	} else {
+		if a.hideInput == "" && len(a.hides) > 0 {
+			a.hideInput = strings.Join(a.hides, ", ")
+		}
+		a.hideCursor = len([]rune(a.hideInput))
 	}
-	a.highlightCursor = len([]rune(a.highlightInput))
-}
-
-func (a *App) openHidePopup() {
-	a.hideMode = true
-	if a.hideInput == "" && len(a.hides) > 0 {
-		a.hideInput = strings.Join(a.hides, ", ")
-	}
-	a.hideCursor = len([]rune(a.hideInput))
 }
 
 func (a *App) toggleBookmark() {
@@ -827,12 +854,39 @@ func (a *App) doExport() {
 }
 
 func (a *App) visibleLines() int {
-	// fixed lines: title, sep, bar, sep, sep(bottom) = 5, plus helpBar (1-2 lines)
-	vl := a.height - 5 - a.helpBarHeight()
+	// fixed lines: title, sep, bar, sep, sep(bottom) = 5, plus footer (status bar + optional key hints)
+	vl := a.height - 5 - a.footerHeight()
 	if vl < 1 {
 		vl = 1
 	}
 	return vl
+}
+
+// levelBadge 返回标题栏级别统计（E:3 W:30 形式），无统计时为空。
+func (a *App) levelBadge() string {
+	e := a.levelCounts["ERROR"] + a.levelCounts["ERR"] + a.levelCounts["FATAL"]
+	w := a.levelCounts["WARN"] + a.levelCounts["WARNING"]
+	var parts []string
+	if e > 0 {
+		parts = append(parts, fmt.Sprintf(" E:%d", e))
+	}
+	if w > 0 {
+		parts = append(parts, fmt.Sprintf(" W:%d", w))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " ─" + strings.Join(parts, "")
+}
+
+// scrollPercent 返回光标位置百分比（" ─ 62%"），无内容时为空。
+func (a *App) scrollPercent() string {
+	n := len(a.filteredView)
+	if n == 0 {
+		return ""
+	}
+	pct := (a.cursor + 1) * 100 / n
+	return fmt.Sprintf(" ─ %d%%", pct)
 }
 
 func (a *App) View() string {
@@ -847,7 +901,8 @@ func (a *App) View() string {
 		pLabel = "raw"
 	}
 	title := TitleStyle.Width(w).Render(
-		fmt.Sprintf(" LogView ─ %s [%s] ─ %d条", a.streamLabel(), pLabel, a.buffer.Len()),
+		fmt.Sprintf(" LogView ─ %s [%s]%s ─ %d条%s",
+			a.streamLabel(), pLabel, a.levelBadge(), a.buffer.Len(), a.scrollPercent()),
 	)
 
 	sep := strings.Repeat(HorizontalLine, w)
@@ -855,7 +910,7 @@ func (a *App) View() string {
 	// truncate every line to terminal width to prevent wrapping
 	trunc := lipgloss.NewStyle().MaxWidth(w)
 	bar := trunc.Render(a.renderSearchBar())
-	helpBar := a.renderHelpBarContent()
+	helpBar := a.renderFooter()
 
 	vl := a.visibleLines()
 	var logLines []string
@@ -863,10 +918,6 @@ func (a *App) View() string {
 		logLines = a.buildSearchModeLines(vl)
 	} else if a.helpMode {
 		logLines = a.buildHelpPopup(vl)
-	} else if a.highlightMode {
-		logLines = a.buildHighlightPopup(vl)
-	} else if a.hideMode {
-		logLines = a.buildHidePopup(vl)
 	} else if a.exportMode {
 		logLines = a.buildExportPopup(vl)
 	} else if a.panelFocus {
@@ -972,4 +1023,5 @@ func (a *App) ApplySession(s *SessionState) {
 	}
 	a.showLineNum = s.ShowLineNum
 	a.recomputeView()
+	a.recountLevels()
 }
