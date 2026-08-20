@@ -58,7 +58,18 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 		case 0:
 			return a.pickerContexts
 		case 1:
-			return a.pickerNamespaces
+			// ns 层按输入前缀过滤（输入即选中）
+			filter := strings.ToLower(strings.TrimSpace(a.pickerNsInput))
+			if filter == "" {
+				return a.pickerNamespaces
+			}
+			var out []sourceCandidate
+			for _, c := range a.pickerNamespaces {
+				if strings.Contains(strings.ToLower(c.value), filter) {
+					out = append(out, c)
+				}
+			}
+			return out
 		default:
 			filter := strings.ToLower(a.pickerDirFilter)
 			if filter == "" {
@@ -164,6 +175,15 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyRunes:
+		// 有输入框的层（ns/资源过滤/本地/ssh目录）：字母一律进输入框，避免名称含 j/k 丢字
+		if input := a.pickerInputRef(); input.text != nil {
+			input.handleEditKeys(msg)
+			if n := len(a.visiblePickerCandidates()); a.pickerCursor >= n {
+				a.pickerCursor = max(0, n-1)
+			}
+			return a, nil
+		}
+		// 无输入框的层（context 列表/ssh 主机候选）：j/k 移动
 		switch string(msg.Runes) {
 		case "k":
 			if a.pickerCursor > 0 {
@@ -178,10 +198,14 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// 输入框编辑（K8s ns 层手输、本地路径手输、SSH 主机手输）
+	// 输入框编辑（K8s ns/资源过滤、本地路径/过滤、SSH 主机/过滤）
 	input := a.pickerInputRef()
 	if input.text != nil {
 		input.handleEditKeys(msg)
+		// 输入改变列表后收敛光标到可见范围
+		if n := len(a.visiblePickerCandidates()); a.pickerCursor >= n {
+			a.pickerCursor = max(0, n-1)
+		}
 	}
 	return a, nil
 }
@@ -292,6 +316,18 @@ func (a *App) pickerEnter() tea.Cmd {
 	}
 
 	if a.pickerCursor >= len(cands) {
+		// ns 层越界（过滤后光标超出）：输入框有值时直达该 namespace
+		if a.sourceTab == 0 && a.pickerK8sLevel == 1 {
+			ns := strings.TrimSpace(a.pickerNsInput)
+			if ns != "" {
+				a.pickerK8sLevel = 2
+				a.pickerCandidates = nil
+				a.pickerCursor = 0
+				a.pickerLoading = true
+				a.pickerDirFilter = ""
+				return fetchK8sCandidatesCmd(ns)
+			}
+		}
 		return nil
 	}
 	cand := cands[a.pickerCursor]

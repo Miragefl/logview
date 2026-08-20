@@ -303,6 +303,62 @@ func TestSourcePickerK8sFilteredCursorOpen(t *testing.T) {
 	}
 }
 
+// 防回归：ns 层输入即过滤可见列表；输入后光标越界 Enter 用输入值直达。
+func TestSourcePickerNsTypedFilter(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(0)
+	app.pickerK8sLevel = 1
+	app.pickerNamespaces = []sourceCandidate{
+		{label: "default", value: "default"},
+		{label: "kube-system", value: "kube-system"},
+		{label: "parking", value: "parking"},
+	}
+	// 输入 park 过滤
+	for _, r := range "park" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 1 || cands[0].value != "parking" {
+		t.Fatalf("ns 过滤失败: %v", cands)
+	}
+	// 光标 clamp 到 0 后 Enter 进 parking 资源层（候选项补全 ns 名）
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerK8sLevel != 2 || app.pickerNsInput != "parking" {
+		t.Fatalf("应进资源层: level=%d ns=%q", app.pickerK8sLevel, app.pickerNsInput)
+	}
+	// 补全 ns：模拟完整输入的直达（光标越界场景）
+	app2 := newTestApp()
+	app2.openSourcePicker(0)
+	app2.pickerK8sLevel = 1
+	app2.pickerNamespaces = []sourceCandidate{{label: "default", value: "default"}}
+	for _, r := range "parking" {
+		app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if got := len(app2.visiblePickerCandidates()); got != 0 {
+		t.Fatalf("无匹配 ns 应为空列表，实际 %d", got)
+	}
+	app2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app2.pickerK8sLevel != 2 || app2.pickerNsInput != "parking" {
+		t.Fatalf("越界 Enter 应直达输入 ns: level=%d ns=%q", app2.pickerK8sLevel, app2.pickerNsInput)
+	}
+}
+
+// 防回归：ns 层输入含 j/k 的名称不丢字（字母进输入框而非移动光标）。
+func TestSourcePickerNsTypingJK(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(0)
+	app.pickerK8sLevel = 1
+	for _, r := range "kube-system" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if app.pickerNsInput != "kube-system" {
+		t.Fatalf("输入 kube-system 应完整，实际 %q", app.pickerNsInput)
+	}
+	if app.pickerCursor != 0 {
+		t.Fatalf("输入时光标不应移动，实际 %d", app.pickerCursor)
+	}
+}
+
 // expandHome 展开 ~/ 前缀。
 func TestExpandHome(t *testing.T) {
 	p := expandHome("~/logs/app.log")
