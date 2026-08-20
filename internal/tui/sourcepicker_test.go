@@ -275,6 +275,34 @@ func TestSourcePickerSSHFilterBackspace(t *testing.T) {
 	}
 }
 
+// 防回归：过滤后光标项打开的必须是可见（过滤后）候选，而非原始列表同位置项。
+func TestSourcePickerK8sFilteredCursorOpen(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(0)
+	app.pickerK8sLevel = 2
+	app.pickerNsInput = "default"
+	app.pickerCandidates = []sourceCandidate{
+		{label: "deploy/api-gateway", value: "deployment/api-gateway"},
+		{label: "deploy/billing", value: "deployment/billing"},
+		{label: "deploy/user-svc", value: "deployment/user-svc"},
+	}
+	// 过滤到 billing：可见列表只剩 billing，光标 0
+	for _, r := range "billing" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if cands := app.visiblePickerCandidates(); len(cands) != 1 || cands[0].value != "deployment/billing" {
+		t.Fatalf("过滤后应只剩 billing: %v", cands)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	label := app.stream.Label()
+	if !strings.Contains(label, "billing") {
+		t.Fatalf("应打开过滤后的 billing，实际 %s", label)
+	}
+	if strings.Contains(label, "api-gateway") {
+		t.Fatalf("不应打开原始列表同位置的 api-gateway: %s", label)
+	}
+}
+
 // expandHome 展开 ~/ 前缀。
 func TestExpandHome(t *testing.T) {
 	p := expandHome("~/logs/app.log")

@@ -419,14 +419,13 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 	tab := a.sourceTab
 	cursor := a.pickerCursor
 	checked := a.pickerChecked
-	cands := a.pickerCandidates
+	cands := a.visiblePickerCandidates() // 过滤后的可见候选（K8s 资源层/SSH 目录层受 filter 影响）
 	nsInput := a.pickerNsInput
 	pathInput := a.pickerPathInput
 	hostInput := a.pickerHostInput
 	remotePath := a.pickerRemotePath
 	sshHost := a.pickerSSHHost
 	sshDir := a.pickerSSHDir
-	localCands := listLocalDir(a.pickerLocalDir, false)
 	a.closeSourcePicker()
 
 	switch tab {
@@ -459,19 +458,6 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 		path := strings.TrimSpace(pathInput)
 		if path == "" {
 			return nil
-		}
-		// 相对路径 → 基于浏览目录
-		if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "~") {
-			var base string
-			for _, e := range localCands {
-				if !e.isDir && e.name == filepath.Base(path) {
-					base = a.pickerLocalDir
-					break
-				}
-			}
-			if base != "" {
-				path = filepath.Join(base, path)
-			}
 		}
 		path = expandHome(path)
 		return a.ReplaceStream(stream.NewFileSource([]string{path}))
