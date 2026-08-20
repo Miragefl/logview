@@ -28,6 +28,46 @@ func writeAskpassScript() (string, func(), error) {
 	return path, func() { os.RemoveAll(dir) }, nil
 }
 
+// applySSHAuth 按认证方式装配 ssh 命令：password 非空走 askpass（返回清理函数，无需清理时为 nil）。
+func applySSHAuth(cmd *exec.Cmd, password string) (func(), error) {
+	if password == "" {
+		// 免密：BatchMode 直接报错不挂起
+		cmd.Args = insertSSHOpt(cmd.Args, "-o", "BatchMode=yes")
+		return nil, nil
+	}
+	askpass, cleanup, err := writeAskpassScript()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Args = insertSSHOpt(cmd.Args, "-o", "BatchMode=no", "-o", "StrictHostKeyChecking=no")
+	cmd.Env = append(os.Environ(),
+		"SSH_ASKPASS="+askpass,
+		"SSH_ASKPASS_REQUIRE=force",
+		"SSH_PASSWORD="+password,
+		"DISPLAY=:0", // 部分 ssh 版本要求 DISPLAY 存在才走 askpass
+	)
+	return cleanup, nil
+}
+
+// insertSSHOpt 在 host 参数（最后一个非选项参数前的位置简化为索引 1 后）插入 ssh 选项。
+// 约定：调用时 Args[0]="ssh" Args[1]="-o ConnectTimeout..." 系列，host 其后。
+func insertSSHOpt(args []string, opts ...string) []string {
+	// 找到第一个非 -o/-值 参数位置（host），选项插在其前
+	i := 1
+	for i < len(args) {
+		if args[i] == "-o" {
+			i += 2
+			continue
+		}
+		break
+	}
+	out := make([]string, 0, len(args)+len(opts))
+	out = append(out, args[:i]...)
+	out = append(out, opts...)
+	out = append(out, args[i:]...)
+	return out
+}
+
 // SSHSource tails a remote file over the system ssh client.
 // Auth is fully delegated to ssh (~/.ssh/config aliases, keys, agent, ProxyJump).
 // 密码认证：SetPassword 后经 SSH_ASKPASS 临时脚本喂给 ssh（免交互）。
@@ -67,33 +107,21 @@ func (s *SSHSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 }
 
 func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
-	opts := []string{"-o", "BatchMode=yes"} // 免交互：密钥/agent 认证
-	if s.password != "" {
-		// 密码认证：SSH_ASKPASS 脚本回显密码（环境变量注入，见 startCmd）
-		opts = []string{"-o", "BatchMode=no", "-o", "StrictHostKeyChecking=no"}
-	}
-	args := append([]string{"-o", "ConnectTimeout=8"}, opts...)
-	args = append(args, s.host)
+	args := []string{"ssh", "-o", "ConnectTimeout=8", s.host}
 	if s.tailLines > 0 {
 		args = append(args, fmt.Sprintf("tail -n %d -F %s", s.tailLines, shellQuote(s.path)))
 	} else {
 		args = append(args, fmt.Sprintf("tail -F %s", shellQuote(s.path)))
 	}
 
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-	if s.password != "" {
-		askpass, cleanup, err := writeAskpassScript()
-		if err != nil {
-			s.emitErr(ctx, ch, fmt.Sprintf("askpass: %v", err))
-			return
-		}
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cleanup, err := applySSHAuth(cmd, s.password)
+	if err != nil {
+		s.emitErr(ctx, ch, fmt.Sprintf("askpass: %v", err))
+		return
+	}
+	if cleanup != nil {
 		defer cleanup()
-		cmd.Env = append(os.Environ(),
-			"SSH_ASKPASS="+askpass,
-			"SSH_ASKPASS_REQUIRE=force",
-			"SSH_PASSWORD="+s.password,
-			"DISPLAY=:0", // 部分 ssh 版本要求 DISPLAY 存在才走 askpass
-		)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -221,17 +249,25 @@ type SSHDirEntry struct {
 }
 
 // SSHListDir 列出远程目录内容（目录 / 后缀分类），每行一个条目。
-// 单发 ssh 命令，BatchMode 保证不挂起。
-func SSHListDir(host, path string) ([]SSHDirEntry, error) {
+// 单发 ssh 命令；password 非空时走 askpass 密码认证。
+func SSHListDir(host, path, password string) ([]SSHDirEntry, error) {
 	path = strings.TrimSuffix(path, "/")
 	if path == "" {
 		path = "/"
 	}
-	args := []string{"-o", "ConnectTimeout=8", "-o", "BatchMode=yes", host,
+	args := []string{"ssh", "-o", "ConnectTimeout=8", host,
 		fmt.Sprintf("ls -1 -F %s 2>/dev/null", shellQuote(path))}
 	// 远端 ls 错误已丢弃(2>/dev/null)；CombinedOutput 中 stderr 即 ssh 自身错误
 	// （认证/连接），供 UI 判断是否弹密码框
-	combined, err := exec.Command("ssh", args...).CombinedOutput()
+	cmd := exec.Command(args[0], args[1:]...)
+	cleanup, err := applySSHAuth(cmd, password)
+	if err != nil {
+		return nil, err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	combined, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("ssh ls %s: %s", host, strings.TrimSpace(string(combined)))
 	}

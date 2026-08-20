@@ -29,14 +29,39 @@ func (a *App) closeSSHPw() {
 	a.sshPwMode = false
 	a.sshPwInput = ""
 	a.sshPwCursor = 0
+	a.sshPwFromPicker = false
 }
 
-// confirmSSHPw 带密码重建 SSHSource 并热切换。
+// sshPw 返回主机的缓存密码（无则空串=免密）。
+func (a *App) sshPw(host string) string {
+	return a.sshPasswords[host]
+}
+
+// confirmSSHPw 密码确认分流：picker 目录浏览来源 → 存密码并回到目录浏览；
+// tail 流来源 → 带密码重建 SSHSource 热切换。
 func (a *App) confirmSSHPw() tea.Cmd {
 	host, path, pw := a.sshPwHost, a.sshPwPath, a.sshPwInput
+	fromPicker := a.sshPwFromPicker
 	a.closeSSHPw()
 	if pw == "" || host == "" {
 		return nil
+	}
+	// 密码入内存缓存（后续同主机连接/浏览免重输）
+	if a.sshPasswords == nil {
+		a.sshPasswords = make(map[string]string)
+	}
+	a.sshPasswords[host] = pw
+
+	if fromPicker {
+		// 回到 picker 的远程目录层，带密码重拉目录列表
+		a.openSourcePicker(2)
+		a.pickerSSHHost = host
+		a.pickerSSHDir = path
+		a.pickerSSHRoot = path
+		a.pickerCandidates = nil
+		a.pickerCursor = 0
+		a.pickerLoading = true
+		return fetchSSHDirCmd(host, path, pw)
 	}
 	src := stream.NewSSHSource(host, path, 200)
 	src.SetPassword(pw)
@@ -59,13 +84,14 @@ func (a *App) maybePromptSSHPassword(text string) {
 	}
 	a.sshPwHost = src.Host()
 	a.sshPwPath = src.Path()
+	a.sshPwFromPicker = false
 	a.sshPwMode = true
 	a.sshPwInput = ""
 	a.sshPwCursor = 0
 }
 
 // promptSSHPwForHost 在 picker 内浏览远程目录失败（认证错误）时展开密码框。
-// ns 参数为 "host:/path" 形式；Enter 后回到该目录继续浏览。
+// target 为 "host:/path" 形式；Enter 后带密码回到该目录继续浏览。
 func (a *App) promptSSHPwForHost(target string) {
 	host, path, _ := strings.Cut(target, ":")
 	if host == "" {
@@ -76,11 +102,11 @@ func (a *App) promptSSHPwForHost(target string) {
 	}
 	a.sshPwHost = host
 	a.sshPwPath = path
+	a.sshPwFromPicker = true
 	a.sshPwMode = true
 	a.sshPwInput = ""
 	a.sshPwCursor = 0
-	// 关闭 picker，密码框接管；重连成功后停留新流
-	a.closeSourcePicker()
+	a.closeSourcePicker() // 密码框接管渲染；确认后重开定位到目录层
 }
 
 // buildSSHPwLines 渲染密码输入弹窗（居中，日志透出）。

@@ -184,10 +184,10 @@ func sshCandidates() []sourceCandidate {
 	return items
 }
 
-// fetchSSHDirCmd 异步拉取远程目录列表。
-func fetchSSHDirCmd(host, path string) tea.Cmd {
+// fetchSSHDirCmd 异步拉取远程目录列表（password 非空走密码认证）。
+func fetchSSHDirCmd(host, path, password string) tea.Cmd {
 	return func() tea.Msg {
-		entries, err := stream.SSHListDir(host, path)
+		entries, err := stream.SSHListDir(host, path, password)
 		if err != nil {
 			return candidatesMsg{tab: 2, kind: "sshdir", ns: host + ":" + path, err: err}
 		}

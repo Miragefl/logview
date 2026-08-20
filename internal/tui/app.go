@@ -104,6 +104,9 @@ type App struct {
 	sshPwCursor int
 	sshPwHost  string // 待重连的主机
 	sshPwPath  string // 待重连的路径
+	sshPwFromPicker bool // 来源：picker 目录浏览（确认后回目录浏览而非 tail）
+
+	sshPasswords map[string]string // host → password 内存缓存（会话内免重输，不落盘）
 
 	showLineNum bool
 
@@ -192,6 +195,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		autoscroll:     true,
 		showKeyHints:   true,
 		exportState:    newExportState(),
+		sshPasswords:   make(map[string]string),
 		sourceColorIdx: make(map[string]int),
 		bookmarks:      make(map[uint64]bool),
 	}

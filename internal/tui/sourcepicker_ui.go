@@ -243,7 +243,7 @@ func (a *App) pickerTabEnterCmd() tea.Cmd {
 	case 2:
 		if a.pickerSSHHost != "" && a.pickerCandidates == nil {
 			a.pickerLoading = true
-			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir)
+			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir, a.sshPw(a.pickerSSHHost))
 		}
 	}
 	return nil
@@ -276,7 +276,7 @@ func (a *App) pickerBackspace() tea.Cmd {
 				a.pickerSSHDir = parentPath(a.pickerSSHDir)
 				a.pickerCandidates = nil
 				a.pickerLoading = true
-				return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir)
+				return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir, a.sshPw(a.pickerSSHHost))
 			}
 			// 已在起始层：返回主机层
 			a.pickerSSHHost = ""
@@ -313,7 +313,7 @@ func (a *App) pickerEnter() tea.Cmd {
 		if path == "" {
 			path = "/"
 		}
-		_, err := stream.SSHListDir(a.pickerSSHHost, path)
+		_, err := stream.SSHListDir(a.pickerSSHHost, path, a.sshPw(a.pickerSSHHost))
 		if err != nil {
 			// 路径不存在或不可读：当作文件尝试打开
 			a.pickerRemotePath = path
@@ -325,7 +325,7 @@ func (a *App) pickerEnter() tea.Cmd {
 		a.pickerCursor = 0
 		a.pickerDirFilter = ""
 		a.pickerLoading = true
-		return fetchSSHDirCmd(a.pickerSSHHost, path)
+		return fetchSSHDirCmd(a.pickerSSHHost, path, a.sshPw(a.pickerSSHHost))
 	}
 
 	if a.pickerCursor >= len(cands) {
@@ -402,7 +402,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			a.pickerCursor = 0
 			a.pickerLoading = true
 			a.pickerDirFilter = ""
-			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir)
+			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir, a.sshPw(a.pickerSSHHost))
 		}
 		if cand.value == ".." {
 			if a.pickerSSHDir == "/" {
@@ -419,7 +419,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			a.pickerCursor = 0
 			a.pickerLoading = true
 			a.pickerDirFilter = ""
-			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir)
+			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir, a.sshPw(a.pickerSSHHost))
 		}
 		if cand.dir {
 			a.pickerSSHDir = strings.TrimSuffix(a.pickerSSHDir, "/") + "/" + cand.value
@@ -427,7 +427,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			a.pickerCursor = 0
 			a.pickerLoading = true
 			a.pickerDirFilter = ""
-			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir)
+			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir, a.sshPw(a.pickerSSHHost))
 		}
 		a.pickerRemotePath = strings.TrimSuffix(a.pickerSSHDir, "/") + "/" + cand.value
 		return a.confirmSourcePicker()
@@ -525,7 +525,11 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 		if path == "" {
 			return nil
 		}
-		return a.ReplaceStream(stream.NewSSHSource(host, path, 200))
+		src := stream.NewSSHSource(host, path, 200)
+	if pw := a.sshPw(host); pw != "" {
+		src.SetPassword(pw)
+	}
+	return a.ReplaceStream(src)
 	}
 	return nil
 }
