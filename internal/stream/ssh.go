@@ -267,14 +267,36 @@ func SSHListDir(host, path, password string) ([]SSHDirEntry, error) {
 	if cleanup != nil {
 		defer cleanup()
 	}
-	combined, err := cmd.CombinedOutput()
+	// stdout=目录条目；stderr=ssh 自身错误（认证/连接/banner），分离接管
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("ssh ls %s: %s", host, strings.TrimSpace(string(combined)))
+		return nil, err
 	}
-	out := combined
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	var errBuf strings.Builder
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		escan := bufio.NewScanner(stderr)
+		for escan.Scan() {
+			text := escan.Text()
+			if isSSHBannerNoise(text) {
+				continue
+			}
+			errBuf.WriteString(text)
+			errBuf.WriteString("\n")
+		}
+	}()
 	var entries []SSHDirEntry
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
+	scan := bufio.NewScanner(stdout)
+	for scan.Scan() {
+		line := strings.TrimSpace(scan.Text())
 		if line == "" {
 			continue
 		}
@@ -285,6 +307,11 @@ func SSHListDir(host, path, password string) ([]SSHDirEntry, error) {
 		} else {
 			entries = append(entries, SSHDirEntry{Name: line})
 		}
+	}
+	werr := cmd.Wait()
+	<-done
+	if werr != nil {
+		return nil, fmt.Errorf("ssh ls %s: %s", host, strings.TrimSpace(errBuf.String()))
 	}
 	return entries, nil
 }
