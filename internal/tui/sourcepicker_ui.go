@@ -572,7 +572,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 
 	boxW := min(64, a.width-4)
 	box := PopupBoxStyle.Width(boxW).Render(content.String())
-	return a.inlinePopupLines(box, vl)
+	return a.overlayToVL(box, vl)
 }
 
 // renderCandidateListMark 渲染 context 列表（当前 context 打 ✓ 标）。

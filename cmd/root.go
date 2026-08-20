@@ -375,7 +375,7 @@ func Execute() {
 	args := expandTailArgs(os.Args[1:])
 	// auto-detect stdin pipe: if no subcommand and stdin is not a terminal, use pipe mode;
 	// bare logview (+flags, no subcommand) on a TTY opens the TUI source picker instead of help
-	if len(args) == 0 || !isSubcommand(args[0]) {
+	if !argsHasSubcommand(args) {
 		if info, _ := os.Stdin.Stat(); info.Mode()&os.ModeNamedPipe != 0 || !isTerminal(info) {
 			args = append([]string{"pipe"}, args...)
 		} else {
@@ -391,6 +391,30 @@ func Execute() {
 func isSubcommand(arg string) bool {
 	for _, cmd := range rootCmd.Commands() {
 		if cmd.Name() == arg {
+			return true
+		}
+	}
+	return false
+}
+
+// argsHasSubcommand 检查参数中是否含任意子命令名（flag 值不算）。
+func argsHasSubcommand(args []string) bool {
+	skip := false // 上一参数是带值的 flag（--config x）则跳过其值
+	for _, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			if !strings.Contains(a, "=") {
+				skip = true // --config path 形式
+			}
+			continue
+		}
+		if strings.HasPrefix(a, "-") && len(a) > 1 {
+			continue
+		}
+		if isSubcommand(a) {
 			return true
 		}
 	}

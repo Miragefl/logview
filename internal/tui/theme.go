@@ -140,6 +140,15 @@ func ApplyTheme(cfg ThemeConfig) {
 	AppFgColor = lipgloss.Color(cfg.Fg)
 	AppBgSeq = SetTerminalBg(cfg.Bg)
 
+	// 弹窗遮罩：dark 系压暗日志区，light 系提亮，突出浮层
+	if cfg.IsLightTheme() {
+		PopupMaskBg = lipgloss.Color("#D8DCE4")
+	} else if cfg.PopupBg != "" {
+		PopupMaskBg = lipgloss.Color(darken(cfg.PopupBg, 0.55))
+	} else {
+		PopupMaskBg = lipgloss.Color("#15161E")
+	}
+
 	if cfg.Bg != "" {
 		bg := lipgloss.Color(cfg.Bg)
 		LevelDebug = LevelDebug.Background(bg)
