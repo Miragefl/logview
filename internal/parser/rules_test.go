@@ -20,15 +20,15 @@ rules:
 	fpath := filepath.Join(dir, "rules.yaml")
 	os.WriteFile(fpath, []byte(yamlContent), 0644)
 
-	rules, _, _, _, _, _, _, err := LoadRules(fpath)
+	res, err := LoadRules(fpath)
 	if err != nil {
 		t.Fatalf("LoadRules() error: %v", err)
 	}
-	if len(rules) != 2 {
-		t.Fatalf("got %d rules, want 2", len(rules))
+	if len(res.Rules) != 2 {
+		t.Fatalf("got %d rules, want 2", len(res.Rules))
 	}
-	if rules[0].Name != "java-logback" {
-		t.Errorf("rules[0].Name = %q", rules[0].Name)
+	if res.Rules[0].Name != "java-logback" {
+		t.Errorf("rules[0].Name = %q", res.Rules[0].Name)
 	}
 }
 
@@ -54,16 +54,16 @@ rules:
 	fpath := filepath.Join(dir, "rules.yaml")
 	os.WriteFile(fpath, []byte(yamlContent), 0644)
 
-	rules, _, _, _, _, _, _, err := LoadRules(fpath)
+	res, err := LoadRules(fpath)
 	if err != nil {
 		t.Fatalf("LoadRules() error: %v", err)
 	}
-	if len(rules) != 3 {
-		t.Fatalf("got %d rules, want 3", len(rules))
+	if len(res.Rules) != 3 {
+		t.Fatalf("got %d rules, want 3", len(res.Rules))
 	}
 
 	// verify the patterns were expanded correctly
-	parsers, _ := CompileRules(rules)
+	parsers, _ := CompileRules(res.Rules)
 	line := "2026-05-18 12:40:35.676 [park-pool-1-thread2] INFO  c.p.h.manager.CheckDeviceSchedule:78 - LK CAM 192.168.0.226 can not ping"
 	parsed := parsers[1].Parse(model.RawLine{Text: line})
 	if parsed == nil {

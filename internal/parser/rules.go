@@ -31,31 +31,53 @@ type KeyBindingConfig struct {
 }
 
 type rulesFile struct {
-	Patterns     map[string]string `yaml:"patterns,omitempty"`
-	Rules        []RuleConfig      `yaml:"rules"`
-	Fields       []FieldConfig     `yaml:"fields,omitempty"`
-	History      int               `yaml:"history,omitempty"`
-	Theme        string            `yaml:"theme,omitempty"`
-	ThemeColors  map[string]string `yaml:"theme_colors,omitempty"`
-	Hides        []string          `yaml:"hides,omitempty"`
-	KeyBindings  map[string]string `yaml:"keybindings,omitempty"`
+	Patterns    map[string]string `yaml:"patterns,omitempty"`
+	Rules       []RuleConfig      `yaml:"rules"`
+	Fields      []FieldConfig     `yaml:"fields,omitempty"`
+	History     int               `yaml:"history,omitempty"`
+	Theme       string            `yaml:"theme,omitempty"`
+	ThemeColors map[string]string `yaml:"theme_colors,omitempty"`
+	Hides       []string          `yaml:"hides,omitempty"`
+	KeyBindings map[string]string `yaml:"keybindings,omitempty"`
+	SSHHosts    []string          `yaml:"ssh_hosts,omitempty"`
 }
 
-func LoadRules(path string) ([]RuleConfig, []FieldConfig, int, string, map[string]string, []string, map[string]string, error) {
+// RulesResult 承载 rules.yaml 的全部加载结果，避免多返回值膨胀。
+type RulesResult struct {
+	Rules       []RuleConfig
+	Fields      []FieldConfig
+	History     int
+	Theme       string
+	ThemeColors map[string]string
+	Hides       []string
+	KeyBindings map[string]string
+	SSHHosts    []string
+}
+
+func LoadRules(path string) (*RulesResult, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, 0, "", nil, nil, nil, fmt.Errorf("read rules: %w", err)
+		return nil, fmt.Errorf("read rules: %w", err)
 	}
 	var rf rulesFile
 	if err := yaml.Unmarshal(data, &rf); err != nil {
-		return nil, nil, 0, "", nil, nil, nil, fmt.Errorf("parse rules yaml: %w", err)
+		return nil, fmt.Errorf("parse rules yaml: %w", err)
 	}
 	if len(rf.Patterns) > 0 {
 		for i := range rf.Rules {
 			rf.Rules[i].Pattern = expandPatterns(rf.Rules[i].Pattern, rf.Patterns)
 		}
 	}
-	return rf.Rules, rf.Fields, rf.History, rf.Theme, rf.ThemeColors, rf.Hides, rf.KeyBindings, nil
+	return &RulesResult{
+		Rules:       rf.Rules,
+		Fields:      rf.Fields,
+		History:     rf.History,
+		Theme:       rf.Theme,
+		ThemeColors: rf.ThemeColors,
+		Hides:       rf.Hides,
+		KeyBindings: rf.KeyBindings,
+		SSHHosts:    rf.SSHHosts,
+	}, nil
 }
 
 func expandPatterns(pattern string, vars map[string]string) string {

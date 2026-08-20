@@ -49,6 +49,7 @@ func (a *App) shortcutItems() []helpItem {
 		return []helpItem{
 			{"j/k/g/G", "移动"},
 			{"/", "搜索"},
+			{"o", "切换源"},
 			{"h", "高亮"},
 			{"x", "隐藏"},
 			{"v/V", "选择"},

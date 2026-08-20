@@ -411,34 +411,41 @@ func loadConfig() (appConfig, error) {
 	cfgDir := getConfigDir()
 	rulesPath := filepath.Join(cfgDir, "rules.yaml")
 
-	var rules []parser.RuleConfig
-	var fieldConfigs []parser.FieldConfig
-	var history int
-	var themeName string
-	var themeColors map[string]string
-	var defaultHides []string
-	var keyBindings map[string]string
+	var res *parser.RulesResult
 	if _, err := os.Stat(rulesPath); err == nil {
-		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, err = parser.LoadRules(rulesPath)
+		res, err = parser.LoadRules(rulesPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: 加载 %s 失败，使用默认配置: %v\n", rulesPath, err)
+			res = nil
 		}
 	} else {
 		os.MkdirAll(cfgDir, 0755)
 		if err := os.WriteFile(rulesPath, []byte(defaultRulesYAML), 0644); err != nil {
 			return appConfig{}, fmt.Errorf("write default config: %w", err)
 		}
-		rules, fieldConfigs, history, themeName, themeColors, defaultHides, keyBindings, err = parser.LoadRules(rulesPath)
+		res, err = parser.LoadRules(rulesPath)
 		if err != nil {
 			return appConfig{}, fmt.Errorf("parse default config: %w", err)
 		}
 	}
+	if res == nil {
+		res = &parser.RulesResult{} // 坏配置 → 全默认值兜底
+	}
+	history := res.History
+	rules := res.Rules
+	fieldConfigs := res.Fields
+	themeName := res.Theme
+	themeColors := res.ThemeColors
+	defaultHides := res.Hides
+	keyBindings := res.KeyBindings
 	if history <= 0 {
 		history = 5000
 	}
 	if len(rules) == 0 {
 		rules = defaultFallbackRules()
 	}
+	// SSH 主机候选：显式配置 + ~/.ssh/config 自动发现
+	tui.SetSSHHosts(stream.MergeSSHHosts(res.SSHHosts, stream.ParseSSHConfigHosts()))
 
 	if len(fieldConfigs) > 0 {
 		var fields []model.Field
@@ -540,6 +547,11 @@ theme: dark
 # hides:
 #   - health check
 #   - heartbeat
+
+# ssh_hosts: 源选择器(o键) SSH tab 的常用主机候选（与 ~/.ssh/config 自动发现合并）
+# ssh_hosts:
+#   - web1
+#   - deploy@10.0.0.5
 
 # fields: 字段显示/隐藏，visible: false 隐藏但搜索和过滤仍可用
 fields:

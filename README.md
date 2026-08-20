@@ -116,6 +116,18 @@ logview --config /path/to/config ...        # 指定配置目录
 | `C-r` | 搜索框内循环搜索历史 |
 | `Esc` | 清除搜索 |
 
+### 切换日志源
+
+TUI 内按 `o` 打开源选择器，不退出即可切换日志源（切换后清屏）：
+
+| Tab | 功能 | 操作 |
+|-----|------|------|
+| `K8s` | 选 namespace 后列出 deploy/sts/pod，`Space` 勾选多个，`Enter` 聚合查看 | 候选来自 kubectl |
+| `本地` | 输入目录或路径，列出其中日志文件 | `Enter` 打开 |
+| `SSH` | 选主机（`ssh_hosts` + `~/.ssh/config` 自动发现），输入远程路径 | `Enter` 连接 `tail -F` |
+
+SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；主机不可达时错误以 ERROR 行显示在日志区。
+
 搜索弹窗内：
 
 | 按键 | 功能 |
@@ -266,6 +278,7 @@ fields:
 | `fields` | 字段显示控制，隐藏后搜索仍可用 | 全部显示 |
 | `hides` | 默认隐藏关键词 | 无 |
 | `keybindings` | 自定义快捷键 | 见快捷键表 |
+| `ssh_hosts` | 源选择器 SSH tab 常用主机候选（与 ~/.ssh/config 合并） | 无 |
 
 ### 内置主题
 

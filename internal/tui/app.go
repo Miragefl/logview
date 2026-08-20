@@ -98,6 +98,22 @@ type App struct {
 
 	showLineNum bool
 
+	sourcePickerMode bool
+	sourceTab        int // 0=K8s 1=本地 2=SSH
+	pickerNsInput    string
+	pickerNsCursor   int
+	pickerPathInput  string
+	pickerPathCursor int
+	pickerHostInput  string
+	pickerHostCursor int
+	pickerRemotePath string
+	pickerRemoteCursor int
+	pickerSshFocus   int // SSH tab 焦点：0=主机 1=远程路径
+	pickerCursor     int
+	pickerChecked    map[string]bool
+	pickerCandidates []sourceCandidate
+	pickerLoading    bool
+
 	sourceColorIdx map[string]int
 
 	rulesPath string
@@ -202,6 +218,48 @@ func (a *App) Init() tea.Cmd {
 	return tea.Batch(waitForStream(ch), tickEvery())
 }
 
+// ReplaceStream 热切换日志源：停旧流、起新流、清屏重置全部视图状态。
+// 返回 waitForStream cmd（新流的监听必须重新启动）。
+func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
+	if a.cancelFunc != nil {
+		a.cancelFunc()
+	}
+	a.stream.Cleanup()
+	a.stream = src
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancelFunc = cancel
+	// 无论 Start 成败都按新源重置视图（失败时在干净视图上展示错误行）
+	a.buffer.Clear()
+	a.filteredView = nil
+	a.stGroups = nil
+	a.expanded = make(map[int]bool)
+	a.levelCounts = make(map[string]int)
+	a.bookmarks = make(map[uint64]bool)
+	a.bookmarkSeq = nil
+	a.cursor = 0
+	a.offset = 0
+	a.autoscroll = true
+
+	ch, err := src.Start(ctx)
+	if err != nil {
+		cancel()
+		a.cancelFunc = nil
+		a.appendErrorLine(fmt.Sprintf("打开源失败 %s: %v", src.Label(), err))
+		return nil
+	}
+	a.streamCh = ch
+	// 切换提示行（非错误，便于确认新源）
+	a.processLine(model.RawLine{Text: fmt.Sprintf("-- 已切换到 %s --", src.Label()), Source: "logview"})
+	a.yankMsg = ""
+	return waitForStream(ch)
+}
+
+// appendErrorLine 在日志流顶部插入一条本地错误提示行。
+func (a *App) appendErrorLine(msg string) {
+	raw := model.RawLine{Text: "ERROR " + msg, Source: "logview"}
+	a.processLine(raw)
+}
+
 func (a *App) shutdown() tea.Cmd {
 	SaveSession(SessionState{
 		SearchQuery:  a.searchInput,
@@ -240,12 +298,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.searchMode {
 			return a.handleSearchKeys(msg)
 		}
+		if a.sourcePickerMode {
+			return a.handleSourcePickerKeys(msg)
+		}
 		if a.panelFocus {
 			return a.handlePanelKeys(msg)
 		}
 		return a.handleNormalKeys(msg)
 	case tea.InterruptMsg:
 		return a, a.shutdown()
+	case candidatesMsg:
+		// k8s 候选异步回填（仅当仍停留在选择器且 ns 未变）
+		if a.sourcePickerMode && a.sourceTab == msg.tab && msg.ns == a.pickerNsInput {
+			a.pickerCandidates = msg.items
+			a.pickerLoading = false
+			a.pickerCursor = 0
+		}
+		return a, nil
 	}
 	return a, nil
 }
@@ -521,6 +590,9 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.openUnifiedPopup(2)
 	case "\\":
 		a.showKeyHints = !a.showKeyHints
+	case "o":
+		a.openSourcePicker(0)
+		return a, fetchK8sCandidatesCmd("default")
 	case "s":
 		a.exportMode = true
 	case "n":
@@ -916,6 +988,8 @@ func (a *App) View() string {
 	var logLines []string
 	if a.searchMode {
 		logLines = a.buildSearchModeLines(vl)
+	} else if a.sourcePickerMode {
+		logLines = a.buildSourcePickerLines(vl)
 	} else if a.helpMode {
 		logLines = a.buildHelpPopup(vl)
 	} else if a.exportMode {
@@ -956,6 +1030,12 @@ func (a *App) buildSearchModeLines(vl int) []string {
 		popupMaxH = 1
 	}
 	popupLines := a.buildSearchPopup(popupMaxH)
+	return a.inlinePopupLines(strings.Join(popupLines, "\n"), vl)
+}
+
+// inlinePopupLines 把 popup 行列表渲染进日志区（上方 popup + 下方保留日志）。
+func (a *App) inlinePopupLines(popupContent string, vl int) []string {
+	popupLines := strings.Split(popupContent, "\n")
 	popStyle := lipgloss.NewStyle().Width(a.width).MaxWidth(a.width)
 
 	var lines []string
