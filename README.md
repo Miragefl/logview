@@ -120,13 +120,13 @@ logview --config /path/to/config ...        # 指定配置目录
 
 TUI 内按 `o` 打开源选择器，不退出即可切换日志源（切换后清屏）：
 
-| Tab | 功能 | 操作 |
-|-----|------|------|
-| `K8s` | 选 namespace 后列出 deploy/sts/pod，`Space` 勾选多个，`Enter` 聚合查看 | 候选来自 kubectl |
-| `本地` | 输入目录或路径，列出其中日志文件 | `Enter` 打开 |
-| `SSH` | 选主机（`ssh_hosts` + `~/.ssh/config` 自动发现），输入远程路径 | `Enter` 连接 `tail -F` |
+| Tab | 浏览层级 | 操作 |
+|-----|---------|------|
+| `K8s` | context → namespace → 资源 | Enter 下钻/切换 context（全局生效），`Space` 勾选多个 deploy/pod，`Backspace` 逐级返回 |
+| `本地` | 目录浏览器 | 目录列表（`/` 后缀）+ 日志文件，Enter 进目录/打开，`Backspace` 返回上级，也可直接输入路径 |
+| `SSH` | 主机 → 远程目录 | 主机候选（`ssh_hosts` + `~/.ssh/config`），Enter 连接浏览远程目录，Enter 选文件 `tail -F` |
 
-SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；主机不可达时错误以 ERROR 行显示在日志区。
+SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；主机不可达时错误以 ERROR 行显示在日志区。裸 `logview`（无子命令）在终端中直接打开选择器。
 
 搜索弹窗内：
 

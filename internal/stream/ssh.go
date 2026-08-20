@@ -67,12 +67,16 @@ func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
 	}
 	defer cmd.Wait()
 
-	// stderr 每行即时上屏（不等进程退出）
+	// stderr 每行即时上屏（不等进程退出）；忽略已知 ssh 警告横幅
 	go func() {
 		escan := bufio.NewScanner(stderr)
 		escan.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for escan.Scan() {
-			s.emitErr(ctx, ch, escan.Text())
+			text := escan.Text()
+			if isSSHBannerNoise(text) {
+				continue
+			}
+			s.emitErr(ctx, ch, text)
 		}
 	}()
 
@@ -106,6 +110,22 @@ func (s *SSHSource) emitErr(ctx context.Context, ch chan<- model.RawLine, msg st
 	case ch <- line:
 	case <-ctx.Done():
 	}
+}
+
+// isSSHBannerNoise 过滤 ssh 客户端的已知警告横幅（post-quantum 提示等），不算错误。
+func isSSHBannerNoise(text string) bool {
+	lower := strings.ToLower(text)
+	for _, pat := range []string{
+		"warning: connection is not using a post-quantum key exchange",
+		"this session may be vulnerable to \"store now, decrypt later\"",
+		"the server may need to be upgraded. see https://openssh.com",
+		"permanently added '",
+	} {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
 }
 
 func isSSHErrorLine(text string) bool {
@@ -147,6 +167,42 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// SSHDirEntry 远程目录条目。
+type SSHDirEntry struct {
+	Name  string
+	IsDir bool
+}
+
+// SSHListDir 列出远程目录内容（目录 / 后缀分类），每行一个条目。
+// 单发 ssh 命令，BatchMode 保证不挂起。
+func SSHListDir(host, path string) ([]SSHDirEntry, error) {
+	path = strings.TrimSuffix(path, "/")
+	if path == "" {
+		path = "/"
+	}
+	args := []string{"-o", "ConnectTimeout=8", "-o", "BatchMode=yes", host,
+		fmt.Sprintf("ls -1 -F %s", shellQuote(path))}
+	out, err := exec.Command("ssh", args...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("ssh ls %s: %s", host, strings.TrimSpace(err.Error()))
+	}
+	var entries []SSHDirEntry
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasSuffix(line, "/") {
+			entries = append(entries, SSHDirEntry{Name: strings.TrimSuffix(line, "/"), IsDir: true})
+		} else if strings.HasSuffix(line, "*") || strings.HasSuffix(line, "@") {
+			continue // 可执行/符号链接跳过（日志场景无意义）
+		} else {
+			entries = append(entries, SSHDirEntry{Name: line})
+		}
+	}
+	return entries, nil
 }
 
 func (s *SSHSource) Cleanup() error { return nil }

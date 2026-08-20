@@ -101,18 +101,32 @@ type App struct {
 	sourcePickerMode bool
 	sourceTab        int // 0=K8s 1=本地 2=SSH
 	pickSourceOnStart bool // 启动即打开源选择器（picker 子命令）
+
+	pickerK8sLevel   int    // K8s 浏览层级：0=context 1=namespace 2=资源
+	pickerContexts   []sourceCandidate
+	pickerNamespaces []sourceCandidate
 	pickerNsInput    string
 	pickerNsCursor   int
-	pickerPathInput  string
-	pickerPathCursor int
+
+	pickerLocalDir   string // 本地浏览当前目录
+
+	pickerSSHHost    string // SSH 已连接浏览的主机（空=主机层）
+	pickerSSHDir     string // 远程浏览当前目录
+	pickerSSHRoot    string // 进入浏览时的起始目录（Backspace 到此层再按回主机层）
+	pickerDirFilter  string // 目录浏览过滤前缀（本地/SSH 共用）
+	pickerFilterCursor int
+	k8sUseContextFn  func(string) error // 可注入的 context 切换（测试用）
 	pickerHostInput  string
 	pickerHostCursor int
 	pickerRemotePath string
 	pickerRemoteCursor int
-	pickerSshFocus   int // SSH tab 焦点：0=主机 1=远程路径
+	pickerSshFocus   int // SSH 主机层焦点：0=主机 1=路径
+
+	pickerPathInput  string
+	pickerPathCursor int
 	pickerCursor     int
 	pickerChecked    map[string]bool
-	pickerCandidates []sourceCandidate
+	pickerCandidates []sourceCandidate // 当前层候选（k8s 资源层 / ssh 目录层）
 	pickerLoading    bool
 
 	sourceColorIdx map[string]int
@@ -224,7 +238,7 @@ func (a *App) openSourcePickerInit() tea.Cmd {
 	base := tea.Batch(waitForStream(ch), tickEvery())
 	if a.pickSourceOnStart {
 		a.openSourcePicker(0)
-		return tea.Batch(base, fetchK8sCandidatesCmd(a.pickerNsInput))
+		return tea.Batch(base, fetchK8sContextsCmd())
 	}
 	return base
 }
@@ -319,12 +333,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.InterruptMsg:
 		return a, a.shutdown()
 	case candidatesMsg:
-		// k8s 候选异步回填（仅当仍停留在选择器且 ns 未变）
-		if a.sourcePickerMode && a.sourceTab == msg.tab && msg.ns == a.pickerNsInput {
-			a.pickerCandidates = msg.items
-			a.pickerLoading = false
-			a.pickerCursor = 0
+		// 候选异步回填（仅当仍停留在选择器对应层）
+		if !a.sourcePickerMode || a.sourceTab != msg.tab {
+			return a, nil
 		}
+		switch msg.kind {
+		case "contexts":
+			if a.pickerK8sLevel == 0 {
+				a.pickerContexts = msg.items
+			}
+		case "namespaces":
+			if a.pickerK8sLevel == 1 {
+				a.pickerNamespaces = msg.items
+			}
+		case "sshdir":
+			if a.pickerSSHHost != "" && msg.ns == a.pickerSSHHost+":"+a.pickerSSHDir {
+				a.pickerCandidates = msg.items
+			}
+		default: // resources
+			if a.pickerK8sLevel == 2 && msg.ns == a.pickerNsInput {
+				a.pickerCandidates = msg.items
+			}
+		}
+		// 回填后总清 loading（空列表也视为完成，UI 显示"无资源"）
+		a.pickerLoading = false
 		return a, nil
 	}
 	return a, nil
@@ -608,7 +640,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.showKeyHints = !a.showKeyHints
 	case "o":
 		a.openSourcePicker(0)
-		return a, fetchK8sCandidatesCmd("default")
+		return a, fetchK8sContextsCmd()
 	case "s":
 		a.exportMode = true
 	case "n":

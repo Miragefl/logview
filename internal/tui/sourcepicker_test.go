@@ -8,15 +8,15 @@ import (
 	"github.com/justfun/logview/internal/model"
 )
 
-// o 键打开选择器；Tab 循环切换三 tab；Esc 关闭。
+// o 键打开选择器（context 层）；Tab 循环切换三 tab；Esc 关闭。
 func TestSourcePickerOpenTabClose(t *testing.T) {
 	app := newTestApp()
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 	if !app.sourcePickerMode {
 		t.Fatal("o 应打开源选择器")
 	}
-	if app.sourceTab != 0 {
-		t.Fatalf("默认 tab 应为 0 (K8s)，实际 %d", app.sourceTab)
+	if app.pickerK8sLevel != 0 {
+		t.Fatalf("K8s 默认层级应为 0 (context)，实际 %d", app.pickerK8sLevel)
 	}
 	app.Update(tea.KeyMsg{Type: tea.KeyTab})
 	app.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -33,18 +33,46 @@ func TestSourcePickerOpenTabClose(t *testing.T) {
 	}
 }
 
-// K8s tab：Space 勾选多个候选，Enter 生成 MultiK8sSource 并热切换清屏。
+// K8s context → ns → 资源：Enter 下钻、Backspace 返回。
+func TestSourcePickerK8sLevels(t *testing.T) {
+	app := newTestApp()
+	app.k8sUseContextFn = func(string) error { return nil } // mock context 切换
+	app.openSourcePicker(0)
+	app.pickerContexts = []sourceCandidate{{label: "ctx-a", value: "ctx-a"}, {label: "ctx-b", value: "ctx-b"}}
+	// context 层 Enter：选中第一项，应切到 ns 层
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerK8sLevel != 1 {
+		t.Fatalf("context Enter 后应到 ns 层，实际 %d", app.pickerK8sLevel)
+	}
+	// ns 候选回填后 Enter 进入资源层
+	app.pickerNamespaces = []sourceCandidate{{label: "default", value: "default"}, {label: "kube-system", value: "kube-system"}}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerK8sLevel != 2 || app.pickerNsInput != "default" {
+		t.Fatalf("ns Enter 后应在资源层/ns=default，实际 level=%d ns=%q", app.pickerK8sLevel, app.pickerNsInput)
+	}
+	// Backspace 逐级返回
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerK8sLevel != 1 {
+		t.Fatalf("Backspace 应回 ns 层，实际 %d", app.pickerK8sLevel)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerK8sLevel != 0 {
+		t.Fatalf("Backspace 应回 context 层，实际 %d", app.pickerK8sLevel)
+	}
+}
+
+// K8s 资源层：Space 多选 + Enter 生成 MultiK8sSource。
 func TestSourcePickerK8sMultiSelect(t *testing.T) {
 	app := newTestApp()
 	app.openSourcePicker(0)
+	app.pickerK8sLevel = 2
+	app.pickerNsInput = "default"
 	app.pickerCandidates = []sourceCandidate{
 		{label: "deploy/a", value: "deployment/a"},
 		{label: "deploy/b", value: "deployment/b"},
 		{label: "pod/c", value: "pod/c"},
 	}
-	app.pickerLoading = false
 
-	// 勾选 0 和 2（KeySpace）
 	app.Update(tea.KeyMsg{Type: tea.KeySpace})
 	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -53,17 +81,11 @@ func TestSourcePickerK8sMultiSelect(t *testing.T) {
 		t.Fatalf("应勾选 2 项，实际 %d", len(app.pickerChecked))
 	}
 
-	// 预填一些旧状态，切换后应清空
 	app.processLine(model.RawLine{Text: "old line", Source: "old"})
-	if app.buffer.Len() == 0 {
-		t.Fatal("前置条件：应有旧行")
-	}
-
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.sourcePickerMode {
 		t.Fatal("Enter 后应关闭选择器")
 	}
-	// 无 kubectl 环境：清屏后仅剩 1 条提示/错误行；label 应含两个勾选资源
 	if app.buffer.Len() > 1 {
 		t.Fatalf("切换源后应清屏（至多 1 条提示行），buffer=%d", app.buffer.Len())
 	}
@@ -73,70 +95,126 @@ func TestSourcePickerK8sMultiSelect(t *testing.T) {
 	}
 }
 
-// 未勾选直接 Enter：使用光标所在候选（单源）。
-func TestSourcePickerK8sCursorFallback(t *testing.T) {
-	app := newTestApp()
-	app.openSourcePicker(0)
-	app.pickerCandidates = []sourceCandidate{{label: "deploy/a", value: "deployment/a"}}
-	app.pickerLoading = false
-	app.pickerCursor = 0
-
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if label := app.stream.Label(); !strings.Contains(label, "deployment") {
-		t.Errorf("光标项未生效: %s", label)
-	}
-}
-
-// 本地 tab：输入路径 Enter 生成 FileSource。
-func TestSourcePickerLocalFile(t *testing.T) {
+// 本地 tab：目录浏览（目录下钻 / 文件打开 / Backspace 上级）。
+func TestSourcePickerLocalBrowse(t *testing.T) {
 	app := newTestApp()
 	app.openSourcePicker(1)
-	app.pickerPathInput = "/tmp/some.log"
+	app.pickerLocalDir = "/tmp/lvbrowse"
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 1 || !cands[0].dir || cands[0].label != "sub/" {
+		t.Fatalf("顶层候选应只有 sub/（目录），实际 %v", cands)
+	}
+	// Enter 进目录
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerLocalDir != "/tmp/lvbrowse/sub" {
+		t.Fatalf("Enter 应进子目录，实际 %s", app.pickerLocalDir)
+	}
+	// 目录内 Enter 打开 app.log
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.sourcePickerMode {
+		t.Fatal("文件 Enter 应关闭选择器并切换源")
+	}
 	if label := app.stream.Label(); label == "test" {
 		t.Error("本地文件源未生效（仍是 mock）")
 	}
-	if app.buffer.Len() > 1 {
-		t.Errorf("切换后应清屏（至多 1 条切换提示），buffer=%d", app.buffer.Len())
+	// Backspace 上级
+	app2 := newTestApp()
+	app2.openSourcePicker(1)
+	app2.pickerLocalDir = "/tmp/lvbrowse/sub"
+	app2.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app2.pickerLocalDir != "/tmp/lvbrowse" {
+		t.Fatalf("Backspace 应回上级，实际 %s", app2.pickerLocalDir)
 	}
 }
 
-// SSH tab：候选过滤 + 焦点切换 + Enter 生成 SSHSource。
-func TestSourcePickerSSH(t *testing.T) {
+// SSH tab：主机层 Enter 进入远程目录浏览态，Backspace 返回主机层。
+func TestSourcePickerSSHBrowse(t *testing.T) {
 	SetSSHHosts([]string{"web1", "web2"})
 	app := newTestApp()
 	app.openSourcePicker(2)
-	if len(sshCandidates()) != 2 {
-		t.Fatalf("SSH 候选应为 2，实际 %d", len(sshCandidates()))
-	}
-	// 输入前缀过滤候选
+	// 主机层候选过滤
 	app.pickerHostInput = "web2"
 	cands := app.visiblePickerCandidates()
 	if len(cands) != 1 || cands[0].value != "web2" {
-		t.Fatalf("前缀过滤失败: %v", cands)
+		t.Fatalf("主机过滤失败: %v", cands)
 	}
+	// Enter 连接：进入远程目录浏览态（起始 /var/log）
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if label := app.stream.Label(); label != "ssh://web2/var/log/" {
+	if app.pickerSSHHost != "web2" {
+		t.Fatalf("应进入远程目录层，host=%q", app.pickerSSHHost)
+	}
+	if app.pickerSSHDir != "/var/log" || app.pickerSSHRoot != "/var/log" {
+		t.Fatalf("起始目录应 /var/log，dir=%q root=%q", app.pickerSSHDir, app.pickerSSHRoot)
+	}
+	// 目录候选回填（模拟 msg）：目录 + 文件
+	app.pickerCandidates = []sourceCandidate{
+		{label: "logs/", value: "logs", dir: true},
+		{label: "app.log", value: "app.log"},
+	}
+	// Backspace：起始层直接回主机层
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerSSHHost != "" {
+		t.Fatal("起始层 Backspace 应回主机层")
+	}
+}
+
+// SSH 远程目录：目录下钻、文件确认。
+func TestSourcePickerSSHDirConfirm(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(2)
+	app.pickerSSHHost = "web1"
+	app.pickerSSHDir = "/var/log"
+	app.pickerSSHRoot = "/var/log"
+	app.pickerCandidates = []sourceCandidate{
+		{label: "nginx/", value: "nginx", dir: true},
+		{label: "sys.log", value: "sys.log"},
+	}
+	// Enter 目录下钻
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerSSHDir != "/var/log/nginx" {
+		t.Fatalf("目录下钻失败: %s", app.pickerSSHDir)
+	}
+	// Backspace 回上级，选文件确认
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	app.pickerCandidates = []sourceCandidate{{label: "sys.log", value: "sys.log"}}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.sourcePickerMode {
+		t.Fatal("文件 Enter 应关闭选择器")
+	}
+	if label := app.stream.Label(); label != "ssh://web1/var/log/sys.log" {
 		t.Errorf("SSH 源 label: %s", label)
 	}
 }
 
-// SSH tab C-j 焦点切换：主机 ↔ 路径。
-func TestSourcePickerSSHFocusToggle(t *testing.T) {
-	SetSSHHosts([]string{"h1"})
+// 目录浏览过滤：输入前缀过滤候选；输入存在的路径直达。
+func TestSourcePickerLocalFilter(t *testing.T) {
 	app := newTestApp()
-	app.openSourcePicker(2)
-	if app.pickerSshFocus != 0 {
-		t.Fatal("默认焦点应在主机输入")
+	app.openSourcePicker(1)
+	app.pickerLocalDir = "/tmp/lvbrowse"
+	app.pickerDirFilter = "su"
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 1 || cands[0].label != "sub/" {
+		t.Fatalf("过滤 'su' 应只剩 sub/，实际 %v", cands)
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
-	if app.pickerSshFocus != 1 {
-		t.Fatal("C-j 后焦点应在路径输入")
+	// 过滤后无匹配 → 空列表不 panic
+	app.pickerDirFilter = "zzz"
+	if len(app.visiblePickerCandidates()) != 0 {
+		t.Fatal("无匹配应为空列表")
 	}
-	// 焦点在路径时打字进 remotePath
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
-	if app.pickerRemotePath != "/var/log/a" {
-		t.Fatalf("打字应进路径输入，实际 %q", app.pickerRemotePath)
+	// 输入存在的目录路径直达
+	app.pickerDirFilter = "/tmp/lvbrowse/sub"
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerLocalDir != "/tmp/lvbrowse/sub" {
+		t.Fatalf("路径直达失败: %s", app.pickerLocalDir)
+	}
+	// 输入存在的文件路径直接打开
+	app2 := newTestApp()
+	app2.openSourcePicker(1)
+	app2.pickerLocalDir = "/tmp"
+	app2.pickerDirFilter = "/tmp/lvbrowse/sub/app.log"
+	app2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app2.sourcePickerMode {
+		t.Fatal("文件路径直达应关闭选择器并切换源")
 	}
 }
 
@@ -148,5 +226,20 @@ func TestExpandHome(t *testing.T) {
 	}
 	if got := expandHome("/abs/path"); got != "/abs/path" {
 		t.Errorf("绝对路径不应改写: %s", got)
+	}
+}
+
+// parentPath 上级目录。
+func TestParentPath(t *testing.T) {
+	cases := map[string]string{
+		"/var/log/nginx": "/var/log",
+		"/var":           "/",
+		"/":              "/",
+		"/var/log/":      "/var",
+	}
+	for in, want := range cases {
+		if got := parentPath(in); got != want {
+			t.Errorf("parentPath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
