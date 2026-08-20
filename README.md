@@ -211,7 +211,8 @@ rules:
 # history: -f 模式默认加载的尾行数
 history: 5000
 
-# theme: 配色主题 dark / light
+# theme: 配色主题（dark 系: dark/dracula/tokyo-storm/nord/gruvbox/catppuccin/one-dark
+#                  light系: light/gruvbox-light/catppuccin-latte/nord-light/tokyo-day/solarized-light）
 theme: dark
 
 # theme_colors: 覆盖主题颜色（十六进制）
@@ -260,11 +261,25 @@ fields:
 | `patterns` | 可复用正则片段，rules 中用 `{name}` 引用 | 无 |
 | `rules` | 解析规则列表，按顺序匹配 | 内置 java-logback / json / plain-text |
 | `history` | `-f` 模式默认尾行数 | `5000` |
-| `theme` | 配色主题 `dark` / `light` | `dark` |
+| `theme` | 配色主题，13 个内置（见下表） | `dark` |
 | `theme_colors` | 覆盖主题颜色（十六进制） | 无 |
 | `fields` | 字段显示控制，隐藏后搜索仍可用 | 全部显示 |
 | `hides` | 默认隐藏关键词 | 无 |
 | `keybindings` | 自定义快捷键 | 见快捷键表 |
+
+### 内置主题
+
+配色取自各主题官方 palette（iTerm2-Color-Schemes），`theme: <名称>` 直接生效，可再用 `theme_colors` 微调。
+
+| 主题 | 风格 | 主题 | 风格 |
+|------|------|------|------|
+| `dark` | 默认深色 | `light` | 默认浅色 |
+| `dracula` | Dracula 紫 | `gruvbox-light` | Gruvbox 暖浅 |
+| `tokyo-storm` | Tokyo Night 蓝紫 | `catppuccin-latte` | Catppuccin 柔浅 |
+| `nord` | Nord 冷灰蓝 | `nord-light` | Nord 冷浅 |
+| `gruvbox` | Gruvbox 暖深 | `tokyo-day` | Tokyo Day 蓝浅 |
+| `catppuccin` | Catppuccin Mocha | `solarized-light` | Solarized 经典浅 |
+| `one-dark` | Atom One Dark | | |
 
 ### 规则匹配机制
 
@@ -319,7 +334,7 @@ logview k8s deploy/<tab>   # Deployment 列表
 | 多文件颜色 | 不同来源自动分配颜色 |
 | Vim 滚动 | `zt/zz/zb`、`H/M/L`、`C-d/C-u`、`C-f/C-b`、scrolloff |
 | 可视化选择 | `v` 选择，`y` 复制 |
-| 主题配置 | `dark` / `light` 预设，可逐项覆盖颜色 |
+| 主题配置 | 13 个内置主题，可逐项覆盖颜色 |
 | 自定义快捷键 | `rules.yaml` 的 `keybindings` 配置 |
 | 配置热重载 | 修改 `rules.yaml` 自动生效 |
 | 命令补全 | bash / zsh / fish |

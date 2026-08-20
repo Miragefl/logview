@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -143,7 +145,7 @@ func ApplyTheme(cfg ThemeConfig) {
 		LevelDebug = LevelDebug.Background(bg)
 		LevelInfo = LevelInfo.Background(bg)
 		LevelWarn = LevelWarn.Background(bg)
-		LevelError = LevelError.Background(bg)
+		// LevelError 保留色带背景（LevelErrorBg），不铺主题 bg
 		TimeStyle = TimeStyle.Background(bg)
 		SourceStyle = SourceStyle.Background(bg)
 		TraceIDStyle = TraceIDStyle.Background(bg)
@@ -160,24 +162,49 @@ func ApplyTheme(cfg ThemeConfig) {
 	}
 }
 
-func (c ThemeConfig) LevelErrorBg() string {
-	if c.Bg == "#FFFFFF" || c.Bg == "#E4E4E4" {
-		return "#FFD7D7" // light theme: pale red band, keep dark text readable
+// IsLightTheme 按 Bg 亮度判断亮暗主题（无 Bg 视为 dark，终端底色自适配）。
+func (c ThemeConfig) IsLightTheme() bool {
+	if c.Bg == "" {
+		return false
 	}
-	return "#87005F" // dark theme: deep magenta-red band
+	r, g, b := hexToRGB(c.Bg)
+	luma := 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
+	return luma > 140
+}
+
+func (c ThemeConfig) LevelErrorBg() string {
+	if c.IsLightTheme() {
+		return lighten(c.LevelError, 0.85) // light theme: pale red band
+	}
+	return darken(c.LevelError, 0.45) // dark theme: deep red band
 }
 
 func (c ThemeConfig) LevelErrorFg() string {
-	if c.Bg == "#FFFFFF" || c.Bg == "#E4E4E4" {
-		return c.LevelError
+	if c.IsLightTheme() {
+		return darken(c.LevelError, 0.35) // darker text on pale band
 	}
 	return "#FFFFFF"
+}
+
+// darken 将 hex 颜色按比例压暗（f 为保留亮度比例）。
+func darken(hex string, f float64) string {
+	r, g, b := hexToRGB(hex)
+	return fmt.Sprintf("#%02X%02X%02X", int(float64(r)*f), int(float64(g)*f), int(float64(b)*f))
+}
+
+// lighten 将 hex 颜色向白色混合（f 为白色占比）。
+func lighten(hex string, f float64) string {
+	r, g, b := hexToRGB(hex)
+	mix := func(v int) int { return int(float64(v) + (255-float64(v))*f) }
+	return fmt.Sprintf("#%02X%02X%02X", mix(r), mix(g), mix(b))
 }
 
 func ResolveTheme(name string, overrides map[string]string) ThemeConfig {
 	base := DarkTheme
 	if name == "light" {
 		base = LightTheme
+	} else if t, ok := builtInThemes[name]; ok {
+		base = t
 	}
 	if len(overrides) == 0 {
 		return base

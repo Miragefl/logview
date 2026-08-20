@@ -513,7 +513,9 @@ rules:
 # history: -f 模式默认加载的尾行数
 history: 5000
 
-# theme: 配色主题，可选 dark / light
+# theme: 配色主题
+#   dark 系: dark / dracula / tokyo-storm / nord / gruvbox / catppuccin / one-dark
+#   light系: light / gruvbox-light / catppuccin-latte / nord-light / tokyo-day / solarized-light
 theme: dark
 
 # theme_colors: 覆盖主题中的具体颜色（十六进制色码）
