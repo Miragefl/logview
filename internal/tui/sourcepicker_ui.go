@@ -162,7 +162,20 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.pickerBackspace()
 	case tea.KeyEnter:
 		return a, a.pickerEnter()
-	case tea.KeyCtrlJ, tea.KeyCtrlK:
+	case tea.KeyCtrlJ:
+		// 所有层：C-j 下移（与方向键/Down 等效）
+		if a.pickerCursor < len(cands)-1 {
+			a.pickerCursor++
+		}
+		return a, nil
+	case tea.KeyCtrlK:
+		// 所有层：C-k 上移（与方向键/Up 等效）
+		if a.pickerCursor > 0 {
+			a.pickerCursor--
+		}
+		return a, nil
+	case tea.KeyCtrlL:
+		// SSH 主机层：C-l 在主机输入/路径输入间切焦点
 		if a.sourceTab == 2 && a.pickerSSHHost == "" {
 			a.pickerSshFocus = (a.pickerSshFocus + 1) % 2
 		}
@@ -547,7 +560,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			} else {
 				content.WriteString(renderCandidateListMark(cands, a.pickerCursor, cur))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter切换context Backspace退出 Esc取消"))
+			content.WriteString("\n" + PopupTabStyle.Render(" Enter切换context C-j/k移动 Backspace退出 Esc取消"))
 		case 1:
 			content.WriteString(PopupTabStyle.Render(fmt.Sprintf(" context: %s", currentK8sContext())) + "\n")
 			content.WriteString(a.inputLine(a.pickerNsInput, a.pickerNsCursor, "或输入 namespace 回车直达") + "\n\n")
@@ -558,7 +571,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter选择ns Backspace返回 Esc取消"))
+			content.WriteString("\n" + PopupTabStyle.Render(" Enter选择ns C-j/k移动 Backspace返回 Esc取消"))
 		default:
 			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s/%s", currentK8sContext(), a.pickerNsInput)) + "\n")
 			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤资源名…") + "\n\n")
@@ -569,7 +582,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, a.pickerChecked, 8))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Space勾选(多选) Enter确认 Backspace返回 Esc取消"))
+			content.WriteString("\n" + PopupTabStyle.Render(" Space勾选(多选) Enter确认 C-j/k移动 Backspace返回 Esc取消"))
 		}
 	case 1:
 		content.WriteString(DetailLabelStyle.Render(" "+a.pickerLocalDir) + "\n")
@@ -579,7 +592,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 		} else {
 			content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 		}
-		content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 开文件:Enter 返回:Backspace Esc取消"))
+		content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 开文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 	case 2:
 		if a.pickerSSHHost == "" {
 			hostLine := a.inputLine(a.pickerHostInput, a.pickerHostCursor, "user@host 或选择候选")
@@ -591,7 +604,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			} else {
 				content.WriteString(PopupTabStyle.Render(" 无主机候选（~/.ssh/config 为空）") + "\n")
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter连接浏览 Backspace清空 Esc取消"))
+			content.WriteString("\n" + PopupTabStyle.Render(" Enter连接浏览 C-j/k移动 C-l切路径 Esc取消"))
 		} else {
 			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s:%s", a.pickerSSHHost, a.pickerSSHDir)) + "\n")
 			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤…") + "\n\n")
@@ -602,7 +615,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter 返回:Backspace Esc取消"))
+			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 		}
 	}
 

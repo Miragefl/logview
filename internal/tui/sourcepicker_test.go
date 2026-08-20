@@ -359,6 +359,42 @@ func TestSourcePickerNsTypingJK(t *testing.T) {
 	}
 }
 
+// 所有 picker 层 C-j/C-k 上下移动候选。
+func TestSourcePickerCtrlJK(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(1)
+	app.pickerLocalDir = "/tmp/lvbrowse"
+	if app.pickerCursor != 0 {
+		t.Fatal("初始光标应在 0")
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if app.pickerCursor != 1 {
+		t.Fatalf("C-j 应下移到 1，实际 %d", app.pickerCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	if app.pickerCursor != 0 {
+		t.Fatalf("C-k 应上移到 0，实际 %d", app.pickerCursor)
+	}
+	// K8s 资源层同样生效
+	app2 := newTestApp()
+	app2.openSourcePicker(0)
+	app2.pickerK8sLevel = 2
+	app2.pickerCandidates = []sourceCandidate{{label: "a", value: "a"}, {label: "b", value: "b"}}
+	app2.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if app2.pickerCursor != 1 {
+		t.Fatalf("K8s 资源层 C-j 应下移，实际 %d", app2.pickerCursor)
+	}
+	// SSH 远程目录层同样生效
+	app3 := newTestApp()
+	app3.openSourcePicker(2)
+	app3.pickerSSHHost = "h"
+	app3.pickerCandidates = []sourceCandidate{{label: "x/", value: "x", dir: true}, {label: "y.log", value: "y.log"}}
+	app3.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if app3.pickerCursor != 1 {
+		t.Fatalf("SSH 目录层 C-j 应下移，实际 %d", app3.pickerCursor)
+	}
+}
+
 // expandHome 展开 ~/ 前缀。
 func TestExpandHome(t *testing.T) {
 	p := expandHome("~/logs/app.log")

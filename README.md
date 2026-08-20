@@ -122,7 +122,7 @@ TUI 内按 `o` 打开源选择器，不退出即可切换日志源（切换后�
 
 | Tab | 浏览层级 | 操作 |
 |-----|---------|------|
-| `K8s` | context → namespace → 资源 | Enter 下钻/切换 context（全局生效），`Space` 勾选多个 deploy/pod，`Backspace` 逐级返回 |
+| `K8s` | context → namespace → 资源 | Enter 下钻/切换 context（全局生效），`Space` 勾选多个 deploy/pod，`C-j`/`C-k` 或方向键移动，`Backspace` 逐级返回 |
 | `本地` | 目录浏览器 | 目录列表（`/` 后缀）+ 日志文件，Enter 进目录/打开，`Backspace` 返回上级，也可直接输入路径 |
 | `SSH` | 主机 → 远程目录 | 主机候选（`ssh_hosts` + `~/.ssh/config`），Enter 连接浏览远程目录，Enter 选文件 `tail -F` |
 
