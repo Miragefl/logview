@@ -101,8 +101,8 @@ func TestSourcePickerLocalBrowse(t *testing.T) {
 	app.openSourcePicker(1)
 	app.pickerLocalDir = "/tmp/lvbrowse"
 	cands := app.visiblePickerCandidates()
-	if len(cands) != 2 || cands[0].value != ".." || cands[1].label != "sub/" {
-		t.Fatalf("顶层候选应为 [../, sub/]，实际 %v", cands)
+	if len(cands) != 3 || cands[0].value != ".." || cands[1].label != "sub/" || cands[2].label != "readme.txt" {
+		t.Fatalf("顶层候选应为 [../, sub/, readme.txt]（目录在前、全部文件显示），实际 %v", cands)
 	}
 	// Enter(../ 不动) → j 到 sub/ → Enter 进目录
 	app.Update(tea.KeyMsg{Type: tea.KeyDown})

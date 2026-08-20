@@ -94,10 +94,13 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 	return nil
 }
 
-// filteredSSHCands 远程目录层：首位 ../ 返回上级，其余按过滤前缀过滤。
+// filteredSSHCands 远程目录层：非根目录首位 ../ 返回上级，其余按过滤前缀过滤。
 func (a *App) filteredSSHCands() []sourceCandidate {
 	filter := strings.ToLower(a.pickerDirFilter)
-	items := []sourceCandidate{{label: "../", value: "..", dir: true}}
+	var items []sourceCandidate
+	if a.pickerSSHDir != "/" {
+		items = append(items, sourceCandidate{label: "../", value: "..", dir: true})
+	}
 	for _, c := range a.pickerCandidates {
 		if filter == "" || strings.Contains(strings.ToLower(c.label), filter) {
 			items = append(items, c)

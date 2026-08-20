@@ -128,14 +128,14 @@ type localEntry struct {
 	isDir bool
 }
 
-// listLocalDir 列出 dir 的内容：目录在前（/ 后缀）、日志类文件在后，按名排序。
-// showHidden=false 时隐藏 . 开头条目。
+// listLocalDir 列出 dir 的内容：目录在前（/ 后缀）、文件在后，按名排序。
+// 显示全部文件（日志文件排最前，其余文件靠后），showHidden=false 时隐藏 . 开头条目。
 func listLocalDir(dir string, showHidden bool) []localEntry {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var dirs, logs []localEntry
+	var dirs, logs, others []localEntry
 	for _, e := range entries {
 		name := e.Name()
 		if name == "." || name == ".." {
@@ -148,14 +148,19 @@ func listLocalDir(dir string, showHidden bool) []localEntry {
 			dirs = append(dirs, localEntry{name: name, isDir: true})
 			continue
 		}
-		lower := strings.ToLower(name)
-		if strings.Contains(lower, "log") {
+		if strings.Contains(strings.ToLower(name), "log") {
 			logs = append(logs, localEntry{name: name})
+		} else {
+			others = append(others, localEntry{name: name})
 		}
 	}
-	sort.Slice(dirs, func(i, j int) bool { return dirs[i].name < dirs[j].name })
-	sort.Slice(logs, func(i, j int) bool { return logs[i].name < logs[j].name })
-	return append(dirs, logs...)
+	sortBy := func(s []localEntry) {
+		sort.Slice(s, func(i, j int) bool { return s[i].name < s[j].name })
+	}
+	sortBy(dirs)
+	sortBy(logs)
+	sortBy(others)
+	return append(append(dirs, logs...), others...)
 }
 
 // loadLocalCandidates 旧接口保留：供输入框路径过滤场景（非浏览态）。
