@@ -40,6 +40,18 @@ var rootCmd = &cobra.Command{
 	Short: "Terminal log viewer with real-time search and filtering",
 }
 
+var pickerCmd = &cobra.Command{
+	Use:   "picker",
+	Short: "Open TUI with the source picker (k8s/local/ssh)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		return runTUI(stream.NewFileSource(nil), false, cfg, true)
+	},
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version info",
@@ -173,7 +185,7 @@ var k8sCmd = &cobra.Command{
 			src = stream.NewMultiK8sSource(sources)
 		}
 
-		return runTUI(src, false, cfg)
+		return runTUI(src, false, cfg, false)
 	},
 }
 
@@ -245,7 +257,7 @@ var tailCmd = &cobra.Command{
 		tailLines, _ := cmd.Flags().GetInt("tail")
 		resume, _ := cmd.Flags().GetBool("resume")
 		if readOnly {
-			return runTUI(stream.NewFileSource(args), resume, cfg)
+			return runTUI(stream.NewFileSource(args), resume, cfg, false)
 		}
 		followLines := 0
 		if followMode {
@@ -255,7 +267,7 @@ var tailCmd = &cobra.Command{
 				followLines = cfg.history
 			}
 		}
-		return runTUI(stream.NewTailSource(args, followLines), resume, cfg)
+		return runTUI(stream.NewTailSource(args, followLines), resume, cfg, false)
 	},
 }
 
@@ -267,7 +279,7 @@ var pipeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return runTUI(stream.NewPipeSource(os.Stdin), false, cfg)
+		return runTUI(stream.NewPipeSource(os.Stdin), false, cfg, false)
 	},
 }
 
@@ -281,7 +293,7 @@ var fileCmd = &cobra.Command{
 			return err
 		}
 		resume, _ := cmd.Flags().GetBool("resume")
-		return runTUI(stream.NewFileSource(args), resume, cfg)
+		return runTUI(stream.NewFileSource(args), resume, cfg, false)
 	},
 }
 
@@ -294,10 +306,13 @@ type appConfig struct {
 	keyBindings  map[string]string // 预留：自定义按键（尚未接线）
 }
 
-// runTUI 以统一路径装配并启动 TUI（各子命令共用）。
-func runTUI(src stream.LogStream, resume bool, cfg appConfig) error {
+// runTUI 以统一路径装配并启动 TUI（各子命令共用）；openPicker 为 true 时启动即打开源选择器。
+func runTUI(src stream.LogStream, resume bool, cfg appConfig, openPicker bool) error {
 	app := tui.NewApp(src, cfg.parsers, bufferSize, cfg.defaultHides)
 	app.SetRulesPath(cfg.rulesPath)
+	if openPicker {
+		app.OpenSourcePickerOnStart()
+	}
 	if resume {
 		if s, err := tui.LoadSession(); err == nil {
 			app.ApplySession(s)
@@ -327,6 +342,7 @@ func init() {
 	rootCmd.AddCommand(pipeCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(upgradeCmd)
+	rootCmd.AddCommand(pickerCmd)
 	upgradeCmd.Flags().String("mirror", upgrade.MirrorGitee, "download mirror (gitee or github)")
 	upgradeCmd.Flags().Bool("force", false, "upgrade even if already at the latest version")
 	rootCmd.AddCommand(completionCmd())
@@ -357,10 +373,13 @@ var tailNumFollowRe = regexp.MustCompile(`^-(\d+)f$`)
 
 func Execute() {
 	args := expandTailArgs(os.Args[1:])
-	// auto-detect stdin pipe: if no subcommand and stdin is not a terminal, use pipe mode
+	// auto-detect stdin pipe: if no subcommand and stdin is not a terminal, use pipe mode;
+	// bare logview (+flags, no subcommand) on a TTY opens the TUI source picker instead of help
 	if len(args) == 0 || !isSubcommand(args[0]) {
 		if info, _ := os.Stdin.Stat(); info.Mode()&os.ModeNamedPipe != 0 || !isTerminal(info) {
 			args = append([]string{"pipe"}, args...)
+		} else {
+			args = append([]string{"picker"}, args...)
 		}
 	}
 	rootCmd.SetArgs(args)

@@ -100,6 +100,7 @@ type App struct {
 
 	sourcePickerMode bool
 	sourceTab        int // 0=K8s 1=本地 2=SSH
+	pickSourceOnStart bool // 启动即打开源选择器（picker 子命令）
 	pickerNsInput    string
 	pickerNsCursor   int
 	pickerPathInput  string
@@ -207,6 +208,11 @@ func tickEvery() tea.Cmd {
 }
 
 func (a *App) Init() tea.Cmd {
+	return a.openSourcePickerInit()
+}
+
+// openSourcePickerInit 预备初始 cmd：启动即打开源选择器（picker 子命令）时附带候选拉取。
+func (a *App) openSourcePickerInit() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
 	ch, err := a.stream.Start(ctx)
@@ -215,7 +221,12 @@ func (a *App) Init() tea.Cmd {
 		return nil
 	}
 	a.streamCh = ch
-	return tea.Batch(waitForStream(ch), tickEvery())
+	base := tea.Batch(waitForStream(ch), tickEvery())
+	if a.pickSourceOnStart {
+		a.openSourcePicker(0)
+		return tea.Batch(base, fetchK8sCandidatesCmd(a.pickerNsInput))
+	}
+	return base
 }
 
 // ReplaceStream 热切换日志源：停旧流、起新流、清屏重置全部视图状态。
@@ -440,6 +451,11 @@ func (a *App) recomputeView() {
 
 func (a *App) SetRulesPath(path string) {
 	a.rulesPath = path
+}
+
+// OpenSourcePickerOnStart 标记启动即打开源选择器（logview picker 子命令）。
+func (a *App) OpenSourcePickerOnStart() {
+	a.pickSourceOnStart = true
 }
 
 // recountLevels 重算缓冲内级别统计（recomputeView 内已同步维护，此函数供特殊路径调用）。
