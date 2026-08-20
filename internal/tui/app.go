@@ -96,6 +96,15 @@ type App struct {
 	searchHistMode   bool // ctrl+r 历史列表 overlay 是否展开
 	searchHistCursor int  // 列表选中索引，0=最新（列表倒序）
 
+	highlightHistory []string // 高亮关键词历史（确认时记录）
+	hideHistory      []string // 隐藏关键词历史（确认时记录）
+
+	sshPwMode   bool   // SSH 密码输入框展开（密码认证重连）
+	sshPwInput  string // 密码（内存暂存，不落盘不进历史）
+	sshPwCursor int
+	sshPwHost  string // 待重连的主机
+	sshPwPath  string // 待重连的路径
+
 	showLineNum bool
 
 	sourcePickerMode bool
@@ -283,6 +292,8 @@ func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
 func (a *App) appendErrorLine(msg string) {
 	raw := model.RawLine{Text: "ERROR " + msg, Source: "logview"}
 	a.processLine(raw)
+	// SSH 密码认证失败 → 弹密码框重连
+	a.maybePromptSSHPassword(msg)
 }
 
 func (a *App) shutdown() tea.Cmd {
@@ -316,6 +327,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.helpMode {
 			return a.handleHelpKeys(msg)
+		}
+		if a.sshPwMode {
+			return a.handleSSHPwKeys(msg)
 		}
 		if a.exportMode {
 			return a.handleExportKeys(msg)
@@ -405,6 +419,10 @@ func (a *App) processLine(raw model.RawLine) {
 	}
 	if !a.autoscroll {
 		a.newLogs++
+	}
+	// SSH 源认证失败（stderr Permission denied 转成的 ERROR 行）→ 弹密码框
+	if raw.Source != "logview" && strings.HasPrefix(raw.Text, "ERROR") {
+		a.maybePromptSSHPassword(raw.Text)
 	}
 }
 
@@ -1034,7 +1052,9 @@ func (a *App) View() string {
 
 	vl := a.visibleLines()
 	var logLines []string
-	if a.searchMode {
+	if a.sshPwMode {
+		logLines = a.buildSSHPwLines(vl)
+	} else if a.searchMode {
 		logLines = a.buildSearchModeLines(vl)
 	} else if a.sourcePickerMode {
 		logLines = a.buildSourcePickerLines(vl)

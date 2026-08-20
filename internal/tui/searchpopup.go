@@ -79,13 +79,15 @@ func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
 	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 C-j/k字段 Enter确认 C-r历史 Esc取消"))
 }
 
-// renderSearchHistoryList 渲染倒序搜索历史列表（最新在上），最多 8 行，光标跟随滚动。
+// renderSearchHistoryList 渲染倒序历史列表（最新在上），最多 8 行，光标跟随滚动。
+// 列表内容随当前分区（搜索/高亮/隐藏）取对应历史。
 func (a *App) renderSearchHistoryList(content *strings.Builder) {
-	n := len(a.searchHistory)
+	hist := a.currentTabHistory()
+	n := len(hist)
 	if n == 0 {
 		return
 	}
-	content.WriteString(HelpKeyStyle.Render("搜索历史") + "\n")
+	content.WriteString(HelpKeyStyle.Render("历史") + "\n")
 	maxRows := 8
 	if n < maxRows {
 		maxRows = n
@@ -105,12 +107,18 @@ func (a *App) renderSearchHistoryList(content *strings.Builder) {
 		if row == a.searchHistCursor {
 			prefix = SelectedStyle.Render(" >")
 		}
-		content.WriteString(prefix + " " + DetailDimStyle.Render(a.searchHistory[histIdx]) + "\n")
+		content.WriteString(prefix + " " + DetailDimStyle.Render(hist[histIdx]) + "\n")
 	}
 	content.WriteString("\n")
 }
 
 func (a *App) renderHighlightSection(content *strings.Builder) {
+	if a.searchHistMode {
+		a.renderSearchHistoryList(content)
+		content.WriteString(a.inputLine(a.highlightInput, a.highlightCursor, "高亮关键词，逗号分隔") + "\n")
+		content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 j/k选择 Enter填入 Esc取消"))
+		return
+	}
 	if len(a.highlights) > 0 {
 		content.WriteString(DetailDimStyle.Render("当前高亮:") + "\n")
 		for i, kw := range a.highlights {
@@ -121,10 +129,16 @@ func (a *App) renderHighlightSection(content *strings.Builder) {
 		content.WriteString("\n")
 	}
 	content.WriteString(a.inputLine(a.highlightInput, a.highlightCursor, "高亮关键词，逗号分隔") + "\n")
-	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 Esc取消"))
+	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 C-r历史 Esc取消"))
 }
 
 func (a *App) renderHideSection(content *strings.Builder) {
+	if a.searchHistMode {
+		a.renderSearchHistoryList(content)
+		content.WriteString(a.inputLine(a.hideInput, a.hideCursor, "隐藏关键词，逗号分隔") + "\n")
+		content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 j/k选择 Enter填入 Esc取消"))
+		return
+	}
 	if len(a.hides) > 0 {
 		content.WriteString(DetailDimStyle.Render("当前隐藏:") + "\n")
 		for _, kw := range a.hides {
@@ -133,7 +147,7 @@ func (a *App) renderHideSection(content *strings.Builder) {
 		content.WriteString("\n")
 	}
 	content.WriteString(a.inputLine(a.hideInput, a.hideCursor, "隐藏关键词，逗号分隔") + "\n")
-	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 Esc取消"))
+	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 C-r历史 Esc取消"))
 }
 
 // inputLine renders an input field with a cursor block at cursor position.

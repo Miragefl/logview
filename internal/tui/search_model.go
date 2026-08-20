@@ -139,8 +139,8 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "ctrl+r":
-			// 打开搜索历史列表（替换旧的循环切换）
-			if a.searchTab == 0 && len(a.searchHistory) > 0 {
+			// 打开当前分区（搜索/高亮/隐藏）的历史列表
+			if len(a.currentTabHistory()) > 0 {
 				a.searchHistMode = true
 				a.searchHistCursor = 0
 			}
@@ -157,9 +157,21 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// currentTabHistory 返回当前分区对应的历史列表。
+func (a *App) currentTabHistory() []string {
+	switch a.searchTab {
+	case 1:
+		return a.highlightHistory
+	case 2:
+		return a.hideHistory
+	}
+	return a.searchHistory
+}
+
 // handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭/续输）。
 func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(a.searchHistory)
+	hist := a.currentTabHistory()
+	n := len(hist)
 	if n == 0 {
 		// 无历史时不应进入列表（ctrl+r 打开有 len>0 守门），防御性关闭
 		a.searchHistMode = false
@@ -169,8 +181,8 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEscape:
 		a.searchHistMode = false
 	case tea.KeyEnter:
-		// 倒序：cursor=0 对应最新（searchHistory 末尾）
-		a.applySearchHistory(a.searchHistory[n-1-a.searchHistCursor])
+		// 倒序：cursor=0 对应最新（历史末尾）
+		a.applySearchHistory(hist[n-1-a.searchHistCursor])
 	case tea.KeyUp:
 		if a.searchHistCursor > 0 {
 			a.searchHistCursor--
@@ -207,9 +219,19 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // applySearchHistory 把选中的历史词填入搜索框、关闭列表、重新过滤。
 func (a *App) applySearchHistory(q string) {
 	a.searchHistMode = false
-	a.searchInput = q
-	a.searchCursor = len([]rune(q))
-	a.recomputeView()
+	// 填入当前分区的输入框
+	switch a.searchTab {
+	case 1:
+		a.highlightInput = q
+		a.highlightCursor = len([]rune(q))
+	case 2:
+		a.hideInput = q
+		a.hideCursor = len([]rune(q))
+	default:
+		a.searchInput = q
+		a.searchCursor = len([]rune(q))
+		a.recomputeView()
+	}
 }
 
 // activeSearchInput returns the input editor for the current search tab.
@@ -243,10 +265,29 @@ func splitKeywords(kw string) []string {
 	return clean
 }
 
+// addKeywordHistory 去重追加历史（最新在尾），上限 20。
+func addKeywordHistory(hist []string, entry string) []string {
+	if entry == "" {
+		return hist
+	}
+	for i, h := range hist {
+		if h == entry {
+			hist = append(hist[:i], hist[i+1:]...)
+			break
+		}
+	}
+	hist = append(hist, entry)
+	if len(hist) > 20 {
+		hist = hist[len(hist)-20:]
+	}
+	return hist
+}
+
 func (a *App) confirmHighlights() {
 	kw := strings.TrimSpace(a.highlightInput)
 	if kw != "" {
 		a.highlights = splitKeywords(kw)
+		a.highlightHistory = addKeywordHistory(a.highlightHistory, kw)
 	} else {
 		a.highlights = nil
 	}
@@ -256,6 +297,7 @@ func (a *App) confirmHides() {
 	kw := strings.TrimSpace(a.hideInput)
 	if kw != "" {
 		a.hides = splitKeywords(kw)
+		a.hideHistory = addKeywordHistory(a.hideHistory, kw)
 	} else {
 		a.hides = nil
 	}

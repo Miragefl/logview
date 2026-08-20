@@ -4,25 +4,54 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 
 	"github.com/justfun/logview/internal/model"
 )
 
+// writeAskpassScript 生成临时 askpass 脚本（回显 $SSH_PASSWORD），返回路径与清理函数。
+func writeAskpassScript() (string, func(), error) {
+	dir, err := os.MkdirTemp("", "logview-askpass-")
+	if err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, "askpass.sh")
+	script := "#!/bin/sh\necho \"$SSH_PASSWORD\"\n"
+	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+		os.RemoveAll(dir)
+		return "", nil, err
+	}
+	return path, func() { os.RemoveAll(dir) }, nil
+}
+
 // SSHSource tails a remote file over the system ssh client.
 // Auth is fully delegated to ssh (~/.ssh/config aliases, keys, agent, ProxyJump).
+// 密码认证：SetPassword 后经 SSH_ASKPASS 临时脚本喂给 ssh（免交互）。
 type SSHSource struct {
 	host      string
 	path      string
 	tailLines int
+	password  string
 	seq       atomic.Uint64
 }
 
 func NewSSHSource(host, path string, tailLines int) *SSHSource {
 	return &SSHSource{host: host, path: path, tailLines: tailLines}
 }
+
+// SetPassword 设置密码认证（TUI 密码框输入后调用）。
+func (s *SSHSource) SetPassword(pw string) { s.password = pw }
+
+// Password 返回已设密码（重连时复用）。
+func (s *SSHSource) Password() string { return s.password }
+
+// Host / Path 返回连接目标（TUI 密码重连用）。
+func (s *SSHSource) Host() string { return s.host }
+func (s *SSHSource) Path() string { return s.path }
 
 func (s *SSHSource) Label() string {
 	return fmt.Sprintf("ssh://%s%s", s.host, s.path)
@@ -38,11 +67,13 @@ func (s *SSHSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 }
 
 func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
-	args := []string{
-		"-o", "ConnectTimeout=8",
-		"-o", "BatchMode=yes", // 免交互：密钥/agent 认证，失败直接报错而非挂起等密码
-		s.host,
+	opts := []string{"-o", "BatchMode=yes"} // 免交互：密钥/agent 认证
+	if s.password != "" {
+		// 密码认证：SSH_ASKPASS 脚本回显密码（环境变量注入，见 startCmd）
+		opts = []string{"-o", "BatchMode=no", "-o", "StrictHostKeyChecking=no"}
 	}
+	args := append([]string{"-o", "ConnectTimeout=8"}, opts...)
+	args = append(args, s.host)
 	if s.tailLines > 0 {
 		args = append(args, fmt.Sprintf("tail -n %d -F %s", s.tailLines, shellQuote(s.path)))
 	} else {
@@ -50,6 +81,20 @@ func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
 	}
 
 	cmd := exec.CommandContext(ctx, "ssh", args...)
+	if s.password != "" {
+		askpass, cleanup, err := writeAskpassScript()
+		if err != nil {
+			s.emitErr(ctx, ch, fmt.Sprintf("askpass: %v", err))
+			return
+		}
+		defer cleanup()
+		cmd.Env = append(os.Environ(),
+			"SSH_ASKPASS="+askpass,
+			"SSH_ASKPASS_REQUIRE=force",
+			"SSH_PASSWORD="+s.password,
+			"DISPLAY=:0", // 部分 ssh 版本要求 DISPLAY 存在才走 askpass
+		)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		s.emitErr(ctx, ch, fmt.Sprintf("ssh pipe error: %v", err))

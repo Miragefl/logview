@@ -54,8 +54,8 @@ func TestSearchHistPopupRender(t *testing.T) {
 	app.Update(fakeKey("ctrl+r"))                                  // 打开列表
 
 	view := app.View()
-	if !strings.Contains(view, "搜索历史") {
-		t.Fatalf("应渲染“搜索历史”标题，view=\n%s", view)
+	if !strings.Contains(view, "历史") {
+		t.Fatalf("应渲染“历史”标题，view=\n%s", view)
 	}
 	// 倒序：WARN（最新）在 ERROR 之上
 	warnPos := strings.Index(view, "WARN")
