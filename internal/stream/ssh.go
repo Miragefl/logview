@@ -228,11 +228,14 @@ func SSHListDir(host, path string) ([]SSHDirEntry, error) {
 		path = "/"
 	}
 	args := []string{"-o", "ConnectTimeout=8", "-o", "BatchMode=yes", host,
-		fmt.Sprintf("ls -1 -F %s", shellQuote(path))}
-	out, err := exec.Command("ssh", args...).Output()
+		fmt.Sprintf("ls -1 -F %s 2>/dev/null", shellQuote(path))}
+	// 远端 ls 错误已丢弃(2>/dev/null)；CombinedOutput 中 stderr 即 ssh 自身错误
+	// （认证/连接），供 UI 判断是否弹密码框
+	combined, err := exec.Command("ssh", args...).CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("ssh ls %s: %s", host, strings.TrimSpace(err.Error()))
+		return nil, fmt.Errorf("ssh ls %s: %s", host, strings.TrimSpace(string(combined)))
 	}
+	out := combined
 	var entries []SSHDirEntry
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)

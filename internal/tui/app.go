@@ -363,6 +363,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "sshdir":
 			if a.pickerSSHHost != "" && msg.ns == a.pickerSSHHost+":"+a.pickerSSHDir {
 				a.pickerCandidates = msg.items
+				// 认证失败 → 关闭 picker 弹密码框（Enter 后带密码重连）
+				if msg.err != nil && len(msg.items) == 0 &&
+					strings.Contains(strings.ToLower(msg.err.Error()), "permission denied") {
+					a.promptSSHPwForHost(msg.ns)
+				}
 			}
 		default: // resources
 			if a.pickerK8sLevel == 2 && msg.ns == a.pickerNsInput {

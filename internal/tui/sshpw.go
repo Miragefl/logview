@@ -64,6 +64,25 @@ func (a *App) maybePromptSSHPassword(text string) {
 	a.sshPwCursor = 0
 }
 
+// promptSSHPwForHost 在 picker 内浏览远程目录失败（认证错误）时展开密码框。
+// ns 参数为 "host:/path" 形式；Enter 后回到该目录继续浏览。
+func (a *App) promptSSHPwForHost(target string) {
+	host, path, _ := strings.Cut(target, ":")
+	if host == "" {
+		return
+	}
+	if path == "" {
+		path = "/"
+	}
+	a.sshPwHost = host
+	a.sshPwPath = path
+	a.sshPwMode = true
+	a.sshPwInput = ""
+	a.sshPwCursor = 0
+	// 关闭 picker，密码框接管；重连成功后停留新流
+	a.closeSourcePicker()
+}
+
 // buildSSHPwLines 渲染密码输入弹窗（居中，日志透出）。
 func (a *App) buildSSHPwLines(vl int) []string {
 	var content strings.Builder
