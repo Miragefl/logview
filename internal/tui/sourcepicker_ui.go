@@ -60,7 +60,17 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 		case 1:
 			return a.pickerNamespaces
 		default:
-			return a.pickerCandidates
+			filter := strings.ToLower(a.pickerDirFilter)
+			if filter == "" {
+				return a.pickerCandidates
+			}
+			var out []sourceCandidate
+			for _, c := range a.pickerCandidates {
+				if strings.Contains(strings.ToLower(c.label), filter) {
+					out = append(out, c)
+				}
+			}
+			return out
 		}
 	case 1: // 本地目录（. 开头过滤词显示隐藏文件；../ 返回上级）
 		filter := a.pickerDirFilter
@@ -133,6 +143,11 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyBackspace:
+		// 输入框有内容时优先删字符（避免想删字却返回上级）；空时返回上级
+		if input := a.pickerInputRef(); input.text != nil && *input.text != "" {
+			input.backspace()
+			return a, nil
+		}
 		return a, a.pickerBackspace()
 	case tea.KeyEnter:
 		return a, a.pickerEnter()
@@ -304,6 +319,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			a.pickerCandidates = nil
 			a.pickerCursor = 0
 			a.pickerLoading = true
+			a.pickerDirFilter = ""
 			return fetchK8sCandidatesCmd(cand.value)
 		default: // 资源层：Enter = 确认（勾选集合或光标项）
 			return a.confirmSourcePicker()
@@ -377,18 +393,23 @@ func (a *App) pickerInputRef() inputRef {
 		if a.pickerK8sLevel == 1 {
 			return inputRef{&a.pickerNsInput, &a.pickerNsCursor}
 		}
+		if a.pickerK8sLevel == 2 {
+			return inputRef{&a.pickerDirFilter, &a.pickerFilterCursor} // 资源过滤
+		}
 	case 1:
 		if a.pickerPathInput != "" {
 			return inputRef{&a.pickerPathInput, &a.pickerPathCursor}
 		}
 		return inputRef{&a.pickerDirFilter, &a.pickerFilterCursor}
 	case 2:
-		if a.pickerSSHHost == "" {
-			if a.pickerSshFocus == 0 {
-				return inputRef{&a.pickerHostInput, &a.pickerHostCursor}
-			}
+		if a.pickerSSHHost != "" {
+			// 远程目录层：过滤框
+			return inputRef{&a.pickerDirFilter, &a.pickerFilterCursor}
 		}
-		return inputRef{&a.pickerDirFilter, &a.pickerFilterCursor}
+		if a.pickerSshFocus == 0 {
+			return inputRef{&a.pickerHostInput, &a.pickerHostCursor}
+		}
+		return inputRef{&a.pickerRemotePath, &a.pickerRemoteCursor}
 	}
 	return inputRef{}
 }
@@ -517,11 +538,12 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			}
 			content.WriteString("\n" + PopupTabStyle.Render(" Enter选择ns Backspace返回 Esc取消"))
 		default:
-			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s/%s", currentK8sContext(), a.pickerNsInput)) + "\n\n")
+			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s/%s", currentK8sContext(), a.pickerNsInput)) + "\n")
+			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤资源名…") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
 				content.WriteString(PopupTabStyle.Render(" 查询中…") + "\n")
 			} else if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 无资源（检查权限）") + "\n")
+				content.WriteString(PopupTabStyle.Render(" 无资源（检查权限或过滤词）") + "\n")
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, a.pickerChecked, 8))
 			}

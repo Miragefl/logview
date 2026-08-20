@@ -222,6 +222,59 @@ func TestSourcePickerLocalFilter(t *testing.T) {
 	}
 }
 
+// K8s 资源层过滤：输入前缀过滤候选；Backspace 先删字符再返回上级。
+func TestSourcePickerK8sResourceFilter(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(0)
+	app.pickerK8sLevel = 2
+	app.pickerNsInput = "default"
+	app.pickerCandidates = []sourceCandidate{
+		{label: "deploy/api-gateway", value: "deployment/api-gateway"},
+		{label: "deploy/user-svc", value: "deployment/user-svc"},
+		{label: "pod/gateway-abc", value: "pod/gateway-abc"},
+	}
+	// 通过打字输入过滤词（保证 cursor 位置正确）
+	for _, r := range "gateway" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 2 {
+		t.Fatalf("过滤 'gateway' 应剩 2 项，实际 %v", cands)
+	}
+	// Backspace：先删字符（不返回上级）
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerK8sLevel != 2 || app.pickerDirFilter != "gatewa" {
+		t.Fatalf("Backspace 应删字符而非返回：level=%d filter=%q", app.pickerK8sLevel, app.pickerDirFilter)
+	}
+	// 连续删空后再 Backspace 才返回 ns 层
+	for i := 0; i < 7; i++ {
+		app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	if app.pickerK8sLevel != 1 {
+		t.Fatalf("filter 删空后 Backspace 应回 ns 层，实际 %d", app.pickerK8sLevel)
+	}
+}
+
+// SSH 过滤框：Backspace 删字符不退层；C-u 清空。
+func TestSourcePickerSSHFilterBackspace(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(2)
+	app.pickerSSHHost = "ht-1"
+	app.pickerSSHDir = "/var/log"
+	app.pickerCandidates = []sourceCandidate{{label: "cron", value: "cron"}}
+	for _, r := range "cro" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerSSHHost == "" || app.pickerDirFilter != "cr" {
+		t.Fatalf("Backspace 应删字符而非退主机层：host=%q filter=%q", app.pickerSSHHost, app.pickerDirFilter)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	if app.pickerDirFilter != "" {
+		t.Fatalf("C-u 应清空 filter，实际 %q", app.pickerDirFilter)
+	}
+}
+
 // expandHome 展开 ~/ 前缀。
 func TestExpandHome(t *testing.T) {
 	p := expandHome("~/logs/app.log")
