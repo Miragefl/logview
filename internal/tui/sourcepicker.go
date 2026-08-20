@@ -129,8 +129,8 @@ type localEntry struct {
 }
 
 // listLocalDir 列出 dir 的内容：目录在前（/ 后缀）、日志类文件在后，按名排序。
-// 返回 nil 表示目录不可读。
-func listLocalDir(dir string) []localEntry {
+// showHidden=false 时隐藏 . 开头条目。
+func listLocalDir(dir string, showHidden bool) []localEntry {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -138,7 +138,10 @@ func listLocalDir(dir string) []localEntry {
 	var dirs, logs []localEntry
 	for _, e := range entries {
 		name := e.Name()
-		if name == "." || strings.HasPrefix(name, ".") {
+		if name == "." || name == ".." {
+			continue
+		}
+		if !showHidden && strings.HasPrefix(name, ".") {
 			continue
 		}
 		if e.IsDir() {
@@ -158,7 +161,7 @@ func listLocalDir(dir string) []localEntry {
 // loadLocalCandidates 旧接口保留：供输入框路径过滤场景（非浏览态）。
 func loadLocalCandidates(dir string) []sourceCandidate {
 	var items []sourceCandidate
-	for _, e := range listLocalDir(dir) {
+	for _, e := range listLocalDir(dir, false) {
 		if e.isDir {
 			continue
 		}

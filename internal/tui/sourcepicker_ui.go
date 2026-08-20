@@ -62,11 +62,12 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 		default:
 			return a.pickerCandidates
 		}
-	case 1: // 本地目录
-		var items []sourceCandidate
-		filter := strings.ToLower(a.pickerDirFilter)
-		for _, e := range listLocalDir(a.pickerLocalDir) {
-			if filter != "" && !strings.Contains(strings.ToLower(e.name), filter) {
+	case 1: // 本地目录（. 开头过滤词显示隐藏文件；../ 返回上级）
+		filter := a.pickerDirFilter
+		showHidden := strings.HasPrefix(filter, ".")
+		items := []sourceCandidate{{label: "../", value: "..", dir: true}}
+		for _, e := range listLocalDir(a.pickerLocalDir, showHidden) {
+			if filter != "" && !strings.Contains(strings.ToLower(e.name), strings.ToLower(filter)) {
 				continue
 			}
 			if e.isDir {
@@ -93,16 +94,16 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 	return nil
 }
 
-// filteredSSHCands 远程目录层按过滤前缀过滤候选。
+// filteredSSHCands 远程目录层：首位 ../ 返回上级，其余按过滤前缀过滤。
 func (a *App) filteredSSHCands() []sourceCandidate {
 	filter := strings.ToLower(a.pickerDirFilter)
-	var out []sourceCandidate
+	items := []sourceCandidate{{label: "../", value: "..", dir: true}}
 	for _, c := range a.pickerCandidates {
 		if filter == "" || strings.Contains(strings.ToLower(c.label), filter) {
-			out = append(out, c)
+			items = append(items, c)
 		}
 	}
-	return out
+	return items
 }
 
 func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -251,6 +252,27 @@ func (a *App) pickerEnter() tea.Cmd {
 		}
 	}
 
+	// SSH 远程目录层：过滤框输入以 / 开头 → 视为路径直达（目录列出/文件打开）
+	if a.sourceTab == 2 && a.pickerSSHHost != "" && strings.HasPrefix(a.pickerDirFilter, "/") {
+		path := strings.TrimSuffix(a.pickerDirFilter, "/")
+		if path == "" {
+			path = "/"
+		}
+		_, err := stream.SSHListDir(a.pickerSSHHost, path)
+		if err != nil {
+			// 路径不存在或不可读：当作文件尝试打开
+			a.pickerRemotePath = path
+			a.pickerDirFilter = ""
+			return a.confirmSourcePicker()
+		}
+		a.pickerSSHDir = path
+		a.pickerCandidates = nil
+		a.pickerCursor = 0
+		a.pickerDirFilter = ""
+		a.pickerLoading = true
+		return fetchSSHDirCmd(a.pickerSSHHost, path)
+	}
+
 	if a.pickerCursor >= len(cands) {
 		return nil
 	}
@@ -285,6 +307,15 @@ func (a *App) pickerEnter() tea.Cmd {
 		}
 	case 1: // 本地
 		target := cand.value
+		if target == ".." {
+			parent := filepath.Dir(a.pickerLocalDir)
+			if parent != a.pickerLocalDir {
+				a.pickerLocalDir = parent
+			}
+			a.pickerCursor = 0
+			a.pickerDirFilter = ""
+			return nil
+		}
 		if cand.dir {
 			a.pickerLocalDir = filepath.Join(a.pickerLocalDir, target)
 			a.pickerCursor = 0
@@ -295,10 +326,27 @@ func (a *App) pickerEnter() tea.Cmd {
 		return a.confirmSourcePicker()
 	case 2: // SSH
 		if a.pickerSSHHost == "" {
-			// 主机层 → 进入远程目录浏览（默认 /var/log 不存在则 /）
+			// 主机层 → 进入远程目录浏览（从根目录开始，输入过滤/Backspace 逐级导航）
 			a.pickerSSHHost = cand.value
-			a.pickerSSHDir = "/var/log"
-			a.pickerSSHRoot = "/var/log"
+			a.pickerSSHDir = "/"
+			a.pickerSSHRoot = "/"
+			a.pickerCandidates = nil
+			a.pickerCursor = 0
+			a.pickerLoading = true
+			a.pickerDirFilter = ""
+			return fetchSSHDirCmd(a.pickerSSHHost, a.pickerSSHDir)
+		}
+		if cand.value == ".." {
+			if a.pickerSSHDir == "/" {
+				// 根目录再上 → 返回主机层
+				a.pickerSSHHost = ""
+				a.pickerSSHDir = ""
+				a.pickerSSHRoot = ""
+				a.pickerCandidates = nil
+				a.pickerCursor = 0
+				return nil
+			}
+			a.pickerSSHDir = parentPath(a.pickerSSHDir)
 			a.pickerCandidates = nil
 			a.pickerCursor = 0
 			a.pickerLoading = true
@@ -354,7 +402,7 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 	remotePath := a.pickerRemotePath
 	sshHost := a.pickerSSHHost
 	sshDir := a.pickerSSHDir
-	localCands := listLocalDir(a.pickerLocalDir)
+	localCands := listLocalDir(a.pickerLocalDir, false)
 	a.closeSourcePicker()
 
 	switch tab {

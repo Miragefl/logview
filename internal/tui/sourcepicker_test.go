@@ -101,15 +101,17 @@ func TestSourcePickerLocalBrowse(t *testing.T) {
 	app.openSourcePicker(1)
 	app.pickerLocalDir = "/tmp/lvbrowse"
 	cands := app.visiblePickerCandidates()
-	if len(cands) != 1 || !cands[0].dir || cands[0].label != "sub/" {
-		t.Fatalf("顶层候选应只有 sub/（目录），实际 %v", cands)
+	if len(cands) != 2 || cands[0].value != ".." || cands[1].label != "sub/" {
+		t.Fatalf("顶层候选应为 [../, sub/]，实际 %v", cands)
 	}
-	// Enter 进目录
+	// Enter(../ 不动) → j 到 sub/ → Enter 进目录
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.pickerLocalDir != "/tmp/lvbrowse/sub" {
 		t.Fatalf("Enter 应进子目录，实际 %s", app.pickerLocalDir)
 	}
-	// 目录内 Enter 打开 app.log
+	// 目录内 j 跳过 ../ 打开 app.log
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.sourcePickerMode {
 		t.Fatal("文件 Enter 应关闭选择器并切换源")
@@ -143,8 +145,8 @@ func TestSourcePickerSSHBrowse(t *testing.T) {
 	if app.pickerSSHHost != "web2" {
 		t.Fatalf("应进入远程目录层，host=%q", app.pickerSSHHost)
 	}
-	if app.pickerSSHDir != "/var/log" || app.pickerSSHRoot != "/var/log" {
-		t.Fatalf("起始目录应 /var/log，dir=%q root=%q", app.pickerSSHDir, app.pickerSSHRoot)
+	if app.pickerSSHDir != "/" || app.pickerSSHRoot != "/" {
+		t.Fatalf("起始目录应 /，dir=%q root=%q", app.pickerSSHDir, app.pickerSSHRoot)
 	}
 	// 目录候选回填（模拟 msg）：目录 + 文件
 	app.pickerCandidates = []sourceCandidate{
@@ -169,14 +171,16 @@ func TestSourcePickerSSHDirConfirm(t *testing.T) {
 		{label: "nginx/", value: "nginx", dir: true},
 		{label: "sys.log", value: "sys.log"},
 	}
-	// Enter 目录下钻
+	// j 跳过 ../ 到 nginx/，Enter 下钻
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.pickerSSHDir != "/var/log/nginx" {
 		t.Fatalf("目录下钻失败: %s", app.pickerSSHDir)
 	}
-	// Backspace 回上级，选文件确认
+	// Backspace 回上级，j 跳过 ../ 选文件确认
 	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	app.pickerCandidates = []sourceCandidate{{label: "sys.log", value: "sys.log"}}
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.sourcePickerMode {
 		t.Fatal("文件 Enter 应关闭选择器")
@@ -193,12 +197,12 @@ func TestSourcePickerLocalFilter(t *testing.T) {
 	app.pickerLocalDir = "/tmp/lvbrowse"
 	app.pickerDirFilter = "su"
 	cands := app.visiblePickerCandidates()
-	if len(cands) != 1 || cands[0].label != "sub/" {
-		t.Fatalf("过滤 'su' 应只剩 sub/，实际 %v", cands)
+	if len(cands) != 2 || cands[0].value != ".." || cands[1].label != "sub/" {
+		t.Fatalf("过滤 'su' 应剩 [../, sub/]，实际 %v", cands)
 	}
 	// 过滤后无匹配 → 空列表不 panic
 	app.pickerDirFilter = "zzz"
-	if len(app.visiblePickerCandidates()) != 0 {
+	if len(app.visiblePickerCandidates()) != 1 { // 仅剩 ../
 		t.Fatal("无匹配应为空列表")
 	}
 	// 输入存在的目录路径直达
