@@ -53,6 +53,10 @@ func (a *App) overlayToVL(box string, vl int) []string {
 		if i >= top && i < top+bh {
 			bl := boxLines[i-top]
 			leftPart := truncateVisible(log, left)
+			// 日志行不足 left 宽时补空格，保证弹窗水平位置稳定
+			if pad := left - lipgloss.Width(leftPart); pad > 0 {
+				leftPart += strings.Repeat(" ", pad)
+			}
 			rightStart := left + lipgloss.Width(bl)
 			rightPart := ""
 			if rightStart < a.width {
