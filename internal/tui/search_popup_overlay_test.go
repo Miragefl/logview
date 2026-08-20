@@ -60,24 +60,38 @@ func TestSearchPopupCentered(t *testing.T) {
 	}
 }
 
-// 遮罩生效：弹窗打开时日志区非弹窗部分被遮罩底色覆盖（有背景色序列）。
-func TestSearchPopupMaskApplied(t *testing.T) {
+// 弹窗不遮日志：弹窗打开时其上下区域仍显示日志行（可边看边复制）。
+func TestSearchPopupKeepsLogVisible(t *testing.T) {
 	app := NewApp(&mockStream{}, nil, 1000, nil)
 	app.width = 120
 	app.height = 40
-	app.processLine(model.RawLine{Text: "2026 ERROR boom", Source: "k"})
+	for i := 0; i < 20; i++ {
+		app.processLine(model.RawLine{Text: "2026 ERROR boom failure line", Source: "k"})
+	}
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "boom" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
 
 	view := app.View()
 	lines := strings.Split(view, "\n")
 	vl := app.visibleLines()
-	masked := 0
-	for i := 4; i < 4+vl && i < len(lines); i++ {
-		if strings.Contains(lines[i], "\x1b[48;") { // 任意背景色序列
-			masked++
+	// 弹窗上方（日志区前几行）应有日志内容透出
+	hasLogAbove := false
+	for i := 4; i < 4+3 && i < len(lines); i++ {
+		if strings.Contains(stripANSI(lines[i]), "boom") {
+			hasLogAbove = true
+			break
 		}
 	}
-	if masked < vl/2 {
-		t.Fatalf("遮罩应覆盖大部分日志区，实际 %d/%d 行带背景色", masked, vl)
+	// 弹窗下方也应有日志
+	hasLogBelow := false
+	for i := 4; i < 4+vl && i < len(lines); i++ {
+		if strings.Contains(stripANSI(lines[i]), "boom") {
+			hasLogBelow = true
+		}
+	}
+	if !hasLogAbove || !hasLogBelow {
+		t.Fatalf("弹窗上下应透出日志：above=%v below=%v", hasLogAbove, hasLogBelow)
 	}
 }
