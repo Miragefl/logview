@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -28,21 +29,40 @@ func (a *App) overlayToVLPlain(box string, vl int) []string {
 	return a.overlayToVLWithMask(box, vl, false)
 }
 
-// PopupMaskBg 遮罩底色（ApplyTheme 按主题更新）：dark 压暗、light 提亮。
-var PopupMaskBg = lipgloss.Color("#1A1B26")
+// PopupMaskBgHex 遮罩底色 hex（ApplyTheme 按主题更新）：dark 压暗、light 提亮。
+var PopupMaskBgHex = "#1A1B26"
+
+// maskSeq 返回遮罩背景 ANSI 序列（空色返回空串）。
+func maskSeq() string {
+	if PopupMaskBgHex == "" {
+		return ""
+	}
+	r, g, b := hexToRGB(PopupMaskBgHex)
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+}
 
 func (a *App) overlayToVLWithMask(box string, vl int, masked bool) []string {
 	base := lipgloss.Place(a.width, vl, lipgloss.Center, lipgloss.Center, box)
-	if masked {
-		base = lipgloss.NewStyle().Background(PopupMaskBg).Width(a.width).Height(vl).Render(base)
-	}
 	lines := make([]string, vl)
-	overlay := lipgloss.NewStyle().Width(a.width).Height(vl).Render(base)
-	parts := strings.Split(overlay, "\n")
+	parts := strings.Split(base, "\n")
+	seq := ""
+	if masked {
+		seq = maskSeq()
+	}
 	for i := 0; i < vl; i++ {
+		l := ""
 		if i < len(parts) {
-			lines[i] = parts[i]
+			l = parts[i]
 		}
+		if seq != "" {
+			pad := a.width - lipgloss.Width(l)
+			if pad > 0 {
+				l += strings.Repeat(" ", pad)
+			}
+			// 弹窗行自带背景：遮罩色置于行首，被弹窗自身的色序列覆盖是预期
+			l = seq + l + "\x1b[49m"
+		}
+		lines[i] = l
 	}
 	return lines
 }

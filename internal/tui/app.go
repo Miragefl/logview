@@ -1065,20 +1065,17 @@ func (a *App) View() string {
 	return out
 }
 
-// buildSearchModeLines 渲染搜索模式下的日志区：popup 紧贴搜索栏 inline 显示，
-// 日志在下方独立渲染，互不覆盖。按可用高度限制 popup（先砍 starFields 字段建议），
-// 保证匹配日志始终可见。
+// buildSearchModeLines 渲染搜索模式下的日志区：搜索/高亮/隐藏弹窗居中显示（带遮罩），
+// 与其它弹窗统一；按可用高度限制弹窗高度（先砍 starFields 字段建议）。
 func (a *App) buildSearchModeLines(vl int) []string {
-	logReserve := vl / 3
-	if logReserve < 3 {
-		logReserve = 3
-	}
+	logReserve := 4
 	popupMaxH := vl - logReserve
-	if popupMaxH < 1 {
-		popupMaxH = 1
+	if popupMaxH < 5 {
+		popupMaxH = 5
 	}
 	popupLines := a.buildSearchPopup(popupMaxH)
-	return a.inlinePopupLines(strings.Join(popupLines, "\n"), vl)
+	box := strings.Join(popupLines, "\n")
+	return a.overlayToVL(box, vl)
 }
 
 // inlinePopupLines 把 popup 行列表渲染进日志区（上方 popup + 下方保留日志）。

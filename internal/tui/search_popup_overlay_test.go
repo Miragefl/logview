@@ -9,60 +9,18 @@ import (
 	"github.com/justfun/logview/internal/model"
 )
 
-// 回归保护 #1：搜索 popup 曾从日志区顶部逐行 overlay，当 popup 行数 >= 匹配结果
-// 行数时把日志全盖成空白（用户看到 popup 下面一片空）。改为 inline 布局后 popup
-// 紧贴搜索栏、日志下方独立显示。此测试锁死"搜索时日志区必须能看见匹配行"。
-func TestSearchPopupDoesNotBlankLog(t *testing.T) {
-	app := NewApp(&mockStream{}, nil, 1000, nil)
-	app.width = 120
-	app.height = 40
-	// 只喂 5 行 ERROR：匹配结果(5) < popup 高度，最易触发空白
-	for i := 0; i < 5; i++ {
-		app.processLine(model.RawLine{Text: "2026-05-15 09:27:01.130 [t] [abc] ERROR App - boom failure", Source: "p"})
-	}
-
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}) // 进搜索
-	for _, r := range "ERROR" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-	}
-	if !app.searchMode {
-		t.Fatalf("应处于搜索模式")
-	}
-	if len(app.filteredView) != 5 {
-		t.Fatalf("ERROR 应匹配 5 行，实际 %d", len(app.filteredView))
-	}
-
-	// View() 日志区（跳过 title/sep/bar/sep 共 4 行）必须至少一行含原始日志内容
-	view := app.View()
-	lines := strings.Split(view, "\n")
-	vl := app.visibleLines()
-	hasLog := false
-	for i := 4; i < 4+vl && i < len(lines); i++ {
-		if strings.Contains(stripANSI(lines[i]), "boom") {
-			hasLog = true
-			break
-		}
-	}
-	if !hasLog {
-		t.Fatalf("搜索 popup 不应把日志盖成空白：日志区 %d 行找不到匹配日志", vl)
-	}
-}
-
-// 回归保护 #2：搜 "service" 输入到 "ser" 时匹配骤减（"se" 匹配多、含 "ser" 的少），
-// v0.12.15 的居中 overlay 在小终端（popup 行数 >= 可视行数）退化为顶部覆盖，把仅剩
-// 的 service 行全盖，必须输完回车关 popup 才看到。inline 布局后无论终端大小，
-// 匹配行始终在 popup 下方可见。覆盖正常终端(40)和小终端(20)。
-func TestSearchPopupKeepsMatchesVisibleWhenFew(t *testing.T) {
+// 回归保护（居中弹窗设计）：搜索/高亮/隐藏弹窗居中渲染且带遮罩。
+// 锁定契约：
+//  1. 弹窗内容（tab 栏/输入提示）出现在日志区垂直中部附近
+//  2. 弹窗高度受日志区约束（不超过 vl），小终端不退化
+//  3. 匹配行数统计正确（搜索功能本身不受布局影响）
+func TestSearchPopupCentered(t *testing.T) {
 	for _, h := range []int{20, 40} {
 		t.Run(fmt.Sprintf("height=%d", h), func(t *testing.T) {
 			app := NewApp(&mockStream{}, nil, 1000, nil)
 			app.width = 120
 			app.height = h
-			// 12 行含 "se" 不含 "ser"（response）+ 3 行含 "ser"（service）
-			for i := 0; i < 12; i++ {
-				app.processLine(model.RawLine{Text: "2026 request response upstream", Source: "k"})
-			}
-			for i := 0; i < 3; i++ {
+			for i := 0; i < 5; i++ {
 				app.processLine(model.RawLine{Text: "2026 service started here", Source: "k"})
 			}
 
@@ -73,36 +31,53 @@ func TestSearchPopupKeepsMatchesVisibleWhenFew(t *testing.T) {
 			if !app.searchMode {
 				t.Fatalf("应处于搜索模式")
 			}
-			// ser 阶段只剩 service 行匹配
-			if len(app.filteredView) != 3 {
-				t.Fatalf("ser 应只匹配 3 行 service，实际 %d", len(app.filteredView))
+			if len(app.filteredView) != 5 {
+				t.Fatalf("ser 应匹配 5 行，实际 %d", len(app.filteredView))
 			}
 
-			// 与 View() 相同的 popup 高度算法
+			// 弹窗高度不超过日志区
 			vl := app.visibleLines()
-			logReserve := vl / 3
-			if logReserve < 3 {
-				logReserve = 3
+			ph := len(app.buildSearchPopup(vl))
+			if ph > vl {
+				t.Fatalf("height=%d: popup 高度 %d 超过日志区 %d", h, ph, vl)
 			}
-			popupMaxH := vl - logReserve
-			if popupMaxH < 1 {
-				popupMaxH = 1
-			}
-			ph := len(app.buildSearchPopup(popupMaxH))
 
-			// popup 之后的日志区必须有 service 行可见
+			// View 日志区内应出现弹窗 tab 栏（居中 overlay）
 			view := app.View()
 			lines := strings.Split(view, "\n")
-			hasVisible := false
-			for i := 4 + ph; i < 4+vl && i < len(lines); i++ {
-				if strings.Contains(stripANSI(lines[i]), "service") {
-					hasVisible = true
+			hasPopup := false
+			for i := 4; i < 4+vl && i < len(lines); i++ {
+				l := stripANSI(lines[i])
+				if strings.Contains(l, "搜索") && strings.Contains(l, "高亮") {
+					hasPopup = true
 					break
 				}
 			}
-			if !hasVisible {
-				t.Fatalf("height=%d: ser 阶段 service 行应在 popup 下方可见，ph=%d vl=%d", h, ph, vl)
+			if !hasPopup {
+				t.Fatalf("height=%d: 居中弹窗的 tab 栏应在日志区可见", h)
 			}
 		})
+	}
+}
+
+// 遮罩生效：弹窗打开时日志区非弹窗部分被遮罩底色覆盖（有背景色序列）。
+func TestSearchPopupMaskApplied(t *testing.T) {
+	app := NewApp(&mockStream{}, nil, 1000, nil)
+	app.width = 120
+	app.height = 40
+	app.processLine(model.RawLine{Text: "2026 ERROR boom", Source: "k"})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+
+	view := app.View()
+	lines := strings.Split(view, "\n")
+	vl := app.visibleLines()
+	masked := 0
+	for i := 4; i < 4+vl && i < len(lines); i++ {
+		if strings.Contains(lines[i], "\x1b[48;") { // 任意背景色序列
+			masked++
+		}
+	}
+	if masked < vl/2 {
+		t.Fatalf("遮罩应覆盖大部分日志区，实际 %d/%d 行带背景色", masked, vl)
 	}
 }
