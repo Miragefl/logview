@@ -389,6 +389,10 @@ func Execute() {
 }
 
 func isSubcommand(arg string) bool {
+	// cobra 动态补全协议命令（shell 补全靠它），不得被 picker/pipe 注入劫持
+	if arg == "__complete" || arg == "__completeNoDesc" {
+		return true
+	}
 	for _, cmd := range rootCmd.Commands() {
 		if cmd.Name() == arg {
 			return true

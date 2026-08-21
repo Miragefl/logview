@@ -38,6 +38,12 @@ func TestIsSubcommand(t *testing.T) {
 			t.Errorf("isSubcommand(%q) = false, want true", name)
 		}
 	}
+	// cobra 动态补全协议命令必须豁免 picker/pipe 注入（shell 补全依赖）
+	for _, name := range []string{"__complete", "__completeNoDesc"} {
+		if !isSubcommand(name) {
+			t.Errorf("isSubcommand(%q) = false, want true (shell completion broken)", name)
+		}
+	}
 	if isSubcommand("notacommand") {
 		t.Error("isSubcommand(notacommand) = true, want false")
 	}
