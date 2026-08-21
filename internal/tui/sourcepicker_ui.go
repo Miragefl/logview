@@ -310,6 +310,10 @@ func (a *App) pickerBackspace() tea.Cmd {
 
 // pickerEnter 按当前层级分派：下钻 / 勾选确认 / 打开文件。
 func (a *App) pickerEnter() tea.Cmd {
+	// 异步候选加载中：不分派（此时候选为空/过期，../ 等占位项会导致误退回上级）
+	if a.pickerLoading {
+		return nil
+	}
 	cands := a.visiblePickerCandidates()
 
 	// 本地 tab：过滤框输入的是存在的路径时直达（目录进入/文件打开）
@@ -364,6 +368,10 @@ func (a *App) pickerEnter() tea.Cmd {
 		return nil
 	}
 	cand := cands[a.pickerCursor]
+	// 过滤态只剩 ../（无实际匹配）时 Enter 不退回上级（退回用 Backspace 或清空过滤）
+	if cand.value == ".." && a.pickerDirFilter != "" && a.sourceTab != 0 {
+		return nil
+	}
 
 	switch a.sourceTab {
 	case 0:

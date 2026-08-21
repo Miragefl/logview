@@ -39,6 +39,7 @@ func TestSourcePickerK8sLevels(t *testing.T) {
 	app.k8sUseContextFn = func(string) error { return nil } // mock context 切换
 	app.openSourcePicker(0)
 	app.pickerContexts = []sourceCandidate{{label: "ctx-a", value: "ctx-a"}, {label: "ctx-b", value: "ctx-b"}}
+	app.pickerLoading = false // 回填完成态
 	// context 层 Enter：选中第一项，应切到 ns 层
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.pickerK8sLevel != 1 {
@@ -46,6 +47,7 @@ func TestSourcePickerK8sLevels(t *testing.T) {
 	}
 	// ns 候选回填后 Enter 进入资源层
 	app.pickerNamespaces = []sourceCandidate{{label: "default", value: "default"}, {label: "kube-system", value: "kube-system"}}
+	app.pickerLoading = false // 回填完成态
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.pickerK8sLevel != 2 || app.pickerNsInput != "default" {
 		t.Fatalf("ns Enter 后应在资源层/ns=default，实际 level=%d ns=%q", app.pickerK8sLevel, app.pickerNsInput)
@@ -180,6 +182,7 @@ func TestSourcePickerSSHDirConfirm(t *testing.T) {
 	// Backspace 回上级，j 跳过 ../ 选文件确认
 	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	app.pickerCandidates = []sourceCandidate{{label: "sys.log", value: "sys.log"}}
+	app.pickerLoading = false // 回填完成态
 	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.sourcePickerMode {
@@ -262,6 +265,7 @@ func TestSourcePickerSSHFilterBackspace(t *testing.T) {
 	app.pickerSSHHost = "ht-1"
 	app.pickerSSHDir = "/var/log"
 	app.pickerCandidates = []sourceCandidate{{label: "cron", value: "cron"}}
+	app.pickerLoading = false // 回填完成态
 	for _, r := range "cro" {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
@@ -331,6 +335,7 @@ func TestSourcePickerNsTypedFilter(t *testing.T) {
 	app2.openSourcePicker(0)
 	app2.pickerK8sLevel = 1
 	app2.pickerNamespaces = []sourceCandidate{{label: "default", value: "default"}}
+	app2.pickerLoading = false // 回填完成态
 	for _, r := range "parking" {
 		app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
@@ -380,6 +385,7 @@ func TestSourcePickerCtrlJK(t *testing.T) {
 	app2.openSourcePicker(0)
 	app2.pickerK8sLevel = 2
 	app2.pickerCandidates = []sourceCandidate{{label: "a", value: "a"}, {label: "b", value: "b"}}
+	app2.pickerLoading = false // 回填完成态
 	app2.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	if app2.pickerCursor != 1 {
 		t.Fatalf("K8s 资源层 C-j 应下移，实际 %d", app2.pickerCursor)
@@ -422,6 +428,37 @@ func TestQKeyPickerFlow(t *testing.T) {
 	}
 	if app2.pickerDirFilter != "lq" {
 		t.Fatalf("q 应进入过滤框，实际 %q", app2.pickerDirFilter)
+	}
+}
+
+// 防回归：目录候选加载中 Enter 不分派（../ 占位项曾导致下钻后误退回根目录）。
+func TestSourcePickerSSHLoadingGuard(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(2)
+	app.pickerSSHHost = "h"
+	app.pickerSSHDir = "/park-cube"
+	app.pickerCandidates = nil
+	app.pickerLoading = true // fetch 进行中
+	// 过滤框输入 park：可见候选仅剩 ../（占位）
+	app.pickerDirFilter = "park"
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerSSHDir != "/park-cube" {
+		t.Fatalf("加载中 Enter 不应改变目录，实际 %s", app.pickerSSHDir)
+	}
+
+	// 候选回填后：过滤无匹配时 Enter 选到 ../ 也不应退回上级
+	app.pickerLoading = false
+	app.pickerCandidates = []sourceCandidate{{label: "other/", value: "other", dir: true}}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerSSHDir != "/park-cube" {
+		t.Fatalf("过滤态下 Enter 不应经 ../ 退回上级，实际 %s", app.pickerSSHDir)
+	}
+
+	// 清空过滤后 Enter ../ 正常返回上级
+	app.pickerDirFilter = ""
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerSSHDir != "/" {
+		t.Fatalf("清空过滤后 Enter ../ 应回上级，实际 %s", app.pickerSSHDir)
 	}
 }
 
