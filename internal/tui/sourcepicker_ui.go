@@ -378,6 +378,7 @@ func (a *App) pickerEnter() tea.Cmd {
 				return nil
 			}
 			a.pickerKubeCtx = cand.value // 记录已选 context，建源时显式指定
+			BumpUsage(usageK8sCtx + cand.value)
 			a.pickerK8sLevel = 1
 			a.pickerNamespaces = nil
 			a.pickerCursor = 0
@@ -385,6 +386,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			return fetchK8sNamespacesCmd(a.pickerKubeCtx)
 		case 1: // namespace → 进入资源层
 			a.pickerNsInput = cand.value
+			BumpUsage(usageK8sNS + cand.value)
 			a.pickerK8sLevel = 2
 			a.pickerCandidates = nil
 			a.pickerCursor = 0
@@ -416,6 +418,7 @@ func (a *App) pickerEnter() tea.Cmd {
 	case 2: // SSH
 		if a.pickerSSHHost == "" {
 			// 主机层 → 进入远程目录浏览（从根目录开始，输入过滤/Backspace 逐级导航）
+			BumpUsage(usageSSHHost + cand.value)
 			a.pickerSSHHost = cand.value
 			a.pickerSSHDir = "/"
 			a.pickerSSHRoot = "/"
@@ -514,6 +517,13 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 			return nil
 		}
 		sortStrings(resources)
+		// 热点：确认打开的资源/命名空间计入频次
+		for _, r := range resources {
+			BumpUsage(usageK8sRes + r)
+		}
+		if nsInput != "" {
+			BumpUsage(usageK8sNS + nsInput)
+		}
 		var sources []*stream.K8sSource
 		for _, r := range resources {
 			sources = append(sources, stream.NewK8sSource(r, nsInput, nil, 200))
@@ -550,6 +560,7 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 		if path == "" {
 			return nil
 		}
+		BumpUsage(usageSSHHost + host) // 热点：确认打开的 SSH 主机计入频次
 		src := stream.NewSSHSource(host, path, 200)
 	if pw := a.sshPw(host); pw != "" {
 		src.SetPassword(pw)

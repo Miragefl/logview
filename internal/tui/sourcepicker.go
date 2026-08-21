@@ -183,13 +183,13 @@ func loadLocalCandidates(dir string) []sourceCandidate {
 	return items
 }
 
-// sshCandidates 合并全局主机候选为选择器条目。
+// sshCandidates 合并全局主机候选为选择器条目（按使用频次降序，常用在前）。
 func sshCandidates() []sourceCandidate {
 	var items []sourceCandidate
 	for _, h := range sshHostCandidates {
 		items = append(items, sourceCandidate{label: h, value: h})
 	}
-	return items
+	return sortCandidatesHot(items, usageSSHHost, true)
 }
 
 // fetchSSHDirCmd 异步拉取远程目录列表（password 非空走密码认证）。

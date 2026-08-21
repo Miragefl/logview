@@ -360,11 +360,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.kind {
 		case "contexts":
 			if a.pickerK8sLevel == 0 {
-				a.pickerContexts = msg.items
+				a.pickerContexts = sortCandidatesHot(msg.items, usageK8sCtx, true)
 			}
 		case "namespaces":
 			if a.pickerK8sLevel == 1 {
-				a.pickerNamespaces = msg.items
+				a.pickerNamespaces = sortCandidatesHot(msg.items, usageK8sNS, true)
 			}
 		case "sshdir":
 			if a.pickerSSHHost != "" && msg.ns == a.pickerSSHHost+":"+a.pickerSSHDir {
@@ -377,7 +377,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		default: // resources
 			if a.pickerK8sLevel == 2 && msg.ns == a.pickerNsInput {
-				a.pickerCandidates = msg.items
+				a.pickerCandidates = sortCandidatesHot(msg.items, usageK8sRes, true)
 			}
 		}
 		// 回填后总清 loading（空列表也视为完成，UI 显示"无资源"）

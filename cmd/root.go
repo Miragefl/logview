@@ -189,6 +189,11 @@ var k8sCmd = &cobra.Command{
 			m.SetContext(kubeCtx)
 			src = m
 		}
+		// 热点：CLI 打开的资源/命名空间计入选择器频次
+		for _, res := range args {
+			tui.BumpUsage("k8sres:" + res)
+		}
+		tui.BumpUsage("k8sns:" + resolveNamespace(namespaces, 0))
 
 		return runTUI(src, false, cfg, false)
 	},
