@@ -42,6 +42,7 @@ type K8sSource struct {
 	namespace  string
 	podNames   []string
 	tailLines  int
+	kubeCtx    string // kubectl --context（空=当前 context）
 	seq        atomic.Uint64
 }
 
@@ -49,6 +50,9 @@ func NewK8sSource(resource, namespace string, podNames []string, tailLines int) 
 	res, _ := ParseK8sResource(resource)
 	return &K8sSource{resource: res, namespace: namespace, podNames: podNames, tailLines: tailLines}
 }
+
+// SetContext 指定 kubectl context（默认用 kubeconfig 当前 context）。
+func (k *K8sSource) SetContext(name string) { k.kubeCtx = name }
 
 func (k *K8sSource) Label() string {
 	return fmt.Sprintf("k8s/%s/%s", k.resource.Kind, k.resource.Name)
@@ -88,12 +92,20 @@ func (k *K8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	return ch, nil
 }
 
+// kubectlArgs 组装 kubectl 参数（带 --context，若有）。
+func (k *K8sSource) kubectlArgs(args ...string) []string {
+	if k.kubeCtx != "" {
+		return append([]string{"--context", k.kubeCtx}, args...)
+	}
+	return args
+}
+
 func (k *K8sSource) discoverPods(ctx context.Context) ([]string, error) {
 	// get selector labels from the deployment/statefulset
-	selectorArgs := []string{"get", k.resource.Kind, k.resource.Name,
+	selectorArgs := k.kubectlArgs("get", k.resource.Kind, k.resource.Name,
 		"-n", k.namespace,
 		"-o", "jsonpath={.spec.selector.matchLabels}",
-	}
+	)
 	out, err := exec.CommandContext(ctx, "kubectl", selectorArgs...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("get selector: %w", err)
@@ -108,11 +120,11 @@ func (k *K8sSource) discoverPods(ctx context.Context) ([]string, error) {
 	}
 	selector := strings.Join(parts, ",")
 
-	args := []string{"get", "pods",
+	args := k.kubectlArgs("get", "pods",
 		"-l", selector,
 		"-n", k.namespace,
 		"-o", "jsonpath={.items[*].metadata.name}",
-	}
+	)
 	out, err = exec.CommandContext(ctx, "kubectl", args...).Output()
 	if err != nil {
 		return nil, err
@@ -125,7 +137,7 @@ func (k *K8sSource) discoverPods(ctx context.Context) ([]string, error) {
 }
 
 func (k *K8sSource) streamPod(ctx context.Context, ch chan<- model.RawLine, podName string) {
-	args := []string{"logs", "-f", podName, "-n", k.namespace}
+	args := k.kubectlArgs("logs", "-f", podName, "-n", k.namespace)
 	if k.tailLines > 0 {
 		args = append(args, "--tail", fmt.Sprintf("%d", k.tailLines))
 	}
@@ -165,6 +177,13 @@ type MultiK8sSource struct {
 
 func NewMultiK8sSource(sources []*K8sSource) *MultiK8sSource {
 	return &MultiK8sSource{sources: sources}
+}
+
+// SetContext 为全部子源指定 kubectl context。
+func (m *MultiK8sSource) SetContext(name string) {
+	for _, s := range m.sources {
+		s.SetContext(name)
+	}
 }
 
 func (m *MultiK8sSource) Label() string {

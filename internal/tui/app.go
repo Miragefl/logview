@@ -115,6 +115,8 @@ type App struct {
 	pickSourceOnStart bool // 启动即打开源选择器（picker 子命令）
 
 	pickerK8sLevel   int    // K8s 浏览层级：0=context 1=namespace 2=资源
+	pickerKubeCtx    string // 已选 kubectl context（空=当前）
+	pickerCurCtxCache string // 当前 context 缓存（渲染面包屑用，避免每次渲染跑 kubectl）
 	pickerContexts   []sourceCandidate
 	pickerNamespaces []sourceCandidate
 	pickerNsInput    string

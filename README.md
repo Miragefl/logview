@@ -64,6 +64,7 @@ logview k8s deploy/app                      # 查看日志
 logview k8s -f deploy/app                   # follow 模式
 logview k8s -200f deploy/app                # 最后 200 行 + 追踪
 logview k8s -n prod deploy/app              # 指定 namespace
+logview k8s -c uat-context deploy/app       # 指定 context（不改全局 kubeconfig）
 logview k8s -n a deploy/api -n b deploy/bk  # 跨 namespace 多资源
 
 # 本地文件

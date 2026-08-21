@@ -33,3 +33,21 @@ func TestParseK8sResource(t *testing.T) {
 		}
 	}
 }
+// SetContext 后 kubectl 参数带 --context。
+func TestK8sSourceContextArgs(t *testing.T) {
+	k := NewK8sSource("deploy/x", "default", nil, 10)
+	if got := k.kubectlArgs("get", "pods"); len(got) != 2 || got[0] != "get" {
+		t.Fatalf("无 context 时参数不应变化: %v", got)
+	}
+	k.SetContext("uat-context")
+	got := k.kubectlArgs("get", "pods")
+	want := []string{"--context", "uat-context", "get", "pods"}
+	if len(got) != len(want) {
+		t.Fatalf("带 context 参数: %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("参数 %d: %q want %q", i, got[i], want[i])
+		}
+	}
+}

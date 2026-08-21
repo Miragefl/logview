@@ -156,6 +156,7 @@ var k8sCmd = &cobra.Command{
 		namespaces, _ := cmd.Flags().GetStringArray("namespace")
 		k8sFollow, _ := cmd.Flags().GetBool("follow")
 		k8sTail, _ := cmd.Flags().GetInt("tail")
+		kubeCtx, _ := cmd.Flags().GetString("context")
 
 		if k8sFollow && k8sTail == 0 {
 			k8sTail = cfg.history
@@ -175,14 +176,18 @@ var k8sCmd = &cobra.Command{
 		var src stream.LogStream
 		if len(args) == 1 {
 			ns := resolveNamespace(namespaces, 0)
-			src = stream.NewK8sSource(args[0], ns, nil, k8sTail)
+			s := stream.NewK8sSource(args[0], ns, nil, k8sTail)
+			s.SetContext(kubeCtx)
+			src = s
 		} else {
 			sources := make([]*stream.K8sSource, len(args))
 			for i, res := range args {
 				ns := resolveNamespace(namespaces, i)
 				sources[i] = stream.NewK8sSource(res, ns, nil, k8sTail)
 			}
-			src = stream.NewMultiK8sSource(sources)
+			m := stream.NewMultiK8sSource(sources)
+			m.SetContext(kubeCtx)
+			src = m
 		}
 
 		return runTUI(src, false, cfg, false)
@@ -202,6 +207,8 @@ func resolveNamespace(namespaces []string, idx int) string {
 func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	namespaces, _ := cmd.Flags().GetStringArray("namespace")
 	ns := resolveNamespace(namespaces, len(args))
+	ctxName, _ := cmd.Flags().GetString("context")
+	ctxArgs := kubectlContextArgs(ctxName)
 
 	kinds := []struct{ prefix, kind string }{
 		{"pod/", "pod"}, {"po/", "pod"},
@@ -210,7 +217,7 @@ func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) (
 	}
 	for _, k := range kinds {
 		if strings.HasPrefix(toComplete, k.prefix) {
-			names := kubectlGetNames(k.kind, ns)
+			names := kubectlGetNames(k.kind, ns, ctxArgs)
 			var completions []string
 			for _, n := range names {
 				completions = append(completions, k.prefix+n)
@@ -226,8 +233,16 @@ func completeK8sResource(cmd *cobra.Command, args []string, toComplete string) (
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
-func kubectlGetNames(kind, namespace string) []string {
-	args := []string{"get", kind, "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}"}
+// kubectlContextArgs 返回 --context 前缀参数（空 context 返回 nil）。
+func kubectlContextArgs(ctxName string) []string {
+	if ctxName == "" {
+		return nil
+	}
+	return []string{"--context", ctxName}
+}
+
+func kubectlGetNames(kind, namespace string, ctxArgs []string) []string {
+	args := append(append([]string{}, ctxArgs...), "get", kind, "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
 	out, err := exec.Command("kubectl", args...).Output()
 	if err != nil {
 		return nil
@@ -236,7 +251,19 @@ func kubectlGetNames(kind, namespace string) []string {
 }
 
 func completeK8sNamespace(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	out, err := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}").Output()
+	ctxName, _ := cmd.Flags().GetString("context")
+	ctxArgs := kubectlContextArgs(ctxName)
+	args2 := append(append([]string{}, ctxArgs...), "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	out, err := exec.Command("kubectl", args2...).Output()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	return strings.Fields(strings.TrimSpace(string(out))), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeK8sContext 补全 --context 候选（kubectl config get-contexts）。
+func completeK8sContext(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	out, err := exec.Command("kubectl", "config", "get-contexts", "-o", "name").Output()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError
 	}
@@ -327,6 +354,8 @@ func init() {
 	k8sCmd.Flags().StringArrayP("namespace", "n", []string{"default"}, "Kubernetes namespace (one for all, or one per resource)")
 	k8sCmd.Flags().BoolVarP(new(bool), "follow", "f", false, "follow mode: show last N lines then tail new content")
 	k8sCmd.Flags().Int("tail", 0, "number of trailing lines in follow mode (default: config history)")
+	k8sCmd.Flags().StringP("context", "c", "", "kubectl context (default: current context)")
+	k8sCmd.RegisterFlagCompletionFunc("context", completeK8sContext)
 	k8sCmd.RegisterFlagCompletionFunc("namespace", completeK8sNamespace)
 	rootCmd.PersistentFlags().StringVar(&ruleName, "rule", "", "parser rule name (auto-detect if empty)")
 	rootCmd.PersistentFlags().IntVar(&bufferSize, "buffer-size", 100000, "ring buffer capacity")

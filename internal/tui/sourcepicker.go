@@ -46,6 +46,14 @@ func kubectlOutput(args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, "kubectl", args...).Output()
 }
 
+// withKubeCtx 前插 --context（空 context 原样返回）。
+func withKubeCtx(ctxName string, args ...string) []string {
+	if ctxName == "" {
+		return args
+	}
+	return append([]string{"--context", ctxName}, args...)
+}
+
 // fetchK8sContextsCmd 异步拉取全部 context 名。
 func fetchK8sContextsCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -75,10 +83,10 @@ func useK8sContext(name string) error {
 	return exec.Command("kubectl", "config", "use-context", name).Run()
 }
 
-// fetchK8sNamespacesCmd 异步拉取 namespace 列表。
-func fetchK8sNamespacesCmd() tea.Cmd {
+// fetchK8sNamespacesCmd 异步拉取 namespace 列表（ctxName 空=当前 context）。
+func fetchK8sNamespacesCmd(ctxName string) tea.Cmd {
 	return func() tea.Msg {
-		out, err := kubectlOutput("get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+		out, err := kubectlOutput(withKubeCtx(ctxName, "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")...)
 		if err != nil {
 			return candidatesMsg{tab: 0, kind: "namespaces", err: err}
 		}
@@ -91,12 +99,12 @@ func fetchK8sNamespacesCmd() tea.Cmd {
 }
 
 // fetchK8sCandidatesCmd 异步拉取 namespace 下的 deploy/sts/pod 列表。
-func fetchK8sCandidatesCmd(ns string) tea.Cmd {
+func fetchK8sCandidatesCmd(ctxName, ns string) tea.Cmd {
 	return func() tea.Msg {
 		var items []sourceCandidate
 		var lastErr error
 		for _, kind := range []string{"deployment", "statefulset", "pod"} {
-			out, err := kubectlOutput("get", kind, "-n", ns, "-o", "jsonpath={.items[*].metadata.name}")
+			out, err := kubectlOutput(withKubeCtx(ctxName, "get", kind, "-n", ns, "-o", "jsonpath={.items[*].metadata.name}")...)
 			if err != nil {
 				lastErr = err
 				continue // 无该资源类型/无权限时跳过，其余 kind 仍可用

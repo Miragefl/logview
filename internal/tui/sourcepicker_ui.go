@@ -28,6 +28,8 @@ func (a *App) openSourcePicker(tab int) {
 	a.pickerPathInput = ""
 	// 每 tab 初始化浏览状态
 	a.pickerK8sLevel = 0
+	a.pickerKubeCtx = ""
+	a.pickerCurCtxCache = ""
 	a.pickerContexts = nil
 	a.pickerNamespaces = nil
 	a.pickerNsInput = ""
@@ -128,6 +130,17 @@ func (a *App) filteredSSHCands() []sourceCandidate {
 		}
 	}
 	return items
+}
+
+// pickerBreadcrumbCtx 面包屑显示的 context：已选 context 或当前 context（缓存一次）。
+func (a *App) pickerBreadcrumbCtx() string {
+	if a.pickerKubeCtx != "" {
+		return a.pickerKubeCtx
+	}
+	if a.pickerCurCtxCache == "" {
+		a.pickerCurCtxCache = currentK8sContext()
+	}
+	return a.pickerCurCtxCache
 }
 
 func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -241,11 +254,11 @@ func (a *App) pickerTabEnterCmd() tea.Cmd {
 		}
 		if a.pickerK8sLevel == 1 && a.pickerNamespaces == nil {
 			a.pickerLoading = true
-			return fetchK8sNamespacesCmd()
+			return fetchK8sNamespacesCmd(a.pickerKubeCtx)
 		}
 		if a.pickerK8sLevel == 2 && a.pickerCandidates == nil {
 			a.pickerLoading = true
-			return fetchK8sCandidatesCmd(a.pickerNsInput)
+			return fetchK8sCandidatesCmd(a.pickerKubeCtx, a.pickerNsInput)
 		}
 	case 2:
 		if a.pickerSSHHost != "" && a.pickerCandidates == nil {
@@ -269,7 +282,7 @@ func (a *App) pickerBackspace() tea.Cmd {
 				a.pickerCandidates = nil
 				a.pickerNsInput = "" // 清残留，避免误导
 				a.pickerLoading = true
-				return fetchK8sNamespacesCmd()
+				return fetchK8sNamespacesCmd(a.pickerKubeCtx)
 			}
 		}
 	case 1:
@@ -345,7 +358,7 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerCursor = 0
 				a.pickerLoading = true
 				a.pickerDirFilter = ""
-				return fetchK8sCandidatesCmd(ns)
+				return fetchK8sCandidatesCmd(a.pickerKubeCtx, ns)
 			}
 		}
 		return nil
@@ -364,11 +377,12 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.appendErrorLine(fmt.Sprintf("切换 context 失败: %v", err))
 				return nil
 			}
+			a.pickerKubeCtx = cand.value // 记录已选 context，建源时显式指定
 			a.pickerK8sLevel = 1
 			a.pickerNamespaces = nil
 			a.pickerCursor = 0
 			a.pickerLoading = true
-			return fetchK8sNamespacesCmd()
+			return fetchK8sNamespacesCmd(a.pickerKubeCtx)
 		case 1: // namespace → 进入资源层
 			a.pickerNsInput = cand.value
 			a.pickerK8sLevel = 2
@@ -376,7 +390,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			a.pickerCursor = 0
 			a.pickerLoading = true
 			a.pickerDirFilter = ""
-			return fetchK8sCandidatesCmd(cand.value)
+			return fetchK8sCandidatesCmd(a.pickerKubeCtx, cand.value)
 		default: // 资源层：Enter = 确认（勾选集合或光标项）
 			return a.confirmSourcePicker()
 		}
@@ -477,6 +491,7 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 	checked := a.pickerChecked
 	cands := a.visiblePickerCandidates() // 过滤后的可见候选（K8s 资源层/SSH 目录层受 filter 影响）
 	nsInput := a.pickerNsInput
+	kubeCtx := a.pickerKubeCtx
 	pathInput := a.pickerPathInput
 	hostInput := a.pickerHostInput
 	remotePath := a.pickerRemotePath
@@ -505,9 +520,12 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 		}
 		var src stream.LogStream
 		if len(sources) == 1 {
+			sources[0].SetContext(kubeCtx)
 			src = sources[0]
 		} else {
-			src = stream.NewMultiK8sSource(sources)
+			m := stream.NewMultiK8sSource(sources)
+			m.SetContext(kubeCtx)
+			src = m
 		}
 		return a.ReplaceStream(src)
 	case 1: // 本地文件
@@ -561,7 +579,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 	case 0:
 		switch a.pickerK8sLevel {
 		case 0:
-			cur := currentK8sContext()
+			cur := a.pickerBreadcrumbCtx()
 			head := PopupTabStyle.Render(fmt.Sprintf(" 当前context: %s", cur))
 			content.WriteString(head + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
@@ -573,7 +591,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			}
 			content.WriteString("\n" + PopupTabStyle.Render(" Enter切换context C-j/k移动 Backspace退出 Esc取消"))
 		case 1:
-			content.WriteString(PopupTabStyle.Render(fmt.Sprintf(" context: %s", currentK8sContext())) + "\n")
+			content.WriteString(PopupTabStyle.Render(fmt.Sprintf(" context: %s", a.pickerBreadcrumbCtx())) + "\n")
 			content.WriteString(a.inputLine(a.pickerNsInput, a.pickerNsCursor, "或输入 namespace 回车直达") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
 				content.WriteString(PopupTabStyle.Render(" 查询中…") + "\n")
@@ -584,7 +602,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			}
 			content.WriteString("\n" + PopupTabStyle.Render(" Enter选择ns C-j/k移动 Backspace返回 Esc取消"))
 		default:
-			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s/%s", currentK8sContext(), a.pickerNsInput)) + "\n")
+			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s/%s", a.pickerBreadcrumbCtx(), a.pickerNsInput)) + "\n")
 			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤资源名…") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
 				content.WriteString(PopupTabStyle.Render(" 查询中…") + "\n")
