@@ -85,10 +85,13 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 			}
 			return out
 		}
-	case 1: // 本地目录（. 开头过滤词显示隐藏文件；../ 返回上级）
+	case 1: // 本地目录（. 开头过滤词显示隐藏文件；无过滤时 ../ 返回上级，有过滤时隐藏）
 		filter := a.pickerDirFilter
 		showHidden := strings.HasPrefix(filter, ".")
-		items := []sourceCandidate{{label: "../", value: "..", dir: true}}
+		var items []sourceCandidate
+		if filter == "" {
+			items = append(items, sourceCandidate{label: "../", value: "..", dir: true})
+		}
 		for _, e := range listLocalDir(a.pickerLocalDir, showHidden) {
 			if filter != "" && !strings.Contains(strings.ToLower(e.name), strings.ToLower(filter)) {
 				continue
@@ -117,11 +120,12 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 	return nil
 }
 
-// filteredSSHCands 远程目录层：非根目录首位 ../ 返回上级，其余按过滤前缀过滤。
+// filteredSSHCands 远程目录层：无过滤时首位 ../ 返回上级；有过滤时隐藏 ../，
+// 光标默认落在第一个匹配项（搜索场景直接 Enter 即下钻/打开）。
 func (a *App) filteredSSHCands() []sourceCandidate {
 	filter := strings.ToLower(a.pickerDirFilter)
 	var items []sourceCandidate
-	if a.pickerSSHDir != "/" {
+	if filter == "" && a.pickerSSHDir != "/" {
 		items = append(items, sourceCandidate{label: "../", value: "..", dir: true})
 	}
 	for _, c := range a.pickerCandidates {
@@ -234,7 +238,13 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// 输入框编辑（K8s ns/资源过滤、本地路径/过滤、SSH 主机/过滤）
 	input := a.pickerInputRef()
 	if input.text != nil {
+		before := *input.text
 		input.handleEditKeys(msg)
+		// 过滤词从非空变空（删完/C-u）：光标归 0（../ 等导航项回到首位）
+		if before != "" && *input.text == "" {
+			a.pickerCursor = 0
+			return a, nil
+		}
 		// 输入改变列表后收敛光标到可见范围
 		if n := len(a.visiblePickerCandidates()); a.pickerCursor >= n {
 			a.pickerCursor = max(0, n-1)

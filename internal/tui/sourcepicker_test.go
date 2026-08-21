@@ -200,12 +200,12 @@ func TestSourcePickerLocalFilter(t *testing.T) {
 	app.pickerLocalDir = "/tmp/lvbrowse"
 	app.pickerDirFilter = "su"
 	cands := app.visiblePickerCandidates()
-	if len(cands) != 2 || cands[0].value != ".." || cands[1].label != "sub/" {
-		t.Fatalf("过滤 'su' 应剩 [../, sub/]，实际 %v", cands)
+	if len(cands) != 1 || cands[0].label != "sub/" {
+		t.Fatalf("过滤 'su' 应只剩 sub/（过滤态隐藏 ../，光标落在首个匹配），实际 %v", cands)
 	}
-	// 过滤后无匹配 → 空列表不 panic
+	// 过滤后无匹配 → 空列表（过滤态无 ../）
 	app.pickerDirFilter = "zzz"
-	if len(app.visiblePickerCandidates()) != 1 { // 仅剩 ../
+	if len(app.visiblePickerCandidates()) != 0 {
 		t.Fatal("无匹配应为空列表")
 	}
 	// 输入存在的目录路径直达
@@ -459,6 +459,47 @@ func TestSourcePickerSSHLoadingGuard(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.pickerSSHDir != "/" {
 		t.Fatalf("清空过滤后 Enter ../ 应回上级，实际 %s", app.pickerSSHDir)
+	}
+}
+
+// 防回归：过滤态隐藏 ../，光标默认在首个匹配项上，Enter 直接下钻。
+func TestSourcePickerFilterCursorOnMatch(t *testing.T) {
+	app := newTestApp()
+	app.openSourcePicker(2)
+	app.pickerSSHHost = "ht-1"
+	app.pickerSSHDir = "/var/log"
+	app.pickerLoading = false
+	app.pickerCandidates = []sourceCandidate{
+		{label: "anaconda/", value: "anaconda", dir: true},
+		{label: "audit/", value: "audit", dir: true},
+		{label: "boot.log", value: "boot.log"},
+	}
+	// 输入过滤词：列表只剩 anaconda/，光标 0 即匹配项，Enter 直接下钻
+	for _, r := range "ana" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 1 || cands[0].value != "anaconda" {
+		t.Fatalf("过滤后应只剩 anaconda/（无 ../），实际 %v", cands)
+	}
+	if app.pickerCursor != 0 {
+		t.Fatalf("光标应在首个匹配（0），实际 %d", app.pickerCursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerSSHDir != "/var/log/anaconda" {
+		t.Fatalf("Enter 应直接下钻到 anaconda，实际 %s", app.pickerSSHDir)
+	}
+	// 下钻后 filter 自动清空：全列表展示，../ 回到首位且光标归 0
+	if app.pickerDirFilter != "" {
+		t.Fatalf("下钻后 filter 应清空，实际 %q", app.pickerDirFilter)
+	}
+	if app.pickerCursor != 0 {
+		t.Fatalf("下钻后光标应归 0，实际 %d", app.pickerCursor)
+	}
+	app.pickerLoading = false
+	app.pickerCandidates = []sourceCandidate{{label: "audit/", value: "audit", dir: true}}
+	if c := app.visiblePickerCandidates(); len(c) != 2 || c[0].value != ".." {
+		t.Fatalf("无过滤时 ../ 应回首位: %v", c)
 	}
 }
 
