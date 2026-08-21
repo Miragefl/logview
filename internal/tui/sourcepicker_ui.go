@@ -188,6 +188,13 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyRunes:
+		// 选择器内按 q：直接退出 logview（日志页按 q 打开选择器，再按 q 退出）。
+		// 输入框有内容时 q 作为过滤字符，避免误退。
+		if string(msg.Runes) == "q" {
+			if input := a.pickerInputRef(); input.text == nil || *input.text == "" {
+				return a, a.shutdown()
+			}
+		}
 		// 有输入框的层（ns/资源过滤/本地/ssh目录）：字母一律进输入框，避免名称含 j/k 丢字
 		if input := a.pickerInputRef(); input.text != nil {
 			input.handleEditKeys(msg)

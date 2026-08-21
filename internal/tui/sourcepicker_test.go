@@ -395,6 +395,36 @@ func TestSourcePickerCtrlJK(t *testing.T) {
 	}
 }
 
+// q 键：日志页打开选择器；选择器内 q（输入为空）退出会话；过滤中 q 作为字符。
+func TestQKeyPickerFlow(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if !app.sourcePickerMode {
+		t.Fatal("日志页按 q 应打开源选择器")
+	}
+	// 选择器内 q（context 层无输入框）→ 返回 tea.Cmd 退出
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("选择器内按 q 应返回退出 cmd")
+	}
+	// tea.Quit cmd 执行产生 tea.QuitMsg
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("cmd 应为 tea.Quit")
+	}
+	// 本地 tab 过滤中输入 q：不退出、进入过滤框
+	app2 := newTestApp()
+	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	app2.Update(tea.KeyMsg{Type: tea.KeyTab}) // 本地 tab
+	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}) // 先输入字符
+	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}) // q 作为过滤字符
+	if !app2.sourcePickerMode {
+		t.Fatal("过滤中按 q 不应退出")
+	}
+	if app2.pickerDirFilter != "lq" {
+		t.Fatalf("q 应进入过滤框，实际 %q", app2.pickerDirFilter)
+	}
+}
+
 // expandHome 展开 ~/ 前缀。
 func TestExpandHome(t *testing.T) {
 	p := expandHome("~/logs/app.log")

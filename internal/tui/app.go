@@ -643,7 +643,9 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q":
-		return a, tea.Quit
+		// 日志页按 q：打开源选择器（再按 q 退出）
+		a.openSourcePicker(0)
+		return a, fetchK8sContextsCmd()
 	case "C":
 		a.clearScreen()
 	case "esc":
