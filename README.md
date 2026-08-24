@@ -33,12 +33,12 @@ GitHub 访问较慢时，从 Gitee 镜像下载（[查看最新版本](https://g
 
 ```bash
 # x86_64
-curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.14.2/logview_linux_amd64.tar.gz
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.14.3/logview_linux_amd64.tar.gz
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
 # ARM64
-curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.14.2/logview_linux_arm64.tar.gz
+curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.14.3/logview_linux_arm64.tar.gz
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
