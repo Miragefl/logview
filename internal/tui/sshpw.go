@@ -37,11 +37,13 @@ func (a *App) sshPw(host string) string {
 	return a.sshPasswords[host]
 }
 
-// confirmSSHPw 密码确认分流：picker 目录浏览来源 → 存密码并回到目录浏览；
-// tail 流来源 → 带密码重建 SSHSource 热切换。
+// confirmSSHPw 密码确认分流：frp 浏览 → 存密码回 FRP 目录层；
+// picker 目录浏览来源 → 存密码回到 SSH 目录浏览；tail 流来源 → 带密码重连。
 func (a *App) confirmSSHPw() tea.Cmd {
 	host, path, pw := a.sshPwHost, a.sshPwPath, a.sshPwInput
 	fromPicker := a.sshPwFromPicker
+	frpPort, frpUser := a.sshPwFRPPort, a.sshPwUser
+	a.sshPwFRPPort = 0 // 先清标记，防 closeSSHPw 误杀隧道
 	a.closeSSHPw()
 	if pw == "" || host == "" {
 		return nil
@@ -52,8 +54,23 @@ func (a *App) confirmSSHPw() tea.Cmd {
 	}
 	a.sshPasswords[host] = pw
 
+	if frpPort > 0 {
+		// frp 浏览来源：重开 FRP 目录层，带密码重拉（隧道复用）
+		t := a.pickerFRPTunnel
+		a.openSourcePicker(3)
+		a.pickerFRPLevel = 2
+		a.pickerFRPTunnel = t
+		a.pickerFRPDir = path
+		a.pickerFRPUser = frpUser
+		a.pickerFRPProxy = strings.TrimPrefix(host, "frp:")
+		a.pickerFRPConnName = strings.TrimPrefix(host, "frp:")
+		a.pickerCandidates = nil
+		a.pickerCursor = 0
+		a.pickerLoading = true
+		return fetchFRPDirCmd(frpUser, frpPort, path, pw)
+	}
 	if fromPicker {
-		// 回到 picker 的远程目录层，带密码重拉目录列表
+		// 回到 picker 的远程目录层，带密码重拉目录列表（原 SSH 逻辑不变）
 		a.openSourcePicker(2)
 		a.pickerSSHHost = host
 		a.pickerSSHDir = path
@@ -62,6 +79,14 @@ func (a *App) confirmSSHPw() tea.Cmd {
 		a.pickerCursor = 0
 		a.pickerLoading = true
 		return fetchSSHDirCmd(host, path, pw)
+	}
+	// frp tail 来源：原源带密码重启（隧道复用，不能走 ReplaceStream 的 Cleanup）
+	if strings.HasPrefix(host, "frp:") {
+		if src, ok := a.stream.(*stream.FRPSource); ok {
+			src.SetPassword(pw)
+			return a.restartCurrentStream()
+		}
+		return nil
 	}
 	src := stream.NewSSHSource(host, path, 200)
 	src.SetPassword(pw)
@@ -77,8 +102,11 @@ func (a *App) maybePromptSSHPassword(text string) {
 	if !strings.Contains(strings.ToLower(text), "permission denied") {
 		return
 	}
-	// 从当前 SSH 源取 host/path 重连
-	src, ok := a.stream.(*stream.SSHSource)
+	// 从当前 SSH/FRP 源取 host/path 重连
+	src, ok := a.stream.(interface {
+		Host() string
+		Path() string
+	})
 	if !ok {
 		return
 	}
@@ -107,6 +135,25 @@ func (a *App) promptSSHPwForHost(target string) {
 	a.sshPwInput = ""
 	a.sshPwCursor = 0
 	a.closeSourcePicker() // 密码框接管渲染；确认后重开定位到目录层
+}
+
+// promptFRPPw frp 目录浏览认证失败：弹密码框（隧道保留，确认后继续浏览）。
+func (a *App) promptFRPPw() {
+	if a.pickerFRPTunnel == nil || a.pickerFRPUser == "" {
+		return
+	}
+	t := a.pickerFRPTunnel
+	a.pickerFRPTunnel = nil // 暂摘下，防 closeSourcePicker 清理
+	a.closeSourcePicker()
+	a.pickerFRPTunnel = t
+	a.sshPwHost = a.frpPwKey()
+	a.sshPwPath = a.pickerFRPDir
+	a.sshPwUser = a.pickerFRPUser
+	a.sshPwFRPPort = t.LocalPort()
+	a.sshPwFromPicker = true
+	a.sshPwMode = true
+	a.sshPwInput = ""
+	a.sshPwCursor = 0
 }
 
 // buildSSHPwLines 渲染密码输入弹窗（居中，日志透出）。

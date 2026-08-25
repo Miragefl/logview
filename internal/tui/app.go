@@ -105,6 +105,8 @@ type App struct {
 	sshPwHost  string // 待重连的主机
 	sshPwPath  string // 待重连的路径
 	sshPwFromPicker bool // 来源：picker 目录浏览（确认后回目录浏览而非 tail）
+	sshPwUser    string // frp 场景的 ssh 用户名（密码确认后重拉目录用）
+	sshPwFRPPort int    // >0 = frp 浏览来源的密码框（端口随隧道，需单独记）
 
 	sshPasswords map[string]string // host → password 内存缓存（会话内免重输，不落盘）
 
@@ -282,16 +284,7 @@ func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
 	// 无论 Start 成败都按新源重置视图（失败时在干净视图上展示错误行）
-	a.buffer.Clear()
-	a.filteredView = nil
-	a.stGroups = nil
-	a.expanded = make(map[int]bool)
-	a.levelCounts = make(map[string]int)
-	a.bookmarks = make(map[uint64]bool)
-	a.bookmarkSeq = nil
-	a.cursor = 0
-	a.offset = 0
-	a.autoscroll = true
+	a.resetViewState()
 
 	ch, err := src.Start(ctx)
 	if err != nil {
@@ -303,6 +296,40 @@ func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
 	a.streamCh = ch
 	// 切换提示行（非错误，便于确认新源）
 	a.processLine(model.RawLine{Text: fmt.Sprintf("-- 已切换到 %s --", src.Label()), Source: "logview"})
+	a.yankMsg = ""
+	return waitForStream(ch)
+}
+
+// resetViewState 清屏重置全部视图状态（ReplaceStream/restartCurrentStream 共用）。
+func (a *App) resetViewState() {
+	a.buffer.Clear()
+	a.filteredView = nil
+	a.stGroups = nil
+	a.expanded = make(map[int]bool)
+	a.levelCounts = make(map[string]int)
+	a.bookmarks = make(map[uint64]bool)
+	a.bookmarkSeq = nil
+	a.cursor = 0
+	a.offset = 0
+	a.autoscroll = true
+}
+
+// restartCurrentStream 当前源带新参数重启（frp 密码重连；不 Cleanup 旧源，保留隧道）。
+func (a *App) restartCurrentStream() tea.Cmd {
+	if a.cancelFunc != nil {
+		a.cancelFunc()
+	}
+	a.resetViewState()
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancelFunc = cancel
+	ch, err := a.stream.Start(ctx)
+	if err != nil {
+		cancel()
+		a.cancelFunc = nil
+		a.appendErrorLine(fmt.Sprintf("重启源失败 %s: %v", a.stream.Label(), err))
+		return nil
+	}
+	a.streamCh = ch
 	a.yankMsg = ""
 	return waitForStream(ch)
 }
@@ -391,7 +418,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "frpdir":
 			if a.pickerFRPLevel == 2 && msg.ns == "frp:"+a.pickerFRPDir {
 				a.pickerCandidates = msg.items
-				// 认证失败 → frp 密码弹窗（Task 9 实现）
+				if msg.err != nil && len(msg.items) == 0 &&
+					strings.Contains(strings.ToLower(msg.err.Error()), "permission denied") {
+					a.promptFRPPw()
+				}
 			}
 		default: // resources
 			if a.pickerK8sLevel == 2 && msg.ns == a.pickerNsInput {

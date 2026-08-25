@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/justfun/logview/internal/frp"
+	"github.com/justfun/logview/internal/stream"
 )
 
 // fakeFRPTunnel 测试用隧道句柄（记录 Cleanup 调用）。
@@ -331,5 +332,67 @@ func TestFRPDirectRecordTail(t *testing.T) {
 	}
 	if got := app.stream.Label(); got != "frp://client-a/var/log/a.log" {
 		t.Fatalf("应直达 tail，实际 %s", got)
+	}
+}
+
+func TestFRPTailPasswordPromptAndRestart(t *testing.T) {
+	setupFRPStore(t)
+	fakeSSHBin(t)
+	app := newTestApp()
+	fake := &fakeFRPTunnel{port: 6022}
+	src := stream.NewFRPSource("client-a", fake, "root", "/var/log/a.log", 100)
+	app.stream = src
+
+	// tail 流认证失败 → 弹密码框
+	app.appendErrorLine("ERROR ssh: permission denied")
+	if !app.sshPwMode {
+		t.Fatal("Permission denied 应弹密码框")
+	}
+	if app.sshPwHost != "frp:client-a" {
+		t.Fatalf("密码框主机应为 frp:client-a，实际 %s", app.sshPwHost)
+	}
+	// 输入密码 → 原源重启（隧道不清理）
+	app.sshPwInput = "pw123"
+	app.confirmSSHPw()
+	if src.Password() != "pw123" {
+		t.Fatal("密码应写入 FRPSource")
+	}
+	if fake.cleaned {
+		t.Fatal("密码重连不应清理隧道")
+	}
+	if app.sshPasswords["frp:client-a"] != "pw123" {
+		t.Fatal("密码应入内存缓存")
+	}
+}
+
+func TestFRPBrowsePasswordPrompt(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	fake := &fakeFRPTunnel{port: 6022}
+	app.openSourcePicker(3)
+	app.pickerFRPLevel = 2
+	app.pickerFRPTunnel = fake
+	app.pickerFRPUser = "root"
+	app.pickerFRPDir = "/var/log"
+	app.pickerFRPProxy = "ssh-x"
+	app.pickerFRPConnName = "ssh-x"
+
+	// 目录拉取认证失败 → 弹密码框（隧道保留）
+	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/var/log",
+		err: fmt.Errorf("ssh: permission denied, please try again")})
+	if !app.sshPwMode {
+		t.Fatal("frp 目录认证失败应弹密码框")
+	}
+	if app.pickerFRPTunnel != fake {
+		t.Fatal("密码流程应保留隧道")
+	}
+	// 确认密码 → 回到 FRP 目录层
+	app.sshPwInput = "pw456"
+	cmd := app.confirmSSHPw()
+	if cmd == nil {
+		t.Fatal("确认密码应返回重拉目录的 cmd")
+	}
+	if app.pickerFRPLevel != 2 || app.pickerFRPTunnel != fake || !app.pickerLoading {
+		t.Fatalf("应回到 L2 且 loading: level=%d loading=%v", app.pickerFRPLevel, app.pickerLoading)
 	}
 }
