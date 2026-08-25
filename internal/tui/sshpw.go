@@ -30,6 +30,14 @@ func (a *App) closeSSHPw() {
 	a.sshPwInput = ""
 	a.sshPwCursor = 0
 	a.sshPwFromPicker = false
+	if a.sshPwFRPPort > 0 {
+		a.sshPwFRPPort = 0
+		// 取消：浏览中的隧道一并清理（picker 已关，无人接管）
+		if a.pickerFRPTunnel != nil {
+			a.pickerFRPTunnel.Cleanup()
+			a.pickerFRPTunnel = nil
+		}
+	}
 }
 
 // sshPw 返回主机的缓存密码（无则空串=免密）。
@@ -43,6 +51,7 @@ func (a *App) confirmSSHPw() tea.Cmd {
 	host, path, pw := a.sshPwHost, a.sshPwPath, a.sshPwInput
 	fromPicker := a.sshPwFromPicker
 	frpPort, frpUser := a.sshPwFRPPort, a.sshPwUser
+	frpServer, frpSK := a.sshPwFRPServer, a.sshPwFRPSK
 	a.sshPwFRPPort = 0 // 先清标记，防 closeSSHPw 误杀隧道
 	a.closeSSHPw()
 	if pw == "" || host == "" {
@@ -60,6 +69,8 @@ func (a *App) confirmSSHPw() tea.Cmd {
 		a.openSourcePicker(3)
 		a.pickerFRPLevel = 2
 		a.pickerFRPTunnel = t
+		a.pickerFRPServerName = frpServer // 回填：后续 confirmFRPPicker 保存记录用
+		a.pickerFRPSK = frpSK
 		a.pickerFRPDir = path
 		a.pickerFRPUser = frpUser
 		a.pickerFRPProxy = strings.TrimPrefix(host, "frp:")
@@ -150,6 +161,8 @@ func (a *App) promptFRPPw() {
 	a.sshPwPath = a.pickerFRPDir
 	a.sshPwUser = a.pickerFRPUser
 	a.sshPwFRPPort = t.LocalPort()
+	a.sshPwFRPServer = a.pickerFRPServerName // 暂存：confirmSSHPw 重开 picker 会被 openSourcePicker 清空
+	a.sshPwFRPSK = a.pickerFRPSK
 	a.sshPwFromPicker = true
 	a.sshPwMode = true
 	a.sshPwInput = ""

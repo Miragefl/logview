@@ -107,6 +107,8 @@ type App struct {
 	sshPwFromPicker bool // 来源：picker 目录浏览（确认后回目录浏览而非 tail）
 	sshPwUser    string // frp 场景的 ssh 用户名（密码确认后重拉目录用）
 	sshPwFRPPort int    // >0 = frp 浏览来源的密码框（端口随隧道，需单独记）
+	sshPwFRPServer string // frp 浏览来源暂存的服务器名（openSourcePicker 全量重置，确认后回填供记录保存）
+	sshPwFRPSK     string // frp 浏览来源暂存的 sk（同上）
 
 	sshPasswords map[string]string // host → password 内存缓存（会话内免重输，不落盘）
 

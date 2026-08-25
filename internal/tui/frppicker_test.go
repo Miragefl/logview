@@ -365,6 +365,77 @@ func TestFRPTailPasswordPromptAndRestart(t *testing.T) {
 	}
 }
 
+// enterFRPPwState 构造 frp 目录浏览认证失败 → 密码弹窗态（隧道保留）。
+// ServerName/SK 模拟 L0 选已存记录直达时就位（真实时序：浏览前已定）。
+func enterFRPPwState(app *App, fake *fakeFRPTunnel) {
+	app.openSourcePicker(3)
+	app.pickerFRPLevel = 2
+	app.pickerFRPTunnel = fake
+	app.pickerFRPServerName = "s1"
+	app.pickerFRPSK = "sk1"
+	app.pickerFRPUser = "root"
+	app.pickerFRPDir = "/var/log"
+	app.pickerFRPProxy = "ssh-x"
+	app.pickerFRPConnName = "ssh-x"
+	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/var/log",
+		err: fmt.Errorf("ssh: permission denied, please try again")})
+}
+
+// frp 密码框 Esc 取消：浏览隧道一并清理，frp 端口标记复位（不劫持后续密码流程）。
+func TestFRPPwEscCleansTunnel(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	fake := &fakeFRPTunnel{port: 6022}
+	enterFRPPwState(app, fake)
+	if !app.sshPwMode || app.sshPwFRPPort != 6022 {
+		t.Fatalf("应进入 frp 密码弹窗态: mode=%v port=%d", app.sshPwMode, app.sshPwFRPPort)
+	}
+
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape}) // Esc 取消 → closeSSHPw
+	if app.sshPwMode {
+		t.Fatal("Esc 应关闭密码框")
+	}
+	if !fake.cleaned {
+		t.Fatal("Esc 取消应清理浏览中的 frp 隧道")
+	}
+	if app.pickerFRPTunnel != nil {
+		t.Fatal("隧道句柄应复位")
+	}
+	if app.sshPwFRPPort != 0 {
+		t.Fatalf("sshPwFRPPort 应清零，实际 %d", app.sshPwFRPPort)
+	}
+}
+
+// frp 密码确认后回目录层：ServerName/SK 应保留，confirmFRPPicker 保存的记录不缺服务器/SK。
+func TestFRPPwConfirmKeepsServerForRecord(t *testing.T) {
+	setupFRPStore(t)
+	fakeSSHBin(t) // confirmFRPPicker 建 FRPSource，避免真连
+	app := newTestApp()
+	fake := &fakeFRPTunnel{port: 6022}
+	enterFRPPwState(app, fake)
+	if !app.sshPwMode {
+		t.Fatal("应进入 frp 密码弹窗态")
+	}
+
+	app.sshPwInput = "pw789"
+	if cmd := app.confirmSSHPw(); cmd == nil {
+		t.Fatal("确认密码应返回重拉目录的 cmd")
+	}
+	if app.pickerFRPServerName != "s1" || app.pickerFRPSK != "sk1" {
+		t.Fatalf("确认后应保留服务器/SK: server=%q sk=%q", app.pickerFRPServerName, app.pickerFRPSK)
+	}
+
+	// 回目录层后选文件确认 → 记录整体保存（Server/SK 非空）
+	app.pickerCandidates = []sourceCandidate{{label: "app.log", value: "app.log"}}
+	app.pickerLoading = false
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})  // 跳过首位 ../
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选中 app.log → confirmFRPPicker
+	c, ok := frpStore().FindConn("ssh-x")
+	if !ok || c.Server != "s1" || c.SK != "sk1" {
+		t.Fatalf("记录应含服务器/SK，实际 %+v ok=%v", c, ok)
+	}
+}
+
 func TestFRPBrowsePasswordPrompt(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
