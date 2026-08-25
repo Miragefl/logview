@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -68,11 +69,21 @@ func insertSSHOpt(args []string, opts ...string) []string {
 	return out
 }
 
+// sshCommandPrefix 组装 ssh 命令前缀（host 前的选项；port>0 时加 -p）。
+func sshCommandPrefix(host string, port int) []string {
+	args := []string{"ssh", "-o", "ConnectTimeout=8"}
+	if port > 0 {
+		args = insertSSHOpt(args, "-p", strconv.Itoa(port))
+	}
+	return append(args, host)
+}
+
 // SSHSource tails a remote file over the system ssh client.
 // Auth is fully delegated to ssh (~/.ssh/config aliases, keys, agent, ProxyJump).
 // 密码认证：SetPassword 后经 SSH_ASKPASS 临时脚本喂给 ssh（免交互）。
 type SSHSource struct {
 	host      string
+	port      int
 	path      string
 	tailLines int
 	password  string
@@ -82,6 +93,9 @@ type SSHSource struct {
 func NewSSHSource(host, path string, tailLines int) *SSHSource {
 	return &SSHSource{host: host, path: path, tailLines: tailLines}
 }
+
+// SetPort 指定 ssh 端口（frp 隧道场景 127.0.0.1:bindPort）。
+func (s *SSHSource) SetPort(p int) { s.port = p }
 
 // SetPassword 设置密码认证（TUI 密码框输入后调用）。
 func (s *SSHSource) SetPassword(pw string) { s.password = pw }
@@ -107,7 +121,7 @@ func (s *SSHSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 }
 
 func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
-	args := []string{"ssh", "-o", "ConnectTimeout=8", s.host}
+	args := sshCommandPrefix(s.host, s.port)
 	if s.tailLines > 0 {
 		args = append(args, fmt.Sprintf("tail -n %d -F %s", s.tailLines, shellQuote(s.path)))
 	} else {
@@ -248,15 +262,20 @@ type SSHDirEntry struct {
 	IsDir bool
 }
 
-// SSHListDir 列出远程目录内容（目录 / 后缀分类），每行一个条目。
-// 单发 ssh 命令；password 非空时走 askpass 密码认证。
+// SSHListDir 列出远程目录内容（默认端口）。
 func SSHListDir(host, path, password string) ([]SSHDirEntry, error) {
+	return SSHListDirWithPort(host, 0, path, password)
+}
+
+// SSHListDirWithPort 列出远程目录内容（指定端口，frp 隧道场景）。
+// 单发 ssh 命令；password 非空时走 askpass 密码认证。
+func SSHListDirWithPort(host string, port int, path, password string) ([]SSHDirEntry, error) {
 	path = strings.TrimSuffix(path, "/")
 	if path == "" {
 		path = "/"
 	}
-	args := []string{"ssh", "-o", "ConnectTimeout=8", host,
-		fmt.Sprintf("ls -1 -F %s 2>/dev/null", shellQuote(path))}
+	args := append(sshCommandPrefix(host, port),
+		fmt.Sprintf("ls -1 -F %s 2>/dev/null", shellQuote(path)))
 	// 远端 ls 错误已丢弃(2>/dev/null)；CombinedOutput 中 stderr 即 ssh 自身错误
 	// （认证/连接），供 UI 判断是否弹密码框
 	cmd := exec.Command(args[0], args[1:]...)

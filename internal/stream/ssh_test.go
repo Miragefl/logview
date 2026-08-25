@@ -75,6 +75,34 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+func TestSSHCommandPrefix(t *testing.T) {
+	got := sshCommandPrefix("user@127.0.0.1", 6022)
+	want := "ssh -o ConnectTimeout=8 -p 6022 user@127.0.0.1"
+	if strings.Join(got, " ") != want {
+		t.Errorf("got %v", got)
+	}
+	got = sshCommandPrefix("host-a", 0)
+	if strings.Join(got, " ") != "ssh -o ConnectTimeout=8 host-a" {
+		t.Errorf("port=0 应无 -p，got %v", got)
+	}
+}
+
+func TestSSHSourceWithPortStreamsLines(t *testing.T) {
+	bin := fakeSSHScript(t, "frp line one\nfrp line two")
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+
+	src := NewSSHSource("root@127.0.0.1", "/var/log/app.log", 100)
+	src.SetPort(6022)
+	ch, err := src.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, ok := <-ch
+	if !ok || line.Text != "frp line one" {
+		t.Fatalf("带端口应正常出流: %+v", line)
+	}
+}
+
 func TestIsSSHErrorLine(t *testing.T) {
 	for _, s := range []string{"ssh: connect to host x port 22: Connection refused", "tail: cannot open '/x' for reading"} {
 		if !isSSHErrorLine(s) {
