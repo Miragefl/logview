@@ -13,3 +13,7 @@ logview
 # Test
 *.test
 dist/
+
+# Agent workspaces
+.worktrees/
+.superpowers/
