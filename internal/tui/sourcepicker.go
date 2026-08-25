@@ -236,6 +236,40 @@ var startFRPTunnel = func(server frp.Server, sk, proxy string) (frpTunnelHandle,
 	return frp.StartTunnel(server, sk, proxy)
 }
 
+type frpTunnelMsg struct {
+	conn   frp.Conn
+	tunnel frpTunnelHandle
+	browse bool // true=进目录浏览 false=直接 tail
+	err    error
+}
+
+// fetchFRPTunnelCmd 异步建隧道（阻塞最长 10s，必须异步）。
+func fetchFRPTunnelCmd(server frp.Server, conn frp.Conn, browse bool) tea.Cmd {
+	return func() tea.Msg {
+		t, err := startFRPTunnel(server, conn.SK, conn.Proxy)
+		return frpTunnelMsg{conn: conn, tunnel: t, browse: browse, err: err}
+	}
+}
+
+// fetchFRPDirCmd 异步拉取 frp 隧道远端目录。
+func fetchFRPDirCmd(user string, port int, path, password string) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := stream.SSHListDirWithPort(user+"@127.0.0.1", port, path, password)
+		if err != nil {
+			return candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:" + path, err: err}
+		}
+		var items []sourceCandidate
+		for _, e := range entries {
+			if e.IsDir {
+				items = append(items, sourceCandidate{label: e.Name + "/", value: e.Name, dir: true})
+			} else {
+				items = append(items, sourceCandidate{label: e.Name, value: e.Name})
+			}
+		}
+		return candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:" + path, items: items}
+	}
+}
+
 // frpConnCandidates FRP L0 候选：+ 新建连接 恒在首位，其后已存记录（频次降序）。
 func frpConnCandidates(filter string) []sourceCandidate {
 	var conns []sourceCandidate

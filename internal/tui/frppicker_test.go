@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -200,5 +201,65 @@ func TestCloseSourcePickerCleansFRPTunnel(t *testing.T) {
 	}
 	if !fake.cleaned {
 		t.Fatal("关闭选择器应清理未移交的隧道")
+	}
+}
+
+func TestFRPTunnelMsgBrowseEntersDirLevel(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	fake := &fakeFRPTunnel{port: 6022}
+	conn := frp.Conn{Name: "ssh-x", Server: "s1", SK: "sk1", Proxy: "ssh-x", User: "root"}
+	app.Update(frpTunnelMsg{conn: conn, tunnel: fake, browse: true})
+	if app.pickerFRPLevel != 2 || app.pickerFRPTunnel != fake || !app.pickerLoading {
+		t.Fatalf("browse=true 应进 L2 且 loading，实际 level=%d loading=%v", app.pickerFRPLevel, app.pickerLoading)
+	}
+	if app.pickerFRPUser != "root" || app.pickerFRPDir != "/" {
+		t.Fatalf("user/dir 应就位: %q %q", app.pickerFRPUser, app.pickerFRPDir)
+	}
+
+	// 目录候选回填
+	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
+		items: []sourceCandidate{{label: "app.log", value: "app.log"}, {label: "sub/", value: "sub", dir: true}}})
+	app.pickerLoading = false
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 2 || cands[0].value != "app.log" {
+		t.Fatalf("L2 候选不符: %v", cands)
+	}
+
+	// 进子目录
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPDir != "/sub" {
+		t.Fatalf("Enter 应进 /sub，实际 %s", app.pickerFRPDir)
+	}
+}
+
+func TestFRPTunnelMsgErrorSurfaces(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	app.pickerLoading = true
+	app.Update(frpTunnelMsg{err: fmt.Errorf("未找到 frpc")})
+	if app.pickerLoading {
+		t.Fatal("失败应清 loading")
+	}
+}
+
+func TestFRPFormSubmitStartsTunnel(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	typeRunes(app, "sk1")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "ssh-x")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "root")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5 提交
+	if !app.pickerLoading {
+		t.Fatal("表单提交后应进入 loading 等隧道")
 	}
 }

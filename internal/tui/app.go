@@ -388,12 +388,43 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.promptSSHPwForHost(msg.ns)
 				}
 			}
+		case "frpdir":
+			if a.pickerFRPLevel == 2 && msg.ns == "frp:"+a.pickerFRPDir {
+				a.pickerCandidates = msg.items
+				// 认证失败 → frp 密码弹窗（Task 9 实现）
+			}
 		default: // resources
 			if a.pickerK8sLevel == 2 && msg.ns == a.pickerNsInput {
 				a.pickerCandidates = sortCandidatesHot(msg.items, usageK8sRes, true)
 			}
 		}
 		// 回填后总清 loading（空列表也视为完成，UI 显示"无资源"）
+		a.pickerLoading = false
+		return a, nil
+	case frpTunnelMsg:
+		if msg.err != nil {
+			a.pickerLoading = false
+			a.appendErrorLine(fmt.Sprintf("frp 隧道建立失败: %v", msg.err))
+			return a, nil
+		}
+		if msg.browse {
+			// 进目录浏览（表单提交后 picker 仍开着；直达重开场景同样覆盖）
+			a.sourcePickerMode = true
+			a.sourceTab = 3
+			a.pickerFRPLevel = 2
+			a.pickerFRPTunnel = msg.tunnel
+			a.pickerFRPUser = msg.conn.User
+			a.pickerFRPProxy = msg.conn.Proxy
+			if a.pickerFRPConnName == "" {
+				a.pickerFRPConnName = msg.conn.Name
+			}
+			a.pickerFRPDir = "/"
+			a.pickerCandidates = nil
+			a.pickerCursor = 0
+			a.pickerLoading = true
+			return a, fetchFRPDirCmd(msg.conn.User, msg.tunnel.LocalPort(), "/", a.sshPasswords["frp:"+msg.conn.Name])
+		}
+		// 旧记录直达：直接 tail（Task 8 实现）
 		a.pickerLoading = false
 		return a, nil
 	}

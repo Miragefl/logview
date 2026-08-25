@@ -145,7 +145,7 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 			}
 			return nil
 		default:
-			return nil // L2 目录浏览（后续任务实现）
+			return a.filteredFRPCands()
 		}
 	}
 	return nil
@@ -310,6 +310,44 @@ func (a *App) pickerTabEnterCmd() tea.Cmd {
 	return nil
 }
 
+// frpCurName 当前 frp 连接名（记录名或 proxy 名）。
+func (a *App) frpCurName() string {
+	if a.pickerFRPConnName != "" {
+		return a.pickerFRPConnName
+	}
+	return a.pickerFRPProxy
+}
+
+// frpPwKey frp 密码内存缓存 key。
+func (a *App) frpPwKey() string { return "frp:" + a.frpCurName() }
+
+// closeFRPBrowse 退出目录浏览：清隧道回连接列表。
+func (a *App) closeFRPBrowse() {
+	if a.pickerFRPTunnel != nil {
+		a.pickerFRPTunnel.Cleanup()
+		a.pickerFRPTunnel = nil
+	}
+	a.pickerFRPLevel = 0
+	a.pickerFRPDir = ""
+	a.pickerCandidates = nil
+	a.pickerCursor = 0
+}
+
+// filteredFRPCands FRP 远程目录层候选（同 SSH：无过滤首位 ../，根目录除外）。
+func (a *App) filteredFRPCands() []sourceCandidate {
+	filter := strings.ToLower(a.pickerDirFilter)
+	var items []sourceCandidate
+	if filter == "" && a.pickerFRPDir != "/" {
+		items = append(items, sourceCandidate{label: "../", value: "..", dir: true})
+	}
+	for _, c := range a.pickerCandidates {
+		if filter == "" || strings.Contains(strings.ToLower(c.label), filter) {
+			items = append(items, c)
+		}
+	}
+	return items
+}
+
 // pickerBackspace 逐级返回。
 func (a *App) pickerBackspace() tea.Cmd {
 	a.pickerCursor = 0
@@ -345,8 +383,9 @@ func (a *App) pickerBackspace() tea.Cmd {
 			a.pickerSSHRoot = ""
 			a.pickerCandidates = nil
 		}
-	case 3: // FRP：表单内逐级返回（step0 时返回 L0）
-		if a.pickerFRPLevel == 1 {
+	case 3: // FRP：表单内逐级返回（step0 时返回 L0）；L2 目录逐级上翻
+		switch a.pickerFRPLevel {
+		case 1:
 			a.pickerFRPInput = ""
 			if a.pickerFRPStep > 0 {
 				// 选已存服务器直达 step3 时未走过 step1/2：返回直接回 step0
@@ -358,6 +397,18 @@ func (a *App) pickerBackspace() tea.Cmd {
 			} else {
 				a.pickerFRPLevel = 0
 			}
+		case 2:
+			if a.pickerFRPTunnel == nil {
+				a.pickerFRPLevel = 0
+				return nil
+			}
+			if a.pickerFRPDir != "/" {
+				a.pickerFRPDir = parentPath(a.pickerFRPDir)
+				a.pickerCandidates = nil
+				a.pickerLoading = true
+				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
+			}
+			a.closeFRPBrowse()
 		}
 	}
 	return nil
@@ -405,6 +456,26 @@ func (a *App) pickerEnter() tea.Cmd {
 		a.pickerDirFilter = ""
 		a.pickerLoading = true
 		return fetchSSHDirCmd(a.pickerSSHHost, path, a.sshPw(a.pickerSSHHost))
+	}
+
+	// FRP 目录层：过滤框输入以 / 开头 → 路径直达（同 SSH）
+	if a.sourceTab == 3 && a.pickerFRPLevel == 2 && a.pickerFRPTunnel != nil && strings.HasPrefix(a.pickerDirFilter, "/") {
+		path := strings.TrimSuffix(a.pickerDirFilter, "/")
+		if path == "" {
+			path = "/"
+		}
+		if _, err := stream.SSHListDirWithPort(a.pickerFRPUser+"@127.0.0.1", a.pickerFRPTunnel.LocalPort(), path, a.sshPasswords[a.frpPwKey()]); err != nil {
+			// 路径不存在或不可读：当作文件尝试打开
+			a.pickerRemotePath = path
+			a.pickerDirFilter = ""
+			return a.confirmFRPPicker()
+		}
+		a.pickerFRPDir = path
+		a.pickerCandidates = nil
+		a.pickerCursor = 0
+		a.pickerDirFilter = ""
+		a.pickerLoading = true
+		return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), path, a.sshPasswords[a.frpPwKey()])
 	}
 
 	if a.pickerCursor >= len(cands) {
@@ -535,6 +606,30 @@ func (a *App) pickerEnter() tea.Cmd {
 			return nil // 旧记录直达（后续任务实现）
 		case 1:
 			return a.pickerFRPFormEnter(cand)
+		default: // 远程目录浏览
+			if a.pickerFRPTunnel == nil {
+				return nil
+			}
+			if cand.value == ".." {
+				if a.pickerFRPDir == "/" {
+					a.closeFRPBrowse()
+					return nil
+				}
+				a.pickerFRPDir = parentPath(a.pickerFRPDir)
+				a.pickerCandidates = nil
+				a.pickerCursor = 0
+				a.pickerLoading = true
+				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
+			}
+			if cand.dir {
+				a.pickerFRPDir = strings.TrimSuffix(a.pickerFRPDir, "/") + "/" + cand.value
+				a.pickerCandidates = nil
+				a.pickerCursor = 0
+				a.pickerLoading = true
+				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
+			}
+			a.pickerRemotePath = strings.TrimSuffix(a.pickerFRPDir, "/") + "/" + cand.value
+			return a.confirmFRPPicker() // Task 8 实现
 		}
 	}
 	return nil
@@ -586,16 +681,27 @@ func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
 		}
 		a.pickerFRPProxy = input
 		next(5)
-	case 5: // user → 提交建隧道（后续任务接管实际拉起）
+	case 5: // user → 提交建隧道
 		if input == "" {
 			return nil
 		}
 		a.pickerFRPUser = input
 		a.pickerFRPInput = ""
-		return nil // 后续任务将替换为 fetchFRPTunnelCmd
+		server, ok := frpStore().FindServer(a.pickerFRPServerName)
+		if !ok {
+			a.appendErrorLine(fmt.Sprintf("frp 服务器 %s 不存在", a.pickerFRPServerName))
+			return nil
+		}
+		conn := frp.Conn{Name: a.pickerFRPProxy, Server: a.pickerFRPServerName,
+			SK: a.pickerFRPSK, Proxy: a.pickerFRPProxy, User: input}
+		a.pickerLoading = true
+		return fetchFRPTunnelCmd(server, conn, true)
 	}
 	return nil
 }
+
+// confirmFRPPicker FRP 确认建流（Task 8 完整实现）。
+func (a *App) confirmFRPPicker() tea.Cmd { return nil }
 
 // pickerInputRef 返回当前可编辑输入框（浏览态多数层无输入框）。
 func (a *App) pickerInputRef() inputRef {
@@ -622,6 +728,9 @@ func (a *App) pickerInputRef() inputRef {
 		}
 		return inputRef{&a.pickerRemotePath, &a.pickerRemoteCursor}
 	case 3:
+		if a.pickerFRPLevel == 2 {
+			return inputRef{&a.pickerDirFilter, &a.pickerFilterCursor}
+		}
 		return inputRef{&a.pickerFRPInput, &a.pickerFRPCursor}
 	}
 	return inputRef{}
@@ -822,6 +931,17 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 				}
 			}
 			content.WriteString("\n" + PopupTabStyle.Render(" Enter下一步 C-j/k移动 Backspace返回 Esc取消"))
+		default: // L2：远程目录浏览
+			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" frp:%s %s", a.frpCurName(), a.pickerFRPDir)) + "\n")
+			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤…") + "\n\n")
+			if a.pickerLoading && len(cands) == 0 {
+				content.WriteString(PopupTabStyle.Render(" 加载中…") + "\n")
+			} else if len(cands) == 0 {
+				content.WriteString(PopupTabStyle.Render(" 目录为空或不可读") + "\n")
+			} else {
+				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
+			}
+			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 		}
 	}
 
