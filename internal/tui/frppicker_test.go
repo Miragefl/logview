@@ -74,6 +74,77 @@ func TestSourcePickerFourTabs(t *testing.T) {
 	}
 }
 
+// typeRunes 逐字符向 app 发送 KeyRunes（模拟键盘输入）。
+func typeRunes(app *App, s string) {
+	for _, r := range s {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+}
+
+// 表单 step0：+manual 恒在首位，已存服务器随后；选已存服务器直达 step3(sk)，
+// Backspace 逐级返回（未走过的 step1/2 跳过）。
+func TestFRPFormServerSelect(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	// L0 Enter（光标 0 = + 新建连接）→ 表单 step 0
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 0 {
+		t.Fatalf("应进入表单 step0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
+	}
+	cands := app.visiblePickerCandidates()
+	if len(cands) != 2 || cands[0].value != "+manual" || cands[1].value != "s1" {
+		t.Fatalf("step0 候选应为 [+manual, s1]，实际 %v", cands)
+	}
+	// 选 s1（光标 1）→ 直接跳 sk（step 3）
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPStep != 3 || app.pickerFRPServerName != "s1" {
+		t.Fatalf("选已存服务器应到 step3(sk)，实际 step=%d server=%q", app.pickerFRPStep, app.pickerFRPServerName)
+	}
+	// Backspace 回 step0，再 Backspace 回 L0
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerFRPStep != 0 {
+		t.Fatalf("Backspace 应回 step0，实际 %d", app.pickerFRPStep)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerFRPLevel != 0 {
+		t.Fatalf("step0 Backspace 应回 L0，实际 %d", app.pickerFRPLevel)
+	}
+}
+
+// 表单手动输入路径：地址 → token（保存服务器）→ sk → proxy → user（空值不提交）。
+func TestFRPFormNewServerAndFields(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 光标 0 = +manual → step1
+	if app.pickerFRPStep != 1 {
+		t.Fatalf("应到 step1(地址)，实际 %d", app.pickerFRPStep)
+	}
+	typeRunes(app, "frps2.example.com:7000")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2 token
+	typeRunes(app, "tk2")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step3，保存服务器
+	sv, ok := frpStore().FindServer("frps2.example.com:7000")
+	if !ok || sv.Addr != "frps2.example.com:7000" || sv.Token != "tk2" {
+		t.Fatalf("新服务器应已保存，实际 %+v ok=%v", sv, ok)
+	}
+	typeRunes(app, "sk1")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step4
+	typeRunes(app, "ssh-x")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5
+	if app.pickerFRPSK != "sk1" || app.pickerFRPProxy != "ssh-x" {
+		t.Fatalf("字段未暂存: sk=%q proxy=%q", app.pickerFRPSK, app.pickerFRPProxy)
+	}
+	// user 留空 Enter：不提交
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPStep != 5 {
+		t.Fatalf("user 为空不应提交，实际 step=%d", app.pickerFRPStep)
+	}
+}
+
 // 关闭选择器时应清理未移交的 frp 隧道。
 func TestCloseSourcePickerCleansFRPTunnel(t *testing.T) {
 	app := newTestApp()

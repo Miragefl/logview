@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/stream"
 )
 
@@ -135,7 +136,17 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 		}
 		return a.filteredSSHCands() // 远程目录层
 	case 3: // FRP
-		return frpConnCandidates(a.pickerFRPInput)
+		switch a.pickerFRPLevel {
+		case 0:
+			return frpConnCandidates(a.pickerFRPInput)
+		case 1:
+			if a.pickerFRPStep == 0 {
+				return frpServerCandidates(a.pickerFRPInput)
+			}
+			return nil
+		default:
+			return nil // L2 目录浏览（后续任务实现）
+		}
 	}
 	return nil
 }
@@ -334,6 +345,20 @@ func (a *App) pickerBackspace() tea.Cmd {
 			a.pickerSSHRoot = ""
 			a.pickerCandidates = nil
 		}
+	case 3: // FRP：表单内逐级返回（step0 时返回 L0）
+		if a.pickerFRPLevel == 1 {
+			a.pickerFRPInput = ""
+			if a.pickerFRPStep > 0 {
+				// 选已存服务器直达 step3 时未走过 step1/2：返回直接回 step0
+				if a.pickerFRPStep == 3 && a.pickerFRPServerAddr == "" {
+					a.pickerFRPStep = 0
+				} else {
+					a.pickerFRPStep--
+				}
+			} else {
+				a.pickerFRPLevel = 0
+			}
+		}
 	}
 	return nil
 }
@@ -394,6 +419,10 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerDirFilter = ""
 				return fetchK8sCandidatesCmd(a.pickerKubeCtx, ns)
 			}
+		}
+		// FRP 表单输入步（step1-5 无候选列表）：输入框即提交值
+		if a.sourceTab == 3 && a.pickerFRPLevel == 1 {
+			return a.pickerFRPFormEnter(sourceCandidate{})
 		}
 		return nil
 	}
@@ -493,6 +522,76 @@ func (a *App) pickerEnter() tea.Cmd {
 		}
 		a.pickerRemotePath = strings.TrimSuffix(a.pickerSSHDir, "/") + "/" + cand.value
 		return a.confirmSourcePicker()
+	case 3: // FRP
+		switch a.pickerFRPLevel {
+		case 0:
+			if cand.value == "+new" {
+				a.pickerFRPLevel = 1
+				a.pickerFRPStep = 0
+				a.pickerFRPInput = ""
+				a.pickerCursor = 0
+				return nil
+			}
+			return nil // 旧记录直达（后续任务实现）
+		case 1:
+			return a.pickerFRPFormEnter(cand)
+		}
+	}
+	return nil
+}
+
+// pickerFRPFormEnter 表单各步骤 Enter 提交（step5 提交建隧道由后续任务接管）。
+func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
+	input := strings.TrimSpace(a.pickerFRPInput)
+	next := func(step int) {
+		a.pickerFRPStep = step
+		a.pickerFRPInput = ""
+		a.pickerCursor = 0
+	}
+	switch a.pickerFRPStep {
+	case 0: // 选服务器
+		if cand.value == "+manual" {
+			next(1)
+		} else {
+			a.pickerFRPServerName = cand.value
+			next(3) // 已存服务器有 token，直接到 sk
+		}
+	case 1: // 新服务器地址
+		if input == "" {
+			return nil
+		}
+		a.pickerFRPServerAddr = input
+		a.pickerFRPServerName = input // 默认名 = 地址
+		next(2)
+	case 2: // token（可空）
+		frpStore().UpsertServer(frp.Server{
+			Name:  a.pickerFRPServerName,
+			Addr:  a.pickerFRPServerAddr,
+			Token: input,
+		})
+		if err := frpStore().Save(); err != nil {
+			a.appendErrorLine(fmt.Sprintf("frp 服务器保存失败: %v", err))
+		}
+		next(3)
+	case 3: // sk
+		if input == "" {
+			return nil
+		}
+		a.pickerFRPSK = input
+		next(4)
+	case 4: // proxy
+		if input == "" {
+			return nil
+		}
+		a.pickerFRPProxy = input
+		next(5)
+	case 5: // user → 提交建隧道（后续任务接管实际拉起）
+		if input == "" {
+			return nil
+		}
+		a.pickerFRPUser = input
+		a.pickerFRPInput = ""
+		return nil // 后续任务将替换为 fetchFRPTunnelCmd
 	}
 	return nil
 }
@@ -697,14 +796,32 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			}
 			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 		}
-	case 3: // FRP L0：连接列表（表单/目录浏览由后续任务实现）
-		content.WriteString(a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "搜索连接（名称/proxy/路径）…") + "\n\n")
-		if len(cands) == 0 {
-			content.WriteString(PopupTabStyle.Render(" 无保存的连接") + "\n")
-		} else {
-			content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
+	case 3: // FRP
+		switch a.pickerFRPLevel {
+		case 0: // L0：连接列表
+			content.WriteString(a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "搜索连接（名称/proxy/路径）…") + "\n\n")
+			if len(cands) == 0 {
+				content.WriteString(PopupTabStyle.Render(" 无保存的连接") + "\n")
+			} else {
+				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
+			}
+			content.WriteString("\n" + PopupTabStyle.Render(" Enter打开/新建 C-j/k移动 Esc取消"))
+		case 1: // L1：新建表单（逐字段单输入框）
+			prompts := []string{
+				"选择 frps 服务器", "新服务器地址 host:port", "token（可空）",
+				"sk (secret key)", "proxy 名称", "ssh 用户名",
+			}
+			content.WriteString(DetailLabelStyle.Render(prompts[a.pickerFRPStep]+": ") +
+				a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "") + "\n\n")
+			if a.pickerFRPStep == 0 {
+				if len(cands) == 0 {
+					content.WriteString(PopupTabStyle.Render(" 无保存的服务器") + "\n")
+				} else {
+					content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
+				}
+			}
+			content.WriteString("\n" + PopupTabStyle.Render(" Enter下一步 C-j/k移动 Backspace返回 Esc取消"))
 		}
-		content.WriteString("\n" + PopupTabStyle.Render(" Enter打开/新建 C-j/k移动 Esc取消"))
 	}
 
 	boxW := min(64, a.width-4)

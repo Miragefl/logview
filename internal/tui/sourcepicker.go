@@ -255,3 +255,16 @@ func frpConnCandidates(filter string) []sourceCandidate {
 	}
 	return out
 }
+
+// frpServerCandidates 表单 step0 候选：手动输入 恒在首位，其后已存服务器。
+func frpServerCandidates(filter string) []sourceCandidate {
+	out := []sourceCandidate{{label: "手动输入新服务器…", value: "+manual"}}
+	f := strings.ToLower(strings.TrimSpace(filter))
+	for _, s := range frpStore().Servers {
+		label := s.Name + "  " + s.Addr
+		if f == "" || strings.Contains(strings.ToLower(label), f) {
+			out = append(out, sourceCandidate{label: label, value: s.Name})
+		}
+	}
+	return out
+}
