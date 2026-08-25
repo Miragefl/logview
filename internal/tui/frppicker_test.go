@@ -145,6 +145,49 @@ func TestFRPFormNewServerAndFields(t *testing.T) {
 	}
 }
 
+// 手动输入地址中途返回 L0 后再选已存服务器：残留 ServerAddr 会使 step3 回退
+// 跳级失效（回退走到 step2），空 token Enter 会用残留地址覆盖已存服务器记录。
+func TestFRPFormBackspaceAfterManual(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	// Enter(+new)→step0，Enter(+manual)→step1，输入地址→step2（ServerAddr 残留）
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "frps2.example.com:7000")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPStep != 2 {
+		t.Fatalf("应到 step2(token)，实际 %d", app.pickerFRPStep)
+	}
+	// Backspace×3：step2→step1→step0→L0
+	for i := 0; i < 3; i++ {
+		app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	if app.pickerFRPLevel != 0 {
+		t.Fatalf("三次 Backspace 应回 L0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
+	}
+	// 重进表单，选已存服务器 s1 → 直达 step3
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})  // 光标 → s1
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPStep != 3 || app.pickerFRPServerName != "s1" {
+		t.Fatalf("选 s1 应到 step3(sk)，实际 step=%d server=%q", app.pickerFRPStep, app.pickerFRPServerName)
+	}
+	// step3 由选已存服务器直达（未走 step1/2）：Backspace 应跳级回 step0，而非 step2
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 0 {
+		t.Fatalf("step3 Backspace 应跳级回 step0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
+	}
+	// 再走一遍同路径：s1 记录应保持 setup 写入的原值，未被残留地址覆盖
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	sv, ok := frpStore().FindServer("s1")
+	if !ok || sv.Addr != "frps.example.com:7000" || sv.Token != "tk" {
+		t.Fatalf("s1 记录应保持原值(frps.example.com:7000/tk)，实际 %+v ok=%v", sv, ok)
+	}
+}
+
 // 关闭选择器时应清理未移交的 frp 隧道。
 func TestCloseSourcePickerCleansFRPTunnel(t *testing.T) {
 	app := newTestApp()

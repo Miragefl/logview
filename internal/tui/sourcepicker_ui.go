@@ -554,6 +554,7 @@ func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
 			next(1)
 		} else {
 			a.pickerFRPServerName = cand.value
+			a.pickerFRPServerAddr = "" // 清残留：手动输入中途返回后残留会使 step3 回退跳级失效
 			next(3) // 已存服务器有 token，直接到 sk
 		}
 	case 1: // 新服务器地址
