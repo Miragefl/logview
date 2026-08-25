@@ -447,9 +447,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.pickerFRPTunnel = msg.tunnel
 			a.pickerFRPUser = msg.conn.User
 			a.pickerFRPProxy = msg.conn.Proxy
-			if a.pickerFRPConnName == "" {
-				a.pickerFRPConnName = msg.conn.Name
-			}
+			// 无条件落位：跨建连残留的旧名会错位 frpPwKey/confirm 保存（终审 F1）
+			a.pickerFRPConnName = msg.conn.Name
 			a.pickerFRPDir = "/"
 			a.pickerCandidates = nil
 			a.pickerCursor = 0

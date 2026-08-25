@@ -600,6 +600,7 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerFRPLevel = 1
 				a.pickerFRPStep = 0
 				a.pickerFRPInput = ""
+				a.pickerFRPConnName = "" // 清残留：重新表单建档时旧记录名必须作废（终审 F1）
 				a.pickerCursor = 0
 				return nil
 			}

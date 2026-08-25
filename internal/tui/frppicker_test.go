@@ -436,6 +436,91 @@ func TestFRPPwConfirmKeepsServerForRecord(t *testing.T) {
 	}
 }
 
+// 回归（终审 F1）：表单建连 A 浏览后退回 L0 再 "+new" 建连 B，残留 ConnName 必须作废。
+// 否则：① frpPwKey 错位（B 的密码缓存走 A 的 key）；② confirmFRPPicker 以旧名 UpsertConn，
+// ssh-x 旧记录被 B 的参数整体覆盖；③ 迟到 frpTunnelMsg 的 conn.Name 不生效。
+func TestFRPNewFormClearsStaleConnName(t *testing.T) {
+	setupFRPStore(t, frp.Conn{Name: "ssh-x", Server: "s1", SK: "sk1", Proxy: "ssh-x", User: "root", Path: "/var/log/x.log"})
+	fakeSSHBin(t) // confirmFRPPicker 建 FRPSource，避免真连
+	app := newTestApp()
+	app.openSourcePicker(3)
+
+	// 第一次建连 A（表单 proxy=ssh-x）：提交后隧道建立，browse=true 进 L2 落位 ConnName
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	typeRunes(app, "sk1")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "ssh-x")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "root")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5 提交 → loading
+	fake1 := &fakeFRPTunnel{port: 6022}
+	app.Update(frpTunnelMsg{conn: frp.Conn{Name: "ssh-x", Server: "s1", SK: "sk1", Proxy: "ssh-x", User: "root"},
+		tunnel: fake1, browse: true})
+	if app.pickerFRPConnName != "ssh-x" {
+		t.Fatalf("前置：建连 A 后 ConnName 应为 ssh-x，实际 %q", app.pickerFRPConnName)
+	}
+	// 目录列表回填（清 loading）→ 根目录 Backspace → closeFRPBrowse 回 L0
+	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
+		items: []sourceCandidate{{label: "app.log", value: "app.log"}}})
+	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if app.pickerFRPLevel != 0 || app.pickerFRPTunnel != nil {
+		t.Fatalf("Backspace 应回 L0 并清隧道，实际 level=%d tunnel=%v", app.pickerFRPLevel, app.pickerFRPTunnel)
+	}
+
+	// "+new" Enter 进表单：残留 ConnName 必须清空（旧记录名作废）
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 0 {
+		t.Fatalf("应进表单 step0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
+	}
+	if app.pickerFRPConnName != "" {
+		t.Fatalf("+new 进表单应清除残留 ConnName，实际 %q", app.pickerFRPConnName)
+	}
+
+	// 走表单建连 B（proxy=ssh-y）：选 s1 → sk → proxy → user 提交
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	typeRunes(app, "sk2")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "ssh-y")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	typeRunes(app, "root")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5 提交 → loading
+	if !app.pickerLoading {
+		t.Fatal("表单提交后应进入 loading 等隧道")
+	}
+
+	// 隧道建立（browse=true）：conn.Name 应无条件落位，密码 key 跟随 B
+	fake2 := &fakeFRPTunnel{port: 6023}
+	app.Update(frpTunnelMsg{conn: frp.Conn{Name: "ssh-y", Server: "s1", SK: "sk2", Proxy: "ssh-y", User: "root"},
+		tunnel: fake2, browse: true})
+	if app.pickerFRPConnName != "ssh-y" {
+		t.Fatalf("建连 B 后 ConnName 应为 ssh-y，实际 %q", app.pickerFRPConnName)
+	}
+	if got := app.frpPwKey(); got != "frp:ssh-y" {
+		t.Fatalf("frpPwKey 应为 frp:ssh-y，实际 %q", got)
+	}
+
+	// 确认路径：选中文件 → confirmFRPPicker 应新建 ssh-y 记录，ssh-x 旧记录不被覆盖
+	app.pickerFRPDir = "/var/log"
+	app.pickerCandidates = []sourceCandidate{{label: "app.log", value: "app.log"}}
+	app.pickerLoading = false
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})  // 跳过首位 ../
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选中 app.log → confirmFRPPicker
+	if app.sourcePickerMode {
+		t.Fatal("确认后应关闭选择器")
+	}
+	old, ok := frpStore().FindConn("ssh-x")
+	if !ok || old.Server != "s1" || old.SK != "sk1" || old.Proxy != "ssh-x" || old.Path != "/var/log/x.log" {
+		t.Fatalf("ssh-x 旧记录不应被建连 B 覆盖，实际 %+v ok=%v", old, ok)
+	}
+	rec, ok := frpStore().FindConn("ssh-y")
+	if !ok || rec.Server != "s1" || rec.SK != "sk2" || rec.Proxy != "ssh-y" || rec.User != "root" || rec.Path != "/var/log/app.log" {
+		t.Fatalf("ssh-y 应保存为新记录，实际 %+v ok=%v", rec, ok)
+	}
+}
+
 func TestFRPBrowsePasswordPrompt(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
