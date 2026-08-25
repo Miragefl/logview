@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/stream"
 )
 
@@ -209,4 +210,48 @@ func fetchSSHDirCmd(host, path, password string) tea.Cmd {
 		}
 		return candidatesMsg{tab: 2, kind: "sshdir", ns: host + ":" + path, items: items}
 	}
+}
+
+// frpStoreRef 全局注入（loadConfig 时 set；测试用 SetFRPStore 覆盖）。
+var frpStoreRef *frp.Store
+
+// SetFRPStore 注入 frp 连接存储。
+func SetFRPStore(s *frp.Store) { frpStoreRef = s }
+
+func frpStore() *frp.Store {
+	if frpStoreRef == nil {
+		return frp.LoadStore()
+	}
+	return frpStoreRef
+}
+
+// frpTunnelHandle tui 侧隧道句柄（*frp.Tunnel / 测试 fake 均实现）。
+type frpTunnelHandle interface {
+	LocalPort() int
+	Cleanup() error
+}
+
+// startFRPTunnel 可注入的隧道启动（测试替换；生产包装 frp.StartTunnel）。后续任务使用。
+var startFRPTunnel = func(server frp.Server, sk, proxy string) (frpTunnelHandle, error) {
+	return frp.StartTunnel(server, sk, proxy)
+}
+
+// frpConnCandidates FRP L0 候选：+ 新建连接 恒在首位，其后已存记录（频次降序）。
+func frpConnCandidates(filter string) []sourceCandidate {
+	var conns []sourceCandidate
+	for _, c := range frpStore().Conns {
+		conns = append(conns, sourceCandidate{
+			label: c.Name + "  " + c.Proxy + " " + c.Path,
+			value: c.Name,
+		})
+	}
+	conns = sortCandidatesHot(conns, usageFRPConn, true)
+	out := []sourceCandidate{{label: "+ 新建连接", value: "+new"}}
+	f := strings.ToLower(strings.TrimSpace(filter))
+	for _, c := range conns {
+		if f == "" || strings.Contains(strings.ToLower(c.label), f) {
+			out = append(out, c)
+		}
+	}
+	return out
 }

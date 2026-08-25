@@ -128,6 +128,7 @@ const (
 	usageK8sCtx  = "k8sctx:"
 	usageK8sNS   = "k8sns:"
 	usageK8sRes  = "k8sres:"
+	usageFRPConn = "frp:"
 )
 
 // sortCandidatesHot 候选按（衰减频次降序, 名称升序）排序；带 hot 标记（★ 前缀给常用项 label）。

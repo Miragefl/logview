@@ -111,7 +111,7 @@ type App struct {
 	showLineNum bool
 
 	sourcePickerMode bool
-	sourceTab        int // 0=K8s 1=本地 2=SSH
+	sourceTab        int // 0=K8s 1=本地 2=SSH 3=FRP
 	pickSourceOnStart bool // 启动即打开源选择器（picker 子命令）
 
 	pickerK8sLevel   int    // K8s 浏览层级：0=context 1=namespace 2=资源
@@ -135,6 +135,19 @@ type App struct {
 	pickerRemotePath string
 	pickerRemoteCursor int
 	pickerSshFocus   int // SSH 主机层焦点：0=主机 1=路径
+
+	pickerFRPLevel      int             // FRP 层级：0=连接列表 1=新建表单 2=远程目录
+	pickerFRPStep       int             // 表单步骤：0=选服务器 1=新地址 2=token 3=sk 4=proxy 5=user
+	pickerFRPInput      string          // FRP 搜索/表单输入
+	pickerFRPCursor     int
+	pickerFRPServerName string          // 已选/新建的服务器名
+	pickerFRPServerAddr string          // 新服务器地址（表单暂存）
+	pickerFRPSK         string
+	pickerFRPProxy      string
+	pickerFRPUser       string
+	pickerFRPDir        string          // 远程浏览当前目录
+	pickerFRPConnName   string          // 直达场景选中的记录名（空=新建）
+	pickerFRPTunnel     frpTunnelHandle // 浏览期间常驻隧道（确认后移交 FRPSource）
 
 	pickerPathInput  string
 	pickerPathCursor int

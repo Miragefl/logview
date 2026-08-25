@@ -14,6 +14,7 @@ import (
 //   K8s tab:   context → namespace → 资源多选（Space 勾选，Enter 确认）
 //   本地 tab:  目录浏览器（Enter 进目录/开文件，Backspace 返回上级）
 //   SSH tab:   主机列表 → 远程目录浏览器
+//   FRP tab:   连接列表（+ 新建连接 / 已存记录，搜索过滤）
 // Backspace 逐级返回；手动输入仍保留（路径/ns 直达）。
 
 // openSourcePicker 打开选择器（tab 可预选）。
@@ -44,12 +45,29 @@ func (a *App) openSourcePicker(tab int) {
 	a.pickerHostInput = ""
 	a.pickerRemotePath = ""
 	a.pickerSshFocus = 0
+	// FRP 浏览状态（不重置 pickerFRPTunnel：密码流程重开 picker 需保留，清理统一走 closeSourcePicker）
+	a.pickerFRPLevel = 0
+	a.pickerFRPStep = 0
+	a.pickerFRPInput = ""
+	a.pickerFRPCursor = 0
+	a.pickerFRPServerName = ""
+	a.pickerFRPServerAddr = ""
+	a.pickerFRPSK = ""
+	a.pickerFRPProxy = ""
+	a.pickerFRPUser = ""
+	a.pickerFRPDir = ""
+	a.pickerFRPConnName = ""
 }
 
 func (a *App) closeSourcePicker() {
 	a.sourcePickerMode = false
 	a.pickerCandidates = nil
 	a.pickerChecked = nil
+	// 未移交的 frp 隧道随弹窗关闭清理
+	if a.pickerFRPTunnel != nil {
+		a.pickerFRPTunnel.Cleanup()
+		a.pickerFRPTunnel = nil
+	}
 }
 
 // visiblePickerCandidates 当前 tab/level 的可见候选。
@@ -116,6 +134,8 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 			return out
 		}
 		return a.filteredSSHCands() // 远程目录层
+	case 3: // FRP
+		return frpConnCandidates(a.pickerFRPInput)
 	}
 	return nil
 }
@@ -155,10 +175,10 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.closeSourcePicker()
 		return a, nil
 	case tea.KeyTab:
-		a.sourceTab = (a.sourceTab + 1) % 3
+		a.sourceTab = (a.sourceTab + 1) % 4
 		return a, a.pickerTabEnterCmd()
 	case tea.KeyShiftTab:
-		a.sourceTab = (a.sourceTab + 2) % 3
+		a.sourceTab = (a.sourceTab + 3) % 4
 		return a, a.pickerTabEnterCmd()
 	case tea.KeyUp:
 		if a.pickerCursor > 0 {
@@ -501,6 +521,8 @@ func (a *App) pickerInputRef() inputRef {
 			return inputRef{&a.pickerHostInput, &a.pickerHostCursor}
 		}
 		return inputRef{&a.pickerRemotePath, &a.pickerRemoteCursor}
+	case 3:
+		return inputRef{&a.pickerFRPInput, &a.pickerFRPCursor}
 	}
 	return inputRef{}
 }
@@ -592,7 +614,7 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 func (a *App) buildSourcePickerLines(vl int) []string {
 	var content strings.Builder
 
-	tabs := []string{"K8s", "本地", "SSH"}
+	tabs := []string{"K8s", "本地", "SSH", "FRP"}
 	var tabParts []string
 	for i, t := range tabs {
 		if i == a.sourceTab {
@@ -675,6 +697,14 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			}
 			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 		}
+	case 3: // FRP L0：连接列表（表单/目录浏览由后续任务实现）
+		content.WriteString(a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "搜索连接（名称/proxy/路径）…") + "\n\n")
+		if len(cands) == 0 {
+			content.WriteString(PopupTabStyle.Render(" 无保存的连接") + "\n")
+		} else {
+			content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
+		}
+		content.WriteString("\n" + PopupTabStyle.Render(" Enter打开/新建 C-j/k移动 Esc取消"))
 	}
 
 	boxW := min(64, a.width-4)
