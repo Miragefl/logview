@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/model"
 	"github.com/justfun/logview/internal/parser"
 	"github.com/justfun/logview/internal/stream"
@@ -527,6 +528,8 @@ func loadConfig() (appConfig, error) {
 	}
 	// SSH 主机候选：显式配置 + ~/.ssh/config 自动发现
 	tui.SetSSHHosts(stream.MergeSSHHosts(res.SSHHosts, stream.ParseSSHConfigHosts()))
+	// frp 连接存储注入（~/.local/state/logview/frp.json，缺失自动降级空 store）
+	tui.SetFRPStore(frp.LoadStore())
 
 	if len(fieldConfigs) > 0 {
 		var fields []model.Field
