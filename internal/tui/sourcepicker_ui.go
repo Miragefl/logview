@@ -603,7 +603,22 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerCursor = 0
 				return nil
 			}
-			return nil // 旧记录直达（后续任务实现）
+			conn, ok := frpStore().FindConn(cand.value)
+			if !ok {
+				return nil
+			}
+			server, ok := frpStore().FindServer(conn.Server)
+			if !ok {
+				a.appendErrorLine(fmt.Sprintf("frp 记录 %s 引用的服务器 %s 不存在", conn.Name, conn.Server))
+				return nil
+			}
+			a.pickerFRPConnName = conn.Name
+			a.pickerFRPUser = conn.User
+			a.pickerFRPSK = conn.SK
+			a.pickerFRPProxy = conn.Proxy
+			a.pickerFRPServerName = conn.Server
+			a.pickerLoading = true
+			return fetchFRPTunnelCmd(server, conn, false)
 		case 1:
 			return a.pickerFRPFormEnter(cand)
 		default: // 远程目录浏览
@@ -626,6 +641,7 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerCandidates = nil
 				a.pickerCursor = 0
 				a.pickerLoading = true
+				a.pickerDirFilter = ""
 				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
 			}
 			a.pickerRemotePath = strings.TrimSuffix(a.pickerFRPDir, "/") + "/" + cand.value
@@ -700,8 +716,40 @@ func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
 	return nil
 }
 
-// confirmFRPPicker FRP 确认建流（Task 8 完整实现）。
-func (a *App) confirmFRPPicker() tea.Cmd { return nil }
+// confirmFRPPicker FRP 确认建流：保存记录（含 Path）→ 隧道移交 FRPSource。
+func (a *App) confirmFRPPicker() tea.Cmd {
+	tunnel := a.pickerFRPTunnel
+	if tunnel == nil {
+		return nil
+	}
+	path := strings.TrimSpace(a.pickerRemotePath)
+	if path == "" && a.pickerFRPDir != "" {
+		path = a.pickerFRPDir
+	}
+	if path == "" {
+		return nil
+	}
+	name := a.pickerFRPConnName
+	if name == "" {
+		name = a.pickerFRPProxy
+	}
+	user := a.pickerFRPUser
+	frpStore().UpsertConn(frp.Conn{
+		Name: name, Server: a.pickerFRPServerName, SK: a.pickerFRPSK,
+		Proxy: a.pickerFRPProxy, User: user, Path: path,
+	})
+	if err := frpStore().Save(); err != nil {
+		a.appendErrorLine(fmt.Sprintf("frp 记录保存失败: %v", err))
+	}
+	BumpUsage(usageFRPConn + name)
+	a.pickerFRPTunnel = nil // 隧道移交 FRPSource，防 closeSourcePicker 清理
+	a.closeSourcePicker()
+	src := stream.NewFRPSource(name, tunnel, user, path, 200)
+	if pw := a.sshPasswords["frp:"+name]; pw != "" {
+		src.SetPassword(pw)
+	}
+	return a.ReplaceStream(src)
+}
 
 // pickerInputRef 返回当前可编辑输入框（浏览态多数层无输入框）。
 func (a *App) pickerInputRef() inputRef {

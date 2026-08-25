@@ -424,9 +424,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.pickerLoading = true
 			return a, fetchFRPDirCmd(msg.conn.User, msg.tunnel.LocalPort(), "/", a.sshPasswords["frp:"+msg.conn.Name])
 		}
-		// 旧记录直达：直接 tail（Task 8 实现）
+		// 旧记录直达：直接 tail
 		a.pickerLoading = false
-		return a, nil
+		a.closeSourcePicker() // 隧道在 msg 上，close 不会误清
+		BumpUsage(usageFRPConn + msg.conn.Name)
+		src := stream.NewFRPSource(msg.conn.Name, msg.tunnel, msg.conn.User, msg.conn.Path, 200)
+		if pw := a.sshPasswords["frp:"+msg.conn.Name]; pw != "" {
+			src.SetPassword(pw)
+		}
+		return a, a.ReplaceStream(src)
 	}
 	return a, nil
 }

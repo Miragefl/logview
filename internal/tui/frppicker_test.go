@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -261,5 +262,74 @@ func TestFRPFormSubmitStartsTunnel(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5 提交
 	if !app.pickerLoading {
 		t.Fatal("表单提交后应进入 loading 等隧道")
+	}
+}
+
+func fakeSSHBin(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := dir + "/ssh"
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+}
+
+func TestFRPConfirmSavesRecordAndSwitchesStream(t *testing.T) {
+	setupFRPStore(t)
+	fakeSSHBin(t) // 阻塞式假 ssh，避免真连 127.0.0.1
+	app := newTestApp()
+	app.openSourcePicker(3)
+	fake := &fakeFRPTunnel{port: 6022}
+	app.pickerFRPLevel = 2
+	app.pickerFRPTunnel = fake
+	app.pickerFRPServerName = "s1"
+	app.pickerFRPSK = "sk1"
+	app.pickerFRPProxy = "ssh-x"
+	app.pickerFRPUser = "root"
+	app.pickerFRPConnName = "ssh-x"
+	app.pickerFRPDir = "/var/log"
+	app.pickerCandidates = []sourceCandidate{{label: "app.log", value: "app.log"}}
+	app.pickerLoading = false
+
+	app.Update(tea.KeyMsg{Type: tea.KeyDown}) // 光标跳过首位的 ../（非根目录时列表前置返回上级项）
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选中 app.log → confirmFRPPicker
+	if app.sourcePickerMode {
+		t.Fatal("确认后应关闭选择器")
+	}
+	if fake.cleaned {
+		t.Fatal("隧道应移交 FRPSource，不应被清理")
+	}
+	label := app.stream.Label()
+	if label != "frp://ssh-x/var/log/app.log" {
+		t.Fatalf("应切到 FRP 源，实际 %s", label)
+	}
+	// 记录已保存（含 Path）
+	c, ok := frpStore().FindConn("ssh-x")
+	if !ok || c.Path != "/var/log/app.log" || c.Server != "s1" || c.SK != "sk1" {
+		t.Fatalf("记录应整体保存，实际 %+v ok=%v", c, ok)
+	}
+}
+
+func TestFRPDirectRecordTail(t *testing.T) {
+	setupFRPStore(t, frp.Conn{Name: "client-a", Server: "s1", SK: "sk1", Proxy: "ssh-a", User: "root", Path: "/var/log/a.log"})
+	fakeSSHBin(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyDown}) // 光标到 client-a
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !app.pickerLoading {
+		t.Fatal("直达应进入 loading 等隧道")
+	}
+	fake := &fakeFRPTunnel{port: 6022}
+	app.Update(frpTunnelMsg{
+		conn:   frp.Conn{Name: "client-a", Server: "s1", SK: "sk1", Proxy: "ssh-a", User: "root", Path: "/var/log/a.log"},
+		tunnel: fake, browse: false,
+	})
+	if app.sourcePickerMode {
+		t.Fatal("直达建流后应关闭选择器")
+	}
+	if got := app.stream.Label(); got != "frp://client-a/var/log/a.log" {
+		t.Fatalf("应直达 tail，实际 %s", got)
 	}
 }
