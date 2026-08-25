@@ -1,12 +1,30 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/justfun/logview/internal/model"
 )
+
+// setupLocalBrowseFixture 自建本地浏览测试夹具（/tmp 会被系统定期清理，
+// 测试不能依赖外部残留文件）。
+func setupLocalBrowseFixture(t *testing.T) {
+	t.Helper()
+	for _, p := range []string{"/tmp/lvbrowse/sub"} {
+		if err := os.MkdirAll(p, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{"/tmp/lvbrowse/readme.txt", "/tmp/lvbrowse/sub/app.log"} {
+		if err := os.WriteFile(filepath.FromSlash(p), []byte("hello\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 // o 键打开选择器（context 层）；Tab 循环切换三 tab；Esc 关闭。
 func TestSourcePickerOpenTabClose(t *testing.T) {
@@ -99,6 +117,7 @@ func TestSourcePickerK8sMultiSelect(t *testing.T) {
 
 // 本地 tab：目录浏览（目录下钻 / 文件打开 / Backspace 上级）。
 func TestSourcePickerLocalBrowse(t *testing.T) {
+	setupLocalBrowseFixture(t)
 	app := newTestApp()
 	app.openSourcePicker(1)
 	app.pickerLocalDir = "/tmp/lvbrowse"
@@ -195,6 +214,7 @@ func TestSourcePickerSSHDirConfirm(t *testing.T) {
 
 // 目录浏览过滤：输入前缀过滤候选；输入存在的路径直达。
 func TestSourcePickerLocalFilter(t *testing.T) {
+	setupLocalBrowseFixture(t)
 	app := newTestApp()
 	app.openSourcePicker(1)
 	app.pickerLocalDir = "/tmp/lvbrowse"
