@@ -70,9 +70,13 @@ func insertSSHOpt(args []string, opts ...string) []string {
 }
 
 // sshCommandPrefix 组装 ssh 命令前缀（host 前的选项；port>0 时加 -p）。
+// port>0 即 frp 隧道场景（127.0.0.1:bindPort）：端口每次随机分配，host key 永远
+// 未知，BatchMode 下会直接 "Host key verification failed"（触发不了密码框）——
+// 关闭 host key 校验且不写 known_hosts（随机端口条目只会污染文件）。
 func sshCommandPrefix(host string, port int) []string {
 	args := []string{"ssh", "-o", "ConnectTimeout=8"}
 	if port > 0 {
+		args = insertSSHOpt(args, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null")
 		args = insertSSHOpt(args, "-p", strconv.Itoa(port))
 	}
 	return append(args, host)

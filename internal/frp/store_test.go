@@ -34,6 +34,45 @@ func TestStoreRoundtripAndUpsert(t *testing.T) {
 	}
 }
 
+func TestStoreDelete(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "frp.json")
+	SetStoreFileForTest(p)
+	defer ResetStoreForTest()
+
+	st := LoadStore()
+	st.UpsertServer(Server{Name: "prod", Addr: "frps.example.com:7000"})
+	st.UpsertConn(Conn{Name: "a", Server: "prod", Proxy: "ssh-a"})
+	st.UpsertConn(Conn{Name: "b", Server: "prod", Proxy: "ssh-b"})
+
+	// 服务器被引用时不可删
+	if err := st.DeleteServer("prod"); err == nil {
+		t.Fatal("被引用的服务器删除应报错")
+	}
+	// 删除全部引用后可删
+	if !st.DeleteConn("a") || !st.DeleteConn("b") {
+		t.Fatal("DeleteConn 应返回 true")
+	}
+	if _, ok := st.FindConn("a"); ok {
+		t.Fatal("a 应已删除")
+	}
+	if st.DeleteConn("a") {
+		t.Fatal("重复删除应返回 false")
+	}
+	if err := st.DeleteServer("prod"); err != nil {
+		t.Fatalf("无引用时删除服务器应成功: %v", err)
+	}
+	if err := st.DeleteServer("prod"); err == nil {
+		t.Fatal("删除不存在的服务器应报错")
+	}
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	st2 := LoadStore()
+	if len(st2.Conns) != 0 || len(st2.Servers) != 0 {
+		t.Fatalf("删除后落盘应为空，实际 conns=%d servers=%d", len(st2.Conns), len(st2.Servers))
+	}
+}
+
 func TestStoreCorruptFileDegradesToEmpty(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "frp.json")
 	SetStoreFileForTest(p)

@@ -27,13 +27,13 @@ Tabs 由 `{"K8s", "本地", "SSH"}` 变为 `{"K8s", "本地", "SSH", "FRP"}`，t
 
 frp tab 内三级交互：
 
-- **L0 连接列表**：顶部固定 `+ 新建连接` 条目，其下为已保存记录（按使用频次排序、热点 ★ 标记，复用 `sortCandidatesHot`）。顶部输入框为搜索框（复用现有过滤机制），按记录名/proxy 名/服务器名过滤。选中旧记录 Enter → 直接建隧道 tail 已存路径。
+- **L0 连接列表**：顶部固定 `+ 新建连接` 条目，其下为已保存记录（按使用频次排序、热点 ★ 标记，复用 `sortCandidatesHot`）。顶部输入框为搜索框（复用现有过滤机制），按记录名/proxy 名/服务器名过滤。选中旧记录 Enter → 按已存参数建隧道进 L2 目录浏览（起始目录 = 已存 Path 父目录；2026-08-25 交互修正：统一进浏览，不再直达 tail）。
 - **L1 新建表单**：依次输入/选择：
   1. frps 服务器 — 已存服务器列表可选；滚到底输入新地址则新增（随后输入 token，一并保存进服务器列表）
-  2. sk（secret key）
-  3. proxy 名称
+  2. sk（secret key，与远端 stcp 的 sk 一致）
+  3. proxy 名称（远端 stcp 服务名，即 server-name）
   4. ssh 用户名
-  表单确认后建隧道，进入 L2。
+  表单提交后**立即保存记录**（隧道打通前；中途放弃不丢配置，L0 可直接重选），随后建隧道进入 L2。
 - **L2 远程目录浏览**：与 SSH tab 一致（Enter 进目录/选文件，Backspace 逐级返回）。确认日志文件时保存整条记录（默认名 = proxy 名），随后开始 tail。
 
 ## 数据结构与存储
@@ -48,6 +48,7 @@ type Store struct { Servers []Server; Conns []Conn }
 
 - 启动时加载，`root.go` 注入 TUI（仿 `SetSSHHosts` 的 `SetFRPStore`）；记录/服务器变更即写回
 - 使用频次走现有 `BumpUsage("frp:"+name)`，与 ssh/k8s 同一套排序机制
+- 删除：L0 连接列表 / L1 服务器列表按 `C-x` 删除光标项（`+new`/`+manual` 占位项除外）；服务器仍被连接引用时拒绝删除并提示
 - sk/token 落本机状态文件（与 rules.yaml 存 ssh_hosts 同等信任级别）；ssh 密码不落盘
 
 ## 隧道管理（internal/frp/tunnel.go）
@@ -58,6 +59,7 @@ func StartTunnel(server Server, sk, proxyName string) (*Tunnel, error)
 ```
 
 - **端口分配**：`net.Listen("tcp", "127.0.0.1:0")` 取空闲端口后关闭，传给 visitor；多隧道各占一端口互不冲突
+- **复用与生命周期**：`AcquireTunnel` 按参数（服务器+token+proxy+sk）注册表复用存活隧道（引用计数，归零才杀 frpc）；`KillAllTunnels` 进程退出兜底强杀（cmd/root.go p.Run 后调用）
 - **visitor 启动**：生成临时 TOML 配置（`serverAddr/serverPort/token` + visitor 块 `name/proxyName/sk/bindPort`），exec `frpc -c <tmpfile>`。选临时配置文件而非 CLI flags：frpc CLI 不一定暴露全部 visitor 字段（如 sk），TOML 方式跨版本最稳（要求 frp ≥ v0.52）
 - **就绪探测**：启动后每 200ms 尝试 TCP 连 `127.0.0.1:bindPort`，10s 超时；同时监控 frpc stderr，出错立即失败返回
 - **清理**：`Cleanup()` 杀 frpc 进程并删临时配置；`FRPSource.Cleanup()` 串联调用（流切换/退出自动清理）

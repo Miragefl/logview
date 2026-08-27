@@ -6,6 +6,7 @@ package frp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -104,6 +105,33 @@ func (s *Store) UpsertConn(c Conn) {
 		}
 	}
 	s.Conns = append(s.Conns, c)
+}
+
+// DeleteConn 按 Name 删除连接记录，返回是否存在。
+func (s *Store) DeleteConn(name string) bool {
+	for i := range s.Conns {
+		if s.Conns[i].Name == name {
+			s.Conns = append(s.Conns[:i], s.Conns[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// DeleteServer 按 Name 删除服务器（仍被连接引用时不删，返回错误）。
+func (s *Store) DeleteServer(name string) error {
+	for _, c := range s.Conns {
+		if c.Server == name {
+			return fmt.Errorf("服务器 %s 仍被连接 %s 引用，先删连接", name, c.Name)
+		}
+	}
+	for i := range s.Servers {
+		if s.Servers[i].Name == name {
+			s.Servers = append(s.Servers[:i], s.Servers[i+1:]...)
+			return nil
+		}
+	}
+	return os.ErrNotExist
 }
 
 func (s *Store) FindServer(name string) (Server, bool) {

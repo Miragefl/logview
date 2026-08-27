@@ -77,13 +77,13 @@ func TestShellQuote(t *testing.T) {
 
 func TestSSHCommandPrefix(t *testing.T) {
 	got := sshCommandPrefix("user@127.0.0.1", 6022)
-	want := "ssh -o ConnectTimeout=8 -p 6022 user@127.0.0.1"
+	want := "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 6022 user@127.0.0.1"
 	if strings.Join(got, " ") != want {
 		t.Errorf("got %v", got)
 	}
 	got = sshCommandPrefix("host-a", 0)
 	if strings.Join(got, " ") != "ssh -o ConnectTimeout=8 host-a" {
-		t.Errorf("port=0 应无 -p，got %v", got)
+		t.Errorf("port=0 应无 -p（非 frp 场景不动 host key 策略），got %v", got)
 	}
 }
 

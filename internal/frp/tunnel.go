@@ -19,23 +19,181 @@ import (
 
 const tunnelReadyTimeout = 10 * time.Second
 
+// logTail frpc 输出环形缓冲：waitReady 判活 + 运行期错误诊断（连接被 reset 时
+// frpc 日志里才有真因：proxy 不存在/sk 错/远端掉线）。
+type logTail struct {
+	mu    sync.Mutex
+	lines []string // 尾部最多 tunnelLogCap 行
+}
+
+const tunnelLogCap = 30
+
+func newLogTail() *logTail { return &logTail{} }
+
+// attach 持续读取 r 进缓冲（goroutine，r 关闭/EOF 后自然退出）。
+func (lt *logTail) attach(r io.Reader) {
+	go func() {
+		sc := bufio.NewScanner(r)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			lt.write(sc.Text())
+		}
+	}()
+}
+
+func (lt *logTail) write(line string) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	lt.lines = append(lt.lines, line)
+	if len(lt.lines) > tunnelLogCap {
+		lt.lines = lt.lines[len(lt.lines)-tunnelLogCap:]
+	}
+}
+
+// last 最后一条非空日志（waitReady 报错用）。
+func (lt *logTail) last() string {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	for i := len(lt.lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lt.lines[i]) != "" {
+			return lt.lines[i]
+		}
+	}
+	return ""
+}
+
+// lastErr 最后一条告警/错误日志（跳过 [I] 信息行与空行；诊断只需 W/E）。
+func (lt *logTail) lastErr() string {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	for i := len(lt.lines) - 1; i >= 0; i-- {
+		line := lt.lines[i]
+		if strings.TrimSpace(line) == "" || strings.Contains(line, " [I] ") {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+// recent 最近 n 行（" | " 连接，空缓冲返回空串）。
+func (lt *logTail) recent(n int) string {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	if len(lt.lines) == 0 {
+		return ""
+	}
+	if n > len(lt.lines) {
+		n = len(lt.lines)
+	}
+	return strings.Join(lt.lines[len(lt.lines)-n:], " | ")
+}
+
 type Tunnel struct {
 	port    int
 	cmd     *exec.Cmd
 	cfgFile string
+	tail    *logTail
+	key     string // 注册表 key（复用）；未注册为空
+	refs    int    // 引用计数（注册表锁保护）
 }
 
 func (t *Tunnel) LocalPort() int { return t.port }
 
-// Cleanup 杀 frpc 进程并删临时配置（幂等）。
-func (t *Tunnel) Cleanup() error {
+// RecentLog 最近一条 frpc 告警/错误日志（[I] 信息行剔除；ssh 层只见 reset，真因在 W/E 行）。
+func (t *Tunnel) RecentLog() string { return t.tail.lastErr() }
+
+// kill 杀 frpc 进程并删临时配置（幂等；引用归零或强制退出时调用）。
+func (t *Tunnel) kill() {
 	if t.cmd != nil && t.cmd.Process != nil {
 		_ = t.cmd.Process.Kill()
 	}
 	if t.cfgFile != "" {
 		os.RemoveAll(filepath.Dir(t.cfgFile))
 	}
+}
+
+// Cleanup 释放引用：归零才真正杀 frpc（复用场景其他持有者还在用）。
+func (t *Tunnel) Cleanup() error {
+	regMu.Lock()
+	t.refs--
+	dead := t.refs <= 0
+	if dead && t.key != "" && registry[t.key] == t {
+		delete(registry, t.key)
+	}
+	regMu.Unlock()
+	if dead {
+		t.kill()
+	}
 	return nil
+}
+
+// alive 本地端口可连即隧道存活（frpc 死则 bind 端口关闭）。
+func (t *Tunnel) alive() bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", t.port), 300*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// 隧道注册表：同参数（服务器+token+proxy+sk）的存活隧道复用，引用计数管理生命周期。
+var (
+	regMu     sync.Mutex
+	registry  = map[string]*Tunnel{}
+	regClosed bool // KillAllTunnels 后不再接受新隧道（进程退出竞态兜底）
+)
+
+// startTunnelFn 可注入的隧道构建（测试替换真实 frpc 启动）。
+var startTunnelFn = StartTunnel
+
+func tunnelKey(server Server, sk, proxy string) string {
+	return server.Addr + "\x00" + server.Token + "\x00" + proxy + "\x00" + sk
+}
+
+// AcquireTunnel 获取隧道：同 key 存活则复用（引用 +1，省 10s 建连等待），
+// 否则新建并注册。Cleanup 释放引用，归零自动杀 frpc。
+func AcquireTunnel(server Server, sk, proxy string) (*Tunnel, error) {
+	key := tunnelKey(server, sk, proxy)
+	regMu.Lock()
+	if t := registry[key]; t != nil && t.alive() {
+		t.refs++
+		regMu.Unlock()
+		return t, nil
+	}
+	regMu.Unlock()
+
+	t, err := startTunnelFn(server, sk, proxy)
+	if err != nil {
+		return nil, err
+	}
+	t.key = key
+	regMu.Lock()
+	if regClosed {
+		regMu.Unlock()
+		t.kill()
+		return nil, fmt.Errorf("logview 已退出，隧道未建立")
+	}
+	t.refs = 1
+	registry[key] = t
+	regMu.Unlock()
+	return t, nil
+}
+
+// KillAllTunnels 强杀全部存活隧道（进程退出兜底：选择器持有/在途消息等漏网场景）。
+func KillAllTunnels() {
+	regMu.Lock()
+	regClosed = true
+	ts := make([]*Tunnel, 0, len(registry))
+	for _, t := range registry {
+		ts = append(ts, t)
+	}
+	registry = map[string]*Tunnel{}
+	regMu.Unlock()
+	for _, t := range ts {
+		t.kill()
+	}
 }
 
 // pickFreePort 取一个空闲本地端口（listen :0 后关闭；存在极小竞争窗口，可接受）。
@@ -105,30 +263,29 @@ func StartTunnel(server Server, sk, proxyName string) (*Tunnel, error) {
 		os.RemoveAll(dir)
 		return nil, err
 	}
+	// stdout 一并接管：防 frpc 输出污染 TUI 终端，且部分版本错误走 stdout
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		os.RemoveAll(dir)
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("frpc 启动失败: %w", err)
 	}
-	t := &Tunnel{port: port, cmd: cmd, cfgFile: cfg}
-	if err := waitReady(port, cmd, stderr, tunnelReadyTimeout); err != nil {
-		t.Cleanup()
+	tail := newLogTail()
+	tail.attach(stderr)
+	tail.attach(stdout)
+	t := &Tunnel{port: port, cmd: cmd, cfgFile: cfg, tail: tail}
+	if err := waitReady(port, cmd, tail, tunnelReadyTimeout); err != nil {
+		t.kill()
 		return nil, err
 	}
 	return t, nil
 }
 
-// waitReady 轮询本地端口直到可连（frpc 绑定成功）；期间 frpc 退出则报 stderr 尾行。
-func waitReady(port int, cmd *exec.Cmd, stderr io.Reader, timeout time.Duration) error {
-	var mu sync.Mutex
-	lastLine := ""
-	go func() {
-		sc := bufio.NewScanner(stderr)
-		for sc.Scan() {
-			mu.Lock()
-			lastLine = sc.Text()
-			mu.Unlock()
-		}
-	}()
+// waitReady 轮询本地端口直到可连（frpc 绑定成功）；期间 frpc 退出则报日志尾行。
+func waitReady(port int, cmd *exec.Cmd, tail *logTail, timeout time.Duration) error {
 	exited := make(chan struct{})
 	go func() {
 		cmd.Wait()
@@ -143,16 +300,10 @@ func waitReady(port int, cmd *exec.Cmd, stderr io.Reader, timeout time.Duration)
 		}
 		select {
 		case <-exited:
-			mu.Lock()
-			line := lastLine
-			mu.Unlock()
-			return fmt.Errorf("frpc 已退出: %s", line)
+			return fmt.Errorf("frpc 已退出: %s", tail.last())
 		default:
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	mu.Lock()
-	line := lastLine
-	mu.Unlock()
-	return fmt.Errorf("隧道就绪超时(%v)，frpc 最后输出: %s", timeout, line)
+	return fmt.Errorf("隧道就绪超时(%v)，frpc 最后输出: %s", timeout, tail.last())
 }
