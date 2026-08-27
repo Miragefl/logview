@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/model"
 	"github.com/justfun/logview/internal/stacktrace"
+	"github.com/mattn/go-runewidth"
 )
 
 const scrollOff = 5
@@ -127,7 +128,7 @@ func (a *App) buildLogLines(vl int) []string {
 
 // buildWrapLines renders all lines with word wrap enabled.
 func (a *App) buildWrapLines(vl int) []string {
-	w := a.width
+	w := a.contentWidth()
 	if w < 1 {
 		w = 1
 	}
@@ -285,7 +286,7 @@ func (a *App) visualStartFromWrap(cursor, targetRows int) int {
 	if targetRows <= 0 || cursor <= 0 {
 		return cursor
 	}
-	w := a.width
+	w := a.contentWidth()
 	if w < 1 {
 		w = 1
 	}
@@ -342,10 +343,45 @@ func (a *App) visualStartFrom(cursor, n int) int {
 	return 0
 }
 
+// headerLabels 表头显示名（技术名词保留英文）。
+var headerLabels = map[model.Field]string{
+	model.FieldTime:    "时间",
+	model.FieldLevel:   "级别",
+	model.FieldSource:  "来源",
+	model.FieldThread:  "线程",
+	model.FieldTraceID: "Trace",
+	model.FieldLogger:  "Logger",
+	model.FieldMessage: "消息",
+}
+
+// renderHeaderLine 渲染表头行：跟随字段可见性，列宽与数据列严格对齐。
+func (a *App) renderHeaderLine() string {
+	var parts []string
+	for _, f := range model.AllFields {
+		if !a.fieldMask.IsVisible(f) {
+			continue
+		}
+		label, ok := headerLabels[f]
+		if !ok {
+			label = string(f)
+		}
+		styled := DetailDimStyle.Render(label)
+		w := columnWidths[f]
+		if f == model.FieldLevel {
+			w = 5
+		}
+		if w > 0 {
+			styled = padDisplayWidth(styled, w)
+		}
+		parts = append(parts, styled)
+	}
+	return "  " + strings.Join(parts, "  ")
+}
+
 // renderLineWrapped renders the cursor line with selected background baked into each field.
 func (a *App) renderLineWrapped(line *model.ParsedLine, lineIdx int) []string {
-	text := a.renderLineTextWithBg(line, SelectedBgColor, SelectedFgColor)
-	w := a.width
+	text := SelArrowStyle.Render("▶ ") + a.renderLineTextWithBg(line, SelectedBgColor, SelectedFgColor)
+	w := a.contentWidth()
 	if w < 1 {
 		w = 1
 	}
@@ -383,29 +419,38 @@ func (a *App) renderLineText(line *model.ParsedLine) string {
 			continue
 		}
 		val := line.Get(f)
+		cw := columnWidths[f]
 		if val == "" {
+			if cw > 0 {
+				parts = append(parts, strings.Repeat(" ", cw)) // 空字段占位，保持列对齐
+			}
 			continue
 		}
+		var styled string
 		switch f {
 		case model.FieldLevel:
-			parts = append(parts, LevelStyle(val).Render(val))
+			styled = LevelStyle(val).Render(padLevel(val))
 		case model.FieldSource:
 			srcStyle := lipgloss.NewStyle().Foreground(SourceColors[0])
 			if idx, ok := a.sourceColorIdx[val]; ok {
 				srcStyle = lipgloss.NewStyle().Foreground(SourceColors[idx%len(SourceColors)])
 			}
-			parts = append(parts, srcStyle.Render(fmt.Sprintf("[%s]", val)))
+			styled = srcStyle.Render(fmt.Sprintf("[%s]", val))
 		case model.FieldTime:
-			parts = append(parts, TimeStyle.Render(val))
+			styled = TimeStyle.Render(fitFieldVal(f, val))
 		case model.FieldTraceID:
-			parts = append(parts, TraceIDStyle.Render(val))
+			styled = TraceIDStyle.Render(fitFieldVal(f, val))
 		case model.FieldThread:
-			parts = append(parts, ThreadStyle.Render(val))
+			styled = ThreadStyle.Render(fitFieldVal(f, val))
 		case model.FieldMessage:
-			parts = append(parts, compactJSON(val))
+			styled = compactJSON(val)
 		default:
-			parts = append(parts, val)
+			styled = fitFieldVal(f, val)
 		}
+		if cw > 0 && f != model.FieldLevel {
+			styled = padDisplayWidth(styled, cw)
+		}
+		parts = append(parts, styled)
 	}
 	return a.applyHighlights(strings.Join(parts, "  "))
 }
@@ -419,23 +464,33 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 			continue
 		}
 		val := line.Get(f)
+		cw := columnWidths[f]
 		if val == "" {
+			if cw > 0 {
+				parts = append(parts, lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", cw)))
+			}
 			continue
 		}
+		var styled string
 		switch f {
 		case model.FieldLevel:
-			parts = append(parts, LevelStyle(val).Background(bg).Foreground(fg).Render(val))
+			// 选中行保留级别徽章原色，徽章即定位锚点
+			styled = LevelStyle(val).Render(padLevel(val))
 		case model.FieldSource:
-			parts = append(parts, SourceStyle.Background(bg).Foreground(fg).Render(fmt.Sprintf("[%s]", val)))
+			styled = SourceStyle.Background(bg).Foreground(fg).Render(fmt.Sprintf("[%s]", val))
 		case model.FieldTime:
-			parts = append(parts, TimeStyle.Background(bg).Foreground(fg).Render(val))
+			styled = TimeStyle.Background(bg).Foreground(fg).Render(fitFieldVal(f, val))
 		case model.FieldTraceID:
-			parts = append(parts, TraceIDStyle.Background(bg).Foreground(fg).Render(val))
+			styled = TraceIDStyle.Background(bg).Foreground(fg).Render(fitFieldVal(f, val))
 		case model.FieldThread:
-			parts = append(parts, ThreadStyle.Background(bg).Foreground(fg).Render(val))
+			styled = ThreadStyle.Background(bg).Foreground(fg).Render(fitFieldVal(f, val))
 		default:
-			parts = append(parts, lipgloss.NewStyle().Background(bg).Foreground(fg).Render(val))
+			styled = lipgloss.NewStyle().Background(bg).Foreground(fg).Render(fitFieldVal(f, val))
 		}
+		if cw > 0 && f != model.FieldLevel {
+			styled = padDisplayWidth(styled, cw)
+		}
+		parts = append(parts, styled)
 	}
 	text := strings.Join(parts, "  ")
 	return a.applyHighlights(text)
@@ -443,11 +498,14 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 
 func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) string {
 	text := a.renderLineText(line)
+	prefix := "  "
 	if a.bookmarks[line.Raw.Seq] {
-		text = BookmarkStyle.Render("▸") + text
-	} else {
-		text = " " + text
+		prefix = BookmarkStyle.Render("▸ ")
 	}
+	if selected {
+		prefix = SelArrowStyle.Render("▶ ")
+	}
+	text = prefix + text
 	if a.showLineNum {
 		total := len(a.filteredView)
 		w := len(fmt.Sprintf("%d", total))
@@ -455,13 +513,14 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 		text = lineNumStyle.Render(numStr) + text
 	}
 	inVisualRange := a.visualMode && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
+	cw := a.contentWidth()
 	if selected && !inVisualRange {
-		truncated := lipgloss.NewStyle().MaxWidth(a.width).Render(text)
-		return SelectedStyle.Width(a.width).Render(truncated)
+		truncated := lipgloss.NewStyle().MaxWidth(cw).Render(text)
+		return SelectedStyle.Width(cw).Render(truncated)
 	}
 	if inVisualRange {
-		truncated := lipgloss.NewStyle().MaxWidth(a.width).Render(text)
-		return VisualStyle.Width(a.width).Render(truncated)
+		truncated := lipgloss.NewStyle().MaxWidth(cw).Render(text)
+		return VisualStyle.Width(cw).Render(truncated)
 	}
 	return text
 }
@@ -572,4 +631,95 @@ func compactJSON(s string) string {
 		return buf.String()
 	}
 	return s
+}
+
+// contentWidth 日志内容区宽度（终端宽 - 左右边框 "│ " + " │" 共 4 列）。
+func (a *App) contentWidth() int {
+	w := a.width - 4
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// columnWidths 字段固定列宽（message 弹性不设限），保证 message 列起点恒定。
+var columnWidths = map[model.Field]int{
+	model.FieldTime:    12,
+	model.FieldThread:  10,
+	model.FieldTraceID: 12,
+	model.FieldLogger:  20,
+}
+
+// SetColumnWidths 从 rules.yaml fields[].width 覆盖字段列宽。
+func SetColumnWidths(w map[model.Field]int) {
+	for f, v := range w {
+		if v > 0 {
+			columnWidths[f] = v
+		}
+	}
+}
+
+// fitFieldVal 字段值适配列宽：time 超长取尾部（保时分秒弃日期），
+// logger 先缩写（com.a.b.Foo → c.a.b.Foo），再按显示宽度截断加 …。
+func fitFieldVal(f model.Field, val string) string {
+	w := columnWidths[f]
+	if w <= 0 || val == "" {
+		return val
+	}
+	switch f {
+	case model.FieldTime:
+		if runewidth.StringWidth(val) > w && len(val) >= 19 {
+			val = val[len(val)-w:] // 完整日期时间为 ASCII，字节截取安全
+		}
+	case model.FieldLogger:
+		val = abbreviateLogger(val)
+	}
+	return runewidth.Truncate(val, w, "…")
+}
+
+// abbreviateLogger 缩写 logger：末段类名全保留，包名段取首字母。
+func abbreviateLogger(s string) string {
+	parts := strings.Split(s, ".")
+	if len(parts) <= 1 {
+		return s
+	}
+	var b strings.Builder
+	for _, p := range parts[:len(parts)-1] {
+		if p == "" {
+			continue
+		}
+		b.WriteByte(p[0])
+		b.WriteByte('.')
+	}
+	b.WriteString(parts[len(parts)-1])
+	return b.String()
+}
+
+// frameTop 构造顶部边框行，标题嵌入：╭─ core ────╮。
+func (a *App) frameTop(core string) string {
+	core = lipgloss.NewStyle().MaxWidth(a.width - 2).Render(core)
+	fill := a.width - displayWidth(core) - 3 // "╭─"占2列 + "╮"占1列
+	if fill < 0 {
+		fill = 0
+	}
+	return FrameStyle.Render("╭─") + core + FrameStyle.Render(strings.Repeat("─", fill)) + FrameStyle.Render("╮")
+}
+
+// frameBottom 构造底部边框行，统计嵌入：╰─ core ────╯。
+func (a *App) frameBottom(core string) string {
+	core = lipgloss.NewStyle().MaxWidth(a.width - 2).Render(core)
+	fill := a.width - displayWidth(core) - 3
+	if fill < 0 {
+		fill = 0
+	}
+	return FrameStyle.Render("╰─") + core + FrameStyle.Render(strings.Repeat("─", fill)) + FrameStyle.Render("╯")
+}
+
+// padDisplayWidth ANSI 安全地把行补齐到指定显示宽度，保证右边框竖线对齐。
+func padDisplayWidth(s string, w int) string {
+	d := displayWidth(s)
+	if d >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-d)
 }

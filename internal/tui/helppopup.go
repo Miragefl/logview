@@ -58,6 +58,7 @@ func helpSections() []helpSection {
 			{"h", "高亮关键词"},
 			{"x", "隐藏关键词"},
 			{"w", "换行"},
+			{"d", "行详情"},
 			{"\\", "收起/展开提示栏"},
 			{"?", "帮助"},
 			{"q", "打开源选择器/退出"}, {"C-c", "退出"},
@@ -132,7 +133,7 @@ func (a *App) buildHelpPopup(vl int) []string {
 			acc = sectionHeight(sections[0])
 		}
 		if acc+2 > maxRows {
-			b.WriteString(PopupTabStyle.Render(" 放大终端查看更多") + "\n")
+			b.WriteString(keycapHint(" 放大终端查看更多") + "\n")
 		}
 		columns[0] = b.String()
 	}
@@ -143,7 +144,6 @@ func (a *App) buildHelpPopup(vl int) []string {
 		c2 := strings.TrimRight(columns[1], "\n")
 		content = lipgloss.JoinHorizontal(lipgloss.Top, c1, "  ", c2) + "\n"
 	}
-	content += PopupTabStyle.Render(" Esc/回车 关闭")
 
 	boxW := min(52, a.width-4)
 	if len(columns) == 2 {

@@ -42,11 +42,11 @@ func TestSearchPopupCentered(t *testing.T) {
 				t.Fatalf("height=%d: popup 高度 %d 超过日志区 %d", h, ph, vl)
 			}
 
-			// View 日志区内应出现弹窗 tab 栏（居中 overlay）
+			// View 日志区内应出现弹窗 tab 栏（居中 overlay）——边框盒内从第 1 行起
 			view := app.View()
 			lines := strings.Split(view, "\n")
 			hasPopup := false
-			for i := 4; i < 4+vl && i < len(lines); i++ {
+			for i := 1; i < 1+vl && i < len(lines); i++ {
 				l := stripANSI(lines[i])
 				if strings.Contains(l, "搜索") && strings.Contains(l, "高亮") {
 					hasPopup = true

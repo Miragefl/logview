@@ -16,6 +16,34 @@ type helpItem struct {
 // shortcutItems 返回当前模式的快捷键提示（学习用，可隐藏）。
 func (a *App) shortcutItems() []helpItem {
 	switch {
+	case a.detailMode:
+		return []helpItem{
+			{"j/k", "上下换行"},
+			{"y", "复制该行"},
+			{"Esc/d", "关闭"},
+		}
+	case a.sourcePickerMode:
+		return []helpItem{
+			{"Enter", "确认"},
+			{"Space", "勾选"},
+			{"Backspace", "返回"},
+			{"Tab", "切分类"},
+			{"C-j/C-k", "移动"},
+			{"Esc", "取消"},
+		}
+	case a.sshPwMode:
+		return []helpItem{
+			{"Enter", "重连"},
+			{"Esc", "取消"},
+		}
+	case a.helpMode:
+		return []helpItem{
+			{"Esc/Enter", "关闭"},
+		}
+	case a.statsPanel:
+		return []helpItem{
+			{"S/Esc", "关闭"},
+		}
 	case a.searchMode:
 		return []helpItem{
 			{"Enter", "确认"},
@@ -47,17 +75,13 @@ func (a *App) shortcutItems() []helpItem {
 		}
 	default:
 		return []helpItem{
-			{"j/k/g/G", "移动"},
 			{"/", "搜索"},
 			{"o", "切换源"},
-			{"h", "高亮"},
-			{"x", "隐藏"},
-			{"v/V", "选择"},
-			{"y", "复制"},
 			{"F", "字段"},
 			{"E/W/I/D/A", "级别"},
 			{"s", "导出"},
 			{"w", "换行"},
+			{"d", "行详情"},
 			{"e", "展开"},
 			{"?", "帮助"},
 			{"\\", "收起提示"},
@@ -108,7 +132,7 @@ func (a *App) joinHelpItems(items []helpItem) string {
 		if it.key == "" {
 			parts = append(parts, it.desc)
 		} else {
-			parts = append(parts, fmt.Sprintf("%s%s", HelpKeyStyle.Render(it.key), HelpStyle.Render(it.desc)))
+			parts = append(parts, fmt.Sprintf("%s %s", KeyCapStyle.Render(it.key), HelpStyle.Render(it.desc)))
 		}
 	}
 	return strings.Join(parts, "  ")

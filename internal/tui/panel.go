@@ -64,7 +64,7 @@ func (a *App) buildStatsPanel(vl int) []string {
 	rows = append(rows, strings.Repeat("─", 30))
 	rows = append(rows, fmt.Sprintf("  显示: %d  总计: %d  隐藏: %d", total, bufTotal, bufTotal-total))
 
-	content := "统计\n\n" + strings.Join(rows, "\n") + "\n\n" + PopupTabStyle.Render("[S或Esc关闭]")
+	content := "统计\n\n" + strings.Join(rows, "\n")
 	boxW := min(40, a.width-6)
 	box := PopupBoxStyle.Width(boxW).Render(content)
 	return a.overlayToVL(box, vl)

@@ -353,6 +353,7 @@ func runTUI(src stream.LogStream, resume bool, cfg appConfig, openPicker bool) e
 	}
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	_, err := p.Run()
+	frp.KillAllTunnels() // 退出兜底：强杀漏网的 frpc（浏览中持有/在途隧道消息等场景）
 	return err
 }
 
@@ -409,10 +410,13 @@ var tailNumFollowRe = regexp.MustCompile(`^-(\d+)f$`)
 func Execute() {
 	args := expandTailArgs(os.Args[1:])
 	// auto-detect stdin pipe: if no subcommand and stdin is not a terminal, use pipe mode;
-	// bare logview (+flags, no subcommand) on a TTY opens the TUI source picker instead of help
+	// bare logview (+flags, no subcommand) on a TTY opens the TUI source picker instead of help;
+	// bare logview <file.log> on a TTY opens the file in tail mode (README 快速开始语义)
 	if !argsHasSubcommand(args) {
 		if info, _ := os.Stdin.Stat(); info.Mode()&os.ModeNamedPipe != 0 || !isTerminal(info) {
 			args = append([]string{"pipe"}, args...)
+		} else if argsHasPositional(args) {
+			args = append([]string{"tail"}, args...)
 		} else {
 			args = append([]string{"picker"}, args...)
 		}
@@ -421,6 +425,24 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// argsHasPositional 检查 args 中是否存在非 flag 位置参数（文件路径）。
+// 已知带值 flag（--rule/--buffer-size/--config/--tail 及 -n）的值会被跳过。
+func argsHasPositional(args []string) bool {
+	valueFlags := map[string]bool{
+		"--rule": true, "--buffer-size": true, "--config": true, "--tail": true, "-n": true,
+	}
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			if valueFlags[args[i]] {
+				i++ // 跳过 flag 的值
+			}
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func isSubcommand(arg string) bool {
@@ -535,11 +557,15 @@ func loadConfig() (appConfig, error) {
 		var fields []model.Field
 		var entries []model.FieldConfigEntry
 		aliases := make(map[string]string)
+		widths := make(map[model.Field]int)
 		standardFields := []string{"time", "level", "thread", "traceId", "logger", "message", "source"}
 		for _, fc := range fieldConfigs {
 			f := model.Field(fc.Name)
 			fields = append(fields, f)
 			entries = append(entries, model.FieldConfigEntry{Name: fc.Name, Visible: fc.Visible})
+			if fc.Width > 0 {
+				widths[f] = fc.Width
+			}
 			isStandard := false
 			for _, std := range standardFields {
 				if fc.Name == std {
@@ -559,6 +585,7 @@ func loadConfig() (appConfig, error) {
 		model.SetAllFields(fields)
 		tui.SetFieldMask(model.NewFieldMaskFromConfig(entries))
 		tui.SetFieldAlias(aliases)
+		tui.SetColumnWidths(widths)
 	}
 
 	parsers, err := parser.CompileRules(rules)

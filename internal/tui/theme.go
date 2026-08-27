@@ -32,7 +32,7 @@ var DarkTheme = ThemeConfig{
 	TitleFG:     "#FFFFFF",
 	TitleBG:     "#5F5FAF",
 	LevelDebug:  "#767676",
-	LevelInfo:   "#5FD7AF",
+	LevelInfo:   "#6B7BB8",
 	LevelWarn:   "#FFAF00",
 	LevelError:  "#FF005F",
 	Time:        "#767676",
@@ -40,7 +40,7 @@ var DarkTheme = ThemeConfig{
 	TraceID:     "#87FFFF",
 	Thread:      "#9E9E9E",
 	Highlight:   "#FFFF00",
-	Selected:    "#5F5FAF",
+	Selected:    "#30354F",
 	Visual:      "#008700",
 	PopupBorder: "#5FD7AF",
 	PopupBg:     "#262626",
@@ -54,7 +54,7 @@ var LightTheme = ThemeConfig{
 	TitleFG:     "#FFFFFF",
 	TitleBG:     "#005FAF",
 	LevelDebug:  "#9E9E9E",
-	LevelInfo:   "#008700",
+	LevelInfo:   "#5F875F",
 	LevelWarn:   "#AF5F00",
 	LevelError:  "#AF0000",
 	Time:        "#9E9E9E",
@@ -62,7 +62,7 @@ var LightTheme = ThemeConfig{
 	TraceID:     "#0087AF",
 	Thread:      "#6C6C6C",
 	Highlight:   "#FFFF00",
-	Selected:    "#005FAF",
+	Selected:    "#D0D7E5",
 	Visual:      "#005F00",
 	PopupBorder: "#005FAF",
 	PopupBg:     "#E4E4E4",
@@ -80,11 +80,8 @@ func ApplyTheme(cfg ThemeConfig) {
 
 	LevelDebug = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelDebug))
 	LevelInfo = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelInfo))
-	LevelWarn = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelWarn))
-	LevelError = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(cfg.LevelErrorFg())).
-		Background(lipgloss.Color(cfg.LevelErrorBg())).
-		Bold(true)
+	LevelWarn = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelWarn)).Bold(true)
+	LevelError = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelError)).Bold(true)
 
 	TimeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Time))
 	SourceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Source))
@@ -95,13 +92,33 @@ func ApplyTheme(cfg ThemeConfig) {
 		Background(lipgloss.Color(cfg.Highlight)).
 		Foreground(lipgloss.Color("#000000"))
 
+	selFg := "#FFFFFF"
+	if cfg.IsLightTheme() {
+		selFg = "#1B1D24"
+	}
 	SelectedStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(cfg.Selected)).
-		Foreground(lipgloss.Color("#FFFFFF"))
+		Foreground(lipgloss.Color(selFg))
 	SelectedBgColor = lipgloss.Color(cfg.Selected)
-	SelectedFgColor = lipgloss.Color("#FFFFFF")
+	SelectedFgColor = lipgloss.Color(selFg)
 	VisualBgColor = lipgloss.Color(cfg.Visual)
 	VisualFgColor = lipgloss.Color("#FFFFFF")
+
+	SelArrowStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(cfg.LevelWarn)).
+		Bold(true)
+	// 键帽不做色块：亮色按键名 + 灰动作词，靠色相对比（theme accent 自适应）
+	KeyCapStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(cfg.Accent)).
+		Bold(true)
+	FrameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(darken(cfg.Dim, 0.55)))
+	TitleBarStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cfg.Accent))
+	// tab 选中态与面包屑均不做背景色块：选中=亮色粗体，未选中=灰，靠色相区分
+	PopupActiveTabStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(cfg.Accent))
+	BreadcrumbStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(cfg.Accent))
 
 	VisualStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(cfg.Visual)).
@@ -116,11 +133,11 @@ func ApplyTheme(cfg ThemeConfig) {
 	DetailLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cfg.Accent))
 	DetailDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))
 
+	// 弹窗不铺背景色：与主视图日志区一致的透明浮层，避免色块割裂感
 	PopupBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(cfg.PopupBorder)).
-		Padding(0, 2).
-		Background(lipgloss.Color(cfg.PopupBg))
+		BorderForeground(lipgloss.Color(darken(cfg.Dim, 0.55))).
+		Padding(0, 1)
 
 	PopupTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))
 	HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelError)).Bold(true)
@@ -144,8 +161,7 @@ func ApplyTheme(cfg ThemeConfig) {
 		bg := lipgloss.Color(cfg.Bg)
 		LevelDebug = LevelDebug.Background(bg)
 		LevelInfo = LevelInfo.Background(bg)
-		LevelWarn = LevelWarn.Background(bg)
-		// LevelError 保留色带背景（LevelErrorBg），不铺主题 bg
+		// LevelWarn/LevelError 保留徽章底色，不铺主题 bg
 		TimeStyle = TimeStyle.Background(bg)
 		SourceStyle = SourceStyle.Background(bg)
 		TraceIDStyle = TraceIDStyle.Background(bg)
@@ -170,20 +186,6 @@ func (c ThemeConfig) IsLightTheme() bool {
 	r, g, b := hexToRGB(c.Bg)
 	luma := 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
 	return luma > 140
-}
-
-func (c ThemeConfig) LevelErrorBg() string {
-	if c.IsLightTheme() {
-		return lighten(c.LevelError, 0.85) // light theme: pale red band
-	}
-	return darken(c.LevelError, 0.45) // dark theme: deep red band
-}
-
-func (c ThemeConfig) LevelErrorFg() string {
-	if c.IsLightTheme() {
-		return darken(c.LevelError, 0.35) // darker text on pale band
-	}
-	return "#FFFFFF"
 }
 
 // darken 将 hex 颜色按比例压暗（f 为保留亮度比例）。

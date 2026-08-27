@@ -124,3 +124,24 @@ func TestLoadConfigInvalidRegexFails(t *testing.T) {
 		t.Errorf("error should mention rule name, got: %v", err)
 	}
 }
+
+func TestArgsHasPositional(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"-f"}, false},
+		{[]string{"--rule", "json-log"}, false},
+		{[]string{"--buffer-size", "5000", "-f"}, false},
+		{[]string{"--tail", "200"}, false},
+		{[]string{"app.log"}, true},
+		{[]string{"-f", "app.log"}, true},
+		{[]string{"--config", "/tmp/x", "a.log", "-f"}, true},
+	}
+	for _, c := range cases {
+		if got := argsHasPositional(c.args); got != c.want {
+			t.Errorf("argsHasPositional(%v) = %v, want %v", c.args, got, c.want)
+		}
+	}
+}

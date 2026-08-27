@@ -13,8 +13,8 @@ var (
 			Background(lipgloss.Color("62"))
 
 	LevelDebug = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
-	LevelInfo  = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	LevelWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	LevelInfo  = lipgloss.NewStyle().Foreground(lipgloss.Color("61"))
+	LevelWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	LevelError = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 
 	TimeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
@@ -27,8 +27,23 @@ var (
 			Foreground(lipgloss.Color("0"))
 
 	SelectedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("62")).
-			Foreground(lipgloss.Color("15"))
+			Background(lipgloss.Color("236")).
+			Foreground(lipgloss.Color("252"))
+
+	SelArrowStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true)
+
+	KeyCapStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("81")).
+			Bold(true)
+
+	FrameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("239"))
+
+	TitleBarStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("114"))
+
+	BreadcrumbStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("117"))
 
 	VisualStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("28")).
@@ -49,14 +64,12 @@ var (
 
 	PopupBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("86")).
-			Padding(0, 2).
-			Background(lipgloss.Color("235"))
+			BorderForeground(lipgloss.Color("239")).
+			Padding(0, 1)
 
 	PopupActiveTabStyle = lipgloss.NewStyle().
 				Bold(true).
-				Background(lipgloss.Color("62")).
-				Foreground(lipgloss.Color("15"))
+				Foreground(lipgloss.Color("81"))
 
 	PopupTabStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243"))
@@ -124,4 +137,13 @@ func LevelStyle(level string) lipgloss.Style {
 		return LevelError
 	}
 	return lipgloss.NewStyle()
+}
+
+// padLevel 级别徽章定宽对齐（最长 ERROR/DEBUG=5 字符，短的右侧补空格），
+// 使 message 列起点稳定；超长级别（如 WARNING）保留原长不截断。
+func padLevel(v string) string {
+	for len(v) < 5 {
+		v += " "
+	}
+	return v
 }

@@ -176,7 +176,6 @@ func (a *App) buildSSHPwLines(vl int) []string {
 	// 密码不回显，仅显示掩码长度
 	mask := strings.Repeat("*", len([]rune(a.sshPwInput)))
 	content.WriteString(" 密码: " + mask + "█\n")
-	content.WriteString("\n" + PopupTabStyle.Render(" Enter重连 Esc取消"))
 	boxW := min(48, a.width-6)
 	box := PopupBoxStyle.Width(boxW).Render(content.String())
 	return a.overlayToVL(box, vl)

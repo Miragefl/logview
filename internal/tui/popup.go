@@ -33,12 +33,13 @@ func (a *App) overlayToVL(box string, vl int) []string {
 			bw = w
 		}
 	}
-	// 垂直 1/3 处起（偏上），水平居中
+	// 垂直 1/3 处起（偏上），水平居中（以内容区宽度为基准，弹窗在边框内居中）
+	cw := a.contentWidth()
 	top := (vl - bh) / 3
 	if top < 0 {
 		top = 0
 	}
-	left := (a.width - bw) / 2
+	left := (cw - bw) / 2
 	if left < 0 {
 		left = 0
 	}
@@ -59,8 +60,8 @@ func (a *App) overlayToVL(box string, vl int) []string {
 			}
 			rightStart := left + lipgloss.Width(bl)
 			rightPart := ""
-			if rightStart < a.width {
-				rightPart = truncateVisible(stripANSIPrefix(log, rightStart), a.width-rightStart)
+			if rightStart < cw {
+				rightPart = truncateVisible(stripANSIPrefix(log, rightStart), cw-rightStart)
 			}
 			out[i] = leftPart + bl + rightPart
 		} else {

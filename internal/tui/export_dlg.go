@@ -44,8 +44,6 @@ func (a *App) buildExportPopup(vl int) []string {
 		}
 	}
 
-	content.WriteString("\n\n" + PopupTabStyle.Render(" Enter确认  Esc取消  ←→切换"))
-
 	boxW := min(52, a.width-4)
 	box := PopupBoxStyle.Width(boxW).Render(content.String())
 	return a.overlayToVL(box, vl)

@@ -73,6 +73,8 @@ type App struct {
 	searchCursor int
 
 	helpMode bool
+	// detailMode d 键行详情面板：完整字段 + 消息全文 + 原始行，j/k 联动移动光标
+	detailMode bool
 	yankMsg  string
 
 	highlights      []string
@@ -151,6 +153,7 @@ type App struct {
 	pickerFRPUser       string
 	pickerFRPDir        string          // 远程浏览当前目录
 	pickerFRPConnName   string          // 直达场景选中的记录名（空=新建）
+	pickerFRPErr        string          // L2 目录拉取失败的首行错误（成功回填清空；空列表时显示而非误报"空目录"）
 	pickerFRPTunnel     frpTunnelHandle // 浏览期间常驻隧道（确认后移交 FRPSource）
 
 	pickerPathInput  string
@@ -354,6 +357,11 @@ func (a *App) shutdown() tea.Cmd {
 	if a.cancelFunc != nil {
 		a.cancelFunc()
 	}
+	// 浏览中的 frp 隧道一并释放（未移交的持有者只有这里和 closeSourcePicker）
+	if a.pickerFRPTunnel != nil {
+		a.pickerFRPTunnel.Cleanup()
+		a.pickerFRPTunnel = nil
+	}
 	a.stream.Cleanup()
 	return tea.Quit
 }
@@ -378,6 +386,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.sshPwMode {
 			return a.handleSSHPwKeys(msg)
+		}
+		if a.detailMode {
+			return a.handleDetailKeys(msg)
 		}
 		if a.exportMode {
 			return a.handleExportKeys(msg)
@@ -420,6 +431,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "frpdir":
 			if a.pickerFRPLevel == 2 && msg.ns == "frp:"+a.pickerFRPDir {
 				a.pickerCandidates = msg.items
+				a.pickerFRPErr = a.frpDirErrText(msg.err) // 失败原因上屏（成功回填清空）
 				if msg.err != nil && len(msg.items) == 0 &&
 					strings.Contains(strings.ToLower(msg.err.Error()), "permission denied") {
 					a.promptFRPPw()
@@ -439,31 +451,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.appendErrorLine(fmt.Sprintf("frp 隧道建立失败: %v", msg.err))
 			return a, nil
 		}
-		if msg.browse {
-			// 进目录浏览（表单提交后 picker 仍开着；直达重开场景同样覆盖）
-			a.sourcePickerMode = true
-			a.sourceTab = 3
-			a.pickerFRPLevel = 2
-			a.pickerFRPTunnel = msg.tunnel
-			a.pickerFRPUser = msg.conn.User
-			a.pickerFRPProxy = msg.conn.Proxy
-			// 无条件落位：跨建连残留的旧名会错位 frpPwKey/confirm 保存（终审 F1）
-			a.pickerFRPConnName = msg.conn.Name
-			a.pickerFRPDir = "/"
-			a.pickerCandidates = nil
-			a.pickerCursor = 0
-			a.pickerLoading = true
-			return a, fetchFRPDirCmd(msg.conn.User, msg.tunnel.LocalPort(), "/", a.sshPasswords["frp:"+msg.conn.Name])
-		}
-		// 旧记录直达：直接 tail
-		a.pickerLoading = false
-		a.closeSourcePicker() // 隧道在 msg 上，close 不会误清
-		BumpUsage(usageFRPConn + msg.conn.Name)
-		src := stream.NewFRPSource(msg.conn.Name, msg.tunnel, msg.conn.User, msg.conn.Path, 200)
-		if pw := a.sshPasswords["frp:"+msg.conn.Name]; pw != "" {
-			src.SetPassword(pw)
-		}
-		return a, a.ReplaceStream(src)
+		// 统一进目录浏览（表单新建与已存记录一致）；起始目录取 conn.Path 父目录
+		a.sourcePickerMode = true
+		a.sourceTab = 3
+		a.pickerFRPLevel = 2
+		a.pickerFRPTunnel = msg.tunnel
+		a.pickerFRPUser = msg.conn.User
+		a.pickerFRPProxy = msg.conn.Proxy
+		// 无条件落位：跨建连残留的旧名会错位 frpPwKey/confirm 保存（终审 F1）
+		a.pickerFRPConnName = msg.conn.Name
+		a.pickerFRPDir = frpBrowseRoot(msg.conn.Path)
+		a.pickerCandidates = nil
+		a.pickerCursor = 0
+		a.pickerLoading = true
+		return a, fetchFRPDirCmd(msg.conn.User, msg.tunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords["frp:"+msg.conn.Name])
 	}
 	return a, nil
 }
@@ -755,6 +756,8 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, fetchK8sContextsCmd()
 	case "s":
 		a.exportMode = true
+	case "d":
+		a.detailMode = true
 	case "n":
 		a.jumpSearchMatch(1)
 	case "N":
@@ -825,8 +828,12 @@ func (a *App) clearScreen() {
 	a.yankMsg = "屏幕已清空"
 }
 
-// escapeToNormal：Esc 逐层退出（统计面板 → 清空搜索词并保持当前行）。
+// escapeToNormal：Esc 逐层退出（详情面板 → 统计面板 → 清空搜索词并保持当前行）。
 func (a *App) escapeToNormal() {
+	if a.detailMode {
+		a.detailMode = false
+		return
+	}
 	if a.statsPanel {
 		a.statsPanel = false
 		return
@@ -1086,12 +1093,24 @@ func (a *App) doExport() {
 }
 
 func (a *App) visibleLines() int {
-	// fixed lines: title, sep, bar, sep, sep(bottom) = 5, plus footer (status bar + optional key hints)
-	vl := a.height - 5 - a.footerHeight()
+	// fixed lines: 上下边框 2 行;搜索/匹配栏仅搜索激活时占 1 行;plus footer
+	fixed := 2
+	if a.searchMode || a.searchInput != "" {
+		fixed++
+	}
+	vl := a.height - fixed - a.footerHeight()
 	if vl < 1 {
 		vl = 1
 	}
 	return vl
+}
+
+// followBadge 跟随模式徽章（autoscroll 开启时显示）。
+func (a *App) followBadge() string {
+	if !a.autoscroll {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("114")).Bold(true).Render("●跟随")
 }
 
 // levelBadge 返回标题栏级别统计（E:3 W:30 形式），无统计时为空。
@@ -1127,27 +1146,19 @@ func (a *App) View() string {
 	}
 
 	w := a.width
+	cw := a.contentWidth()
 
 	pLabel := a.parserName
 	if pLabel == "" {
 		pLabel = "raw"
 	}
-	title := TitleStyle.Width(w).Render(
-		fmt.Sprintf(" LogView ─ %s [%s]%s ─ %d条%s",
-			a.streamLabel(), pLabel, a.levelBadge(), a.buffer.Len(), a.scrollPercent()),
-	)
-
-	sep := strings.Repeat(HorizontalLine, w)
-
-	// truncate every line to terminal width to prevent wrapping
-	trunc := lipgloss.NewStyle().MaxWidth(w)
-	bar := trunc.Render(a.renderSearchBar())
-	helpBar := a.renderFooter()
 
 	vl := a.visibleLines()
 	var logLines []string
 	if a.sshPwMode {
 		logLines = a.buildSSHPwLines(vl)
+	} else if a.detailMode {
+		logLines = a.buildDetailPanel(vl)
 	} else if a.searchMode {
 		logLines = a.buildSearchModeLines(vl)
 	} else if a.sourcePickerMode {
@@ -1161,15 +1172,46 @@ func (a *App) View() string {
 	} else if a.statsPanel {
 		logLines = a.buildStatsPanel(vl)
 	} else {
-		logLines = a.buildLogLines(vl)
+		// 普通日志模式：sticky 表头行占 1 行预算
+		if vl > 1 {
+			logLines = append([]string{a.renderHeaderLine()}, a.buildLogLines(vl-1)...)
+		} else {
+			logLines = a.buildLogLines(vl)
+		}
 	}
 
-	allLines := make([]string, 0, vl+6)
-	allLines = append(allLines, title, sep, bar, sep)
+	// 圆角边框盒：顶行嵌标题、底行嵌统计，内容行左右 │ 包裹对齐
+	trunc := lipgloss.NewStyle().MaxWidth(cw)
+	frameLines := make([]string, 0, vl+2)
+	frameLines = append(frameLines, a.frameTop(fmt.Sprintf(" %s ─ %s [%s] ",
+		TitleBarStyle.Render("LogView"), a.streamLabel(), pLabel)))
 	for _, l := range logLines {
-		allLines = append(allLines, trunc.Render(l))
+		frameLines = append(frameLines,
+			FrameStyle.Render("│ ")+padDisplayWidth(trunc.Render(l), cw)+FrameStyle.Render(" │"))
 	}
-	allLines = append(allLines, sep, helpBar)
+	var statsParts []string
+	trimDash := func(s string) string {
+		return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "─"))
+	}
+	if lb := trimDash(a.levelBadge()); lb != "" {
+		statsParts = append(statsParts, lb)
+	}
+	statsParts = append(statsParts, fmt.Sprintf("%d条", a.buffer.Len()))
+	if sp := trimDash(a.scrollPercent()); sp != "" {
+		statsParts = append(statsParts, sp)
+	}
+	if fb := trimDash(a.followBadge()); fb != "" {
+		statsParts = append(statsParts, fb)
+	}
+	frameLines = append(frameLines, a.frameBottom(" "+strings.Join(statsParts, " ─ ")+" "))
+
+	// 底部搜索/匹配栏只在搜索激活时出现，平时整行让给日志区
+	helpBar := a.renderFooter()
+	allLines := frameLines
+	if bar := a.renderSearchBar(); bar != "" {
+		allLines = append(allLines, lipgloss.NewStyle().MaxWidth(w).Render(bar))
+	}
+	allLines = append(allLines, helpBar)
 	out := strings.Join(allLines, "\n")
 	if AppBgSeq != "" {
 		reset := "\x1b[0m"
@@ -1195,7 +1237,8 @@ func (a *App) buildSearchModeLines(vl int) []string {
 // inlinePopupLines 把 popup 行列表渲染进日志区（上方 popup + 下方保留日志）。
 func (a *App) inlinePopupLines(popupContent string, vl int) []string {
 	popupLines := strings.Split(popupContent, "\n")
-	popStyle := lipgloss.NewStyle().Width(a.width).MaxWidth(a.width)
+	cw := a.contentWidth()
+	popStyle := lipgloss.NewStyle().Width(cw).MaxWidth(cw)
 
 	var lines []string
 	for _, p := range popupLines {

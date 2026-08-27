@@ -231,23 +231,23 @@ type frpTunnelHandle interface {
 	Cleanup() error
 }
 
-// startFRPTunnel 可注入的隧道启动（测试替换；生产包装 frp.StartTunnel）。后续任务使用。
+// startFRPTunnel 可注入的隧道启动（测试替换；生产走 AcquireTunnel 复用同参数存活隧道）。后续任务使用。
 var startFRPTunnel = func(server frp.Server, sk, proxy string) (frpTunnelHandle, error) {
-	return frp.StartTunnel(server, sk, proxy)
+	return frp.AcquireTunnel(server, sk, proxy)
 }
 
 type frpTunnelMsg struct {
 	conn   frp.Conn
 	tunnel frpTunnelHandle
-	browse bool // true=进目录浏览 false=直接 tail
 	err    error
 }
 
 // fetchFRPTunnelCmd 异步建隧道（阻塞最长 10s，必须异步）。
-func fetchFRPTunnelCmd(server frp.Server, conn frp.Conn, browse bool) tea.Cmd {
+// 已存记录与表单新建统一进目录浏览（起始目录取 conn.Path 父目录）。
+func fetchFRPTunnelCmd(server frp.Server, conn frp.Conn) tea.Cmd {
 	return func() tea.Msg {
 		t, err := startFRPTunnel(server, conn.SK, conn.Proxy)
-		return frpTunnelMsg{conn: conn, tunnel: t, browse: browse, err: err}
+		return frpTunnelMsg{conn: conn, tunnel: t, err: err}
 	}
 }
 
@@ -271,11 +271,16 @@ func fetchFRPDirCmd(user string, port int, path, password string) tea.Cmd {
 }
 
 // frpConnCandidates FRP L0 候选：+ 新建连接 恒在首位，其后已存记录（频次降序）。
+// label 只展示 proxy + 上次访问目录（Name 与 proxy 默认相同，重复显示是噪音）。
 func frpConnCandidates(filter string) []sourceCandidate {
 	var conns []sourceCandidate
 	for _, c := range frpStore().Conns {
+		path := c.Path
+		if path == "" {
+			path = "（未选过日志）"
+		}
 		conns = append(conns, sourceCandidate{
-			label: c.Name + "  " + c.Proxy + " " + c.Path,
+			label: c.Proxy + "  " + path,
 			value: c.Name,
 		})
 	}
@@ -291,11 +296,15 @@ func frpConnCandidates(filter string) []sourceCandidate {
 }
 
 // frpServerCandidates 表单 step0 候选：手动输入 恒在首位，其后已存服务器。
+// 手动建的服务器 Name 默认 = 地址，两者相同只显示一个（防同行重复）。
 func frpServerCandidates(filter string) []sourceCandidate {
 	out := []sourceCandidate{{label: "手动输入新服务器…", value: "+manual"}}
 	f := strings.ToLower(strings.TrimSpace(filter))
 	for _, s := range frpStore().Servers {
-		label := s.Name + "  " + s.Addr
+		label := s.Name
+		if s.Name != s.Addr {
+			label = s.Name + "  " + s.Addr
+		}
 		if f == "" || strings.Contains(strings.ToLower(label), f) {
 			out = append(out, sourceCandidate{label: label, value: s.Name})
 		}

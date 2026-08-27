@@ -54,25 +54,35 @@ func TestViewFillsWidth(t *testing.T) {
 	}
 }
 
-// 问题2: 应该有分隔线
+// 问题2: 日志区应有圆角边框盒（顶行嵌标题、底行嵌统计）
 func TestViewHasSeparators(t *testing.T) {
 	app := newTestApp()
 	view := app.View()
 
 	if !strings.Contains(view, "─") {
-		t.Error("View should contain separator lines (─)")
+		t.Error("View should contain frame lines (─)")
 	}
 
 	lines := strings.Split(view, "\n")
-	sepCount := 0
+	if len(lines) < 3 {
+		t.Fatalf("View too short: %d lines", len(lines))
+	}
+	first := stripANSI(lines[0])
+	if !strings.HasPrefix(first, "╭─") {
+		t.Errorf("first line should be frame top (╭─), got %q", first)
+	}
+	hasBottom := false
 	for _, line := range lines {
-		clean := stripANSI(line)
-		if strings.HasPrefix(clean, "──") || strings.HasPrefix(clean, "────────") {
-			sepCount++
+		if strings.HasPrefix(stripANSI(line), "╰─") {
+			hasBottom = true
+			break
 		}
 	}
-	if sepCount < 2 {
-		t.Errorf("Expected at least 2 separator lines, got %d", sepCount)
+	if !hasBottom {
+		t.Error("frame bottom (╰─) not found")
+	}
+	if !strings.Contains(first, "LogView") {
+		t.Error("frame top should embed title")
 	}
 }
 
@@ -202,44 +212,7 @@ func TestViewStructure(t *testing.T) {
 	}
 }
 
-// Detail bar 显示 traceId/thread/level/time + msg
-func TestDetailBarShowsParsedFields(t *testing.T) {
-	app := newParsedTestApp()
-
-	detail := app.renderDetailBar()
-	if detail == "" {
-		t.Fatal("detail bar should not be empty when there are lines")
-	}
-	clean := stripANSI(detail)
-	for _, want := range []string{"traceId:", "abc123", "thread:", "http-nio-80-exec-3", "level:", "INFO", "time:", "msg:", "test message here"} {
-		if !strings.Contains(clean, want) {
-			t.Errorf("detail bar should contain %q, got: %q", want, clean)
-		}
-	}
-}
-
-// Detail bar 无 parser 时仍显示 msg
-func TestDetailBarShowsMsgWithoutParser(t *testing.T) {
-	app := newTestApp()
-	detail := app.renderDetailBar()
-	if detail == "" {
-		t.Fatal("detail bar should not be empty even without parser")
-	}
-	clean := stripANSI(detail)
-	if !strings.Contains(clean, "msg:") {
-		t.Errorf("detail bar should show msg even without parser, got: %q", clean)
-	}
-}
-
-// Detail bar 在 View() 中可见
-func TestDetailBarInView(t *testing.T) {
-	app := newParsedTestApp()
-	view := app.View()
-	clean := stripANSI(view)
-	if !strings.Contains(clean, "traceId:") {
-		t.Errorf("View should contain detail bar with traceId. Got:\n%s", clean[:min(500, len(clean))])
-	}
-}
+// Detail bar 已移除：日常信息走 d 键详情面板，底部行只在搜索时出现
 
 // newParsedTestApp creates an app with real regex parser for rendering tests
 func newParsedTestApp() *App {
@@ -411,5 +384,27 @@ func TestPartialOperatorStrippedSearch(t *testing.T) {
 	}
 	if isPartialQuery(app.searchInput) {
 		t.Errorf("not timeout 应非中间态")
+	}
+}
+
+// d 键详情面板：完整字段 + 消息全文 + 原始行；Esc 关闭
+func TestDetailPanel(t *testing.T) {
+	app := newParsedTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if !app.detailMode {
+		t.Fatal("d 应进入详情面板")
+	}
+	view := stripANSI(app.View())
+	for _, want := range []string{"time", "level", "thread", "traceId", "logger", "message", "raw", "http-nio-80-exec-3"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("详情面板应包含 %q", want)
+		}
+	}
+	// j 联动移动光标不崩
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	// Esc 关闭
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.detailMode {
+		t.Fatal("Esc 应关闭详情面板")
 	}
 }

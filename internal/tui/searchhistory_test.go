@@ -63,8 +63,8 @@ func TestSearchHistPopupRender(t *testing.T) {
 	if warnPos < 0 || errPos < 0 || warnPos > errPos {
 		t.Fatalf("最新历史 WARN 应在 ERROR 之上，warnPos=%d errPos=%d", warnPos, errPos)
 	}
-	if !strings.Contains(view, "j/k选择") {
-		t.Fatalf("列表展开时提示行应为 j/k选择，view=\n%s", view)
+	if !strings.Contains(view, "C-r") {
+		t.Fatalf("弹窗 hint 已移除，历史快捷键应由底栏显示（C-r），view=\n%s", view)
 	}
 }
 

@@ -23,6 +23,7 @@ const plainTextName = "plain-text"
 type FieldConfig struct {
 	Name    string `yaml:"name"`
 	Visible bool   `yaml:"visible"`
+	Width   int    `yaml:"width,omitempty"`
 }
 
 type KeyBindingConfig struct {

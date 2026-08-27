@@ -23,7 +23,7 @@ func (a *App) buildSearchPopup(maxPopupRows int) []string {
 			tabParts = append(tabParts, PopupTabStyle.Render(" "+t+" "))
 		}
 	}
-	content.WriteString(strings.Join(tabParts, PopupTabStyle.Render("│")) + "\n\n")
+	content.WriteString(strings.Join(tabParts, "  ") + "\n" + popupTabSep(min(60, a.width-4)) + "\n\n")
 
 	// 固定行预算：tab 区(2) + starFields 后空行(1) + input(1) + 空行提示(2) + 圆角边框(2) = 8
 	const fixedRows = 8
@@ -48,7 +48,6 @@ func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
 	if a.searchHistMode {
 		a.renderSearchHistoryList(content)
 		content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
-		content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 j/k选择 Enter填入 Esc取消"))
 		return
 	}
 	if len(a.starFields) > 0 {
@@ -63,10 +62,12 @@ func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
 			sf := a.starFields[i]
 			prefix := "  "
 			if i == a.starCursor {
-				prefix = SelectedStyle.Render(" >")
+				prefix = SelArrowStyle.Render("▶ ")
 			}
 			if sf.Name == "" {
 				content.WriteString(prefix + " " + HelpKeyStyle.Render("确认搜索") + "\n")
+			} else if i == a.starCursor {
+				content.WriteString(prefix + " " + SelArrowStyle.Render(sf.Name+": "+sf.Value) + "\n")
 			} else {
 				name := DetailLabelStyle.Render(sf.Name + ":")
 				val := DetailValueStyle.Render(sf.Value)
@@ -76,7 +77,6 @@ func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
 		content.WriteString("\n")
 	}
 	content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
-	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 C-j/k字段 Enter确认 C-r历史 Esc取消"))
 }
 
 // renderSearchHistoryList 渲染倒序历史列表（最新在上），最多 8 行，光标跟随滚动。
@@ -104,10 +104,12 @@ func (a *App) renderSearchHistoryList(content *strings.Builder) {
 		}
 		histIdx := n - 1 - row // 倒序映射到 searchHistory
 		prefix := "  "
+		rowStyle := DetailDimStyle
 		if row == a.searchHistCursor {
-			prefix = SelectedStyle.Render(" >")
+			prefix = SelArrowStyle.Render("▶ ")
+			rowStyle = SelArrowStyle // 光标行文字高亮（橙色粗体，与 ▶ 同色系）
 		}
-		content.WriteString(prefix + " " + DetailDimStyle.Render(hist[histIdx]) + "\n")
+		content.WriteString(prefix + " " + rowStyle.Render(hist[histIdx]) + "\n")
 	}
 	content.WriteString("\n")
 }
@@ -116,7 +118,6 @@ func (a *App) renderHighlightSection(content *strings.Builder) {
 	if a.searchHistMode {
 		a.renderSearchHistoryList(content)
 		content.WriteString(a.inputLine(a.highlightInput, a.highlightCursor, "高亮关键词，逗号分隔") + "\n")
-		content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 j/k选择 Enter填入 Esc取消"))
 		return
 	}
 	if len(a.highlights) > 0 {
@@ -129,14 +130,12 @@ func (a *App) renderHighlightSection(content *strings.Builder) {
 		content.WriteString("\n")
 	}
 	content.WriteString(a.inputLine(a.highlightInput, a.highlightCursor, "高亮关键词，逗号分隔") + "\n")
-	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 C-r历史 Esc取消"))
 }
 
 func (a *App) renderHideSection(content *strings.Builder) {
 	if a.searchHistMode {
 		a.renderSearchHistoryList(content)
 		content.WriteString(a.inputLine(a.hideInput, a.hideCursor, "隐藏关键词，逗号分隔") + "\n")
-		content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 j/k选择 Enter填入 Esc取消"))
 		return
 	}
 	if len(a.hides) > 0 {
@@ -147,20 +146,20 @@ func (a *App) renderHideSection(content *strings.Builder) {
 		content.WriteString("\n")
 	}
 	content.WriteString(a.inputLine(a.hideInput, a.hideCursor, "隐藏关键词，逗号分隔") + "\n")
-	content.WriteString("\n" + PopupTabStyle.Render(" Tab切分区 Enter确认 C-r历史 Esc取消"))
 }
 
 // inputLine renders an input field with a cursor block at cursor position.
 func (a *App) inputLine(input string, cursor int, placeholder string) string {
 	if input == "" {
-		return fmt.Sprintf(" %s█", DetailDimStyle.Render(placeholder))
+		return fmt.Sprintf(" %s", DetailDimStyle.Underline(true).Render(placeholder+" "))
 	}
 	runes := []rune(input)
 	pos := cursor
 	if pos > len(runes) {
 		pos = len(runes)
 	}
-	return fmt.Sprintf(" %s█%s", string(runes[:pos]), string(runes[pos:]))
+	return fmt.Sprintf(" %s", lipgloss.NewStyle().Underline(true).Render(
+		fmt.Sprintf("%s█%s", string(runes[:pos]), string(runes[pos:]))))
 }
 
 // popupBox wraps content in a centered popup box and splits into lines.

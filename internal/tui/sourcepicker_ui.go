@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/stream"
 )
@@ -222,6 +223,8 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.pickerCursor--
 		}
 		return a, nil
+	case tea.KeyCtrlX:
+		return a, a.pickerDeleteFRP(cands)
 	case tea.KeyCtrlL:
 		// SSH 主机层：C-l 在主机输入/路径输入间切焦点
 		if a.sourceTab == 2 && a.pickerSSHHost == "" {
@@ -619,7 +622,7 @@ func (a *App) pickerEnter() tea.Cmd {
 			a.pickerFRPProxy = conn.Proxy
 			a.pickerFRPServerName = conn.Server
 			a.pickerLoading = true
-			return fetchFRPTunnelCmd(server, conn, false)
+			return fetchFRPTunnelCmd(server, conn)
 		case 1:
 			return a.pickerFRPFormEnter(cand)
 		default: // 远程目录浏览
@@ -711,8 +714,17 @@ func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
 		}
 		conn := frp.Conn{Name: a.pickerFRPProxy, Server: a.pickerFRPServerName,
 			SK: a.pickerFRPSK, Proxy: a.pickerFRPProxy, User: input}
+		// 隧道一打通就先存记录：中途放弃（Esc/Backspace/退出）不丢配置，
+		// L0 可直接重选（此前只在选文件确认时保存，没走到那步配置就丢）
+		if old, ok := frpStore().FindConn(conn.Name); ok && old.Path != "" {
+			conn.Path = old.Path // 同名重建：保留已确认的日志路径
+		}
+		frpStore().UpsertConn(conn)
+		if err := frpStore().Save(); err != nil {
+			a.appendErrorLine(fmt.Sprintf("frp 记录保存失败: %v", err))
+		}
 		a.pickerLoading = true
-		return fetchFRPTunnelCmd(server, conn, true)
+		return fetchFRPTunnelCmd(server, conn)
 	}
 	return nil
 }
@@ -750,6 +762,96 @@ func (a *App) confirmFRPPicker() tea.Cmd {
 		src.SetPassword(pw)
 	}
 	return a.ReplaceStream(src)
+}
+
+// frpBrowseRoot 目录浏览起始目录：已存 Path 取父目录（/var/log/a.log → /var/log），无 Path 从根开始。
+func frpBrowseRoot(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || path == "/" {
+		return "/"
+	}
+	return parentPath(path)
+}
+
+// firstErrLine 错误首行（无错误返回空串；多行 ssh stderr 只取首行，弹窗内单行够用）。
+func firstErrLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.TrimSpace(err.Error())
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = s[:i]
+	}
+	return s
+}
+
+// frpConnLevelErrs ssh 层连接失败特征：TCP/握手断，真因在 frpc 日志（proxy 不存在/sk 错/远端掉线）。
+var frpConnLevelErrs = []string{
+	"connection reset",
+	"kex_exchange_identification",
+	"connection refused",
+	"connection closed",
+	"broken pipe",
+	"connection timed out",
+}
+
+// frpDirErrText frp 目录拉取失败的显示文本：连接层错误附带 frpc 日志尾 + 常见真因提示。
+func (a *App) frpDirErrText(err error) string {
+	s := firstErrLine(err)
+	if s == "" {
+		return ""
+	}
+	lower := strings.ToLower(s)
+	for _, pat := range frpConnLevelErrs {
+		if !strings.Contains(lower, pat) {
+			continue
+		}
+		if lg, ok := a.pickerFRPTunnel.(interface{ RecentLog() string }); ok {
+			if tail := strings.TrimSpace(lg.RecentLog()); tail != "" {
+				s += " | frpc: " + tail
+			}
+		}
+		break
+	}
+	// 真因翻译：visitor 在 frps 上找不到目标 stcp proxy（名字不一致或远端 frpc 掉线）
+	if strings.Contains(s, "custom listener for") {
+		s += " （proxy 名在 frps 上不存在：核对远端 frpc 的 proxies.name 或远端是否在线）"
+	}
+	return s
+}
+
+// pickerDeleteFRP C-x 删除：FRP L0 删连接记录，L1 step0 删服务器（被引用时拒绝）。
+// 删除后持久化并收敛光标；+new/+manual 占位项不可删。
+func (a *App) pickerDeleteFRP(cands []sourceCandidate) tea.Cmd {
+	if a.sourceTab != 3 || a.pickerCursor >= len(cands) {
+		return nil
+	}
+	cand := cands[a.pickerCursor]
+	if a.pickerFRPLevel == 0 {
+		if cand.value == "+new" {
+			return nil
+		}
+		if !frpStore().DeleteConn(cand.value) {
+			return nil
+		}
+	} else if a.pickerFRPLevel == 1 && a.pickerFRPStep == 0 {
+		if cand.value == "+manual" {
+			return nil
+		}
+		if err := frpStore().DeleteServer(cand.value); err != nil {
+			a.appendErrorLine(fmt.Sprintf("frp 服务器删除失败: %v", err))
+			return nil
+		}
+	} else {
+		return nil
+	}
+	if err := frpStore().Save(); err != nil {
+		a.appendErrorLine(fmt.Sprintf("frp 配置保存失败: %v", err))
+	}
+	if n := len(a.visiblePickerCandidates()); a.pickerCursor >= n {
+		a.pickerCursor = max(0, n-1)
+	}
+	return nil
 }
 
 // pickerInputRef 返回当前可编辑输入框（浏览态多数层无输入框）。
@@ -881,7 +983,7 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			tabParts = append(tabParts, PopupTabStyle.Render(" "+t+" "))
 		}
 	}
-	content.WriteString(strings.Join(tabParts, PopupTabStyle.Render("│")) + "\n\n")
+	content.WriteString(strings.Join(tabParts, "  ") + "\n" + popupTabSep(min(64, a.width-4)) + "\n\n")
 
 	cands := a.visiblePickerCandidates()
 	switch a.sourceTab {
@@ -889,48 +991,44 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 		switch a.pickerK8sLevel {
 		case 0:
 			cur := a.pickerBreadcrumbCtx()
-			head := PopupTabStyle.Render(fmt.Sprintf(" 当前context: %s", cur))
-			content.WriteString(head + "\n\n")
+			head := BreadcrumbStyle.Render(" ctx: " + cur + " ")
+			content.WriteString(" " + head + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 查询中…") + "\n")
+				content.WriteString(keycapHint(" 查询中…") + "\n")
 			} else if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 无 context（检查 kubectl）") + "\n")
+				content.WriteString(keycapHint(" 无 context（检查 kubectl）") + "\n")
 			} else {
 				content.WriteString(renderCandidateListMark(cands, a.pickerCursor, cur))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter切换context C-j/k移动 Backspace退出 Esc取消"))
 		case 1:
-			content.WriteString(PopupTabStyle.Render(fmt.Sprintf(" context: %s", a.pickerBreadcrumbCtx())) + "\n")
+			content.WriteString(" " + BreadcrumbStyle.Render(" ctx: "+a.pickerBreadcrumbCtx()+" ") + "\n")
 			content.WriteString(a.inputLine(a.pickerNsInput, a.pickerNsCursor, "或输入 namespace 回车直达") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 查询中…") + "\n")
+				content.WriteString(keycapHint(" 查询中…") + "\n")
 			} else if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 无 namespace") + "\n")
+				content.WriteString(keycapHint(" 无 namespace") + "\n")
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter选择ns C-j/k移动 Backspace返回 Esc取消"))
 		default:
-			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s/%s", a.pickerBreadcrumbCtx(), a.pickerNsInput)) + "\n")
+			content.WriteString(" " + BreadcrumbStyle.Render(" "+a.pickerBreadcrumbCtx()+"/"+a.pickerNsInput+" ") + "\n")
 			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤资源名…") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 查询中…") + "\n")
+				content.WriteString(keycapHint(" 查询中…") + "\n")
 			} else if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 无资源（检查权限或过滤词）") + "\n")
+				content.WriteString(keycapHint(" 无资源（检查权限或过滤词）") + "\n")
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, a.pickerChecked, 8))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Space勾选(多选) Enter确认 C-j/k移动 Backspace返回 Esc取消"))
 		}
 	case 1:
-		content.WriteString(DetailLabelStyle.Render(" "+a.pickerLocalDir) + "\n")
+		content.WriteString(" " + breadcrumbChain(a.pickerLocalDir) + "\n")
 		content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤…") + "\n\n")
 		if len(cands) == 0 {
-			content.WriteString(PopupTabStyle.Render(" 目录为空或不可读") + "\n")
+			content.WriteString(keycapHint(" 目录为空或不可读") + "\n")
 		} else {
 			content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 		}
-		content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 开文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 	case 2:
 		if a.pickerSSHHost == "" {
 			hostLine := a.inputLine(a.pickerHostInput, a.pickerHostCursor, "user@host 或选择候选")
@@ -938,59 +1036,57 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			if len(cands) > 0 {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
 			} else if strings.TrimSpace(a.pickerHostInput) != "" {
-				content.WriteString(PopupTabStyle.Render(" 无匹配主机，Enter 直连（C-k 切到路径输入）") + "\n")
+				content.WriteString(keycapHint(" 无匹配主机，Enter 直连（C-k 切到路径输入）") + "\n")
 			} else {
-				content.WriteString(PopupTabStyle.Render(" 无主机候选（~/.ssh/config 为空）") + "\n")
+				content.WriteString(keycapHint(" 无主机候选（~/.ssh/config 为空）") + "\n")
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter连接浏览 C-j/k移动 C-l切路径 Esc取消"))
 		} else {
-			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" %s:%s", a.pickerSSHHost, a.pickerSSHDir)) + "\n")
+			content.WriteString(" " + BreadcrumbStyle.Render(" "+a.pickerSSHHost+" ") + breadcrumbChain(a.pickerSSHDir) + "\n")
 			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤…") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 加载中…") + "\n")
+				content.WriteString(keycapHint(" 加载中…") + "\n")
 			} else if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 目录为空或不可读") + "\n")
+				content.WriteString(keycapHint(" 目录为空或不可读") + "\n")
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 		}
 	case 3: // FRP
 		switch a.pickerFRPLevel {
 		case 0: // L0：连接列表
 			content.WriteString(a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "搜索连接（名称/proxy/路径）…") + "\n\n")
 			if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 无保存的连接") + "\n")
+				content.WriteString(keycapHint(" 无保存的连接") + "\n")
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter打开/新建 C-j/k移动 Esc取消"))
 		case 1: // L1：新建表单（逐字段单输入框）
-			prompts := []string{
-				"选择 frps 服务器", "新服务器地址 host:port", "token（可空）",
-				"sk (secret key)", "proxy 名称", "ssh 用户名",
-			}
+		prompts := []string{
+			"选择 frps 服务器", "新服务器地址 host:port", "token（可空）",
+			"sk (secret key，与远端 stcp 的 sk 一致)",
+			"proxy 名称（远端 stcp 服务名，即 server-name）", "ssh 用户名",
+		}
 			content.WriteString(DetailLabelStyle.Render(prompts[a.pickerFRPStep]+": ") +
 				a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "") + "\n\n")
 			if a.pickerFRPStep == 0 {
 				if len(cands) == 0 {
-					content.WriteString(PopupTabStyle.Render(" 无保存的服务器") + "\n")
+					content.WriteString(keycapHint(" 无保存的服务器") + "\n")
 				} else {
 					content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
 				}
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" Enter下一步 C-j/k移动 Backspace返回 Esc取消"))
 		default: // L2：远程目录浏览
-			content.WriteString(DetailLabelStyle.Render(fmt.Sprintf(" frp:%s %s", a.frpCurName(), a.pickerFRPDir)) + "\n")
+			content.WriteString(" " + BreadcrumbStyle.Render(" frp:"+a.frpCurName()+" ") + breadcrumbChain(a.pickerFRPDir) + "\n")
 			content.WriteString(a.inputLine(a.pickerDirFilter, a.pickerFilterCursor, "输入过滤…") + "\n\n")
 			if a.pickerLoading && len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 加载中…") + "\n")
+				content.WriteString(keycapHint(" 加载中…") + "\n")
+			} else if len(cands) == 0 && a.pickerFRPErr != "" {
+				content.WriteString(keycapHint(" 拉取失败: "+a.pickerFRPErr) + "\n")
 			} else if len(cands) == 0 {
-				content.WriteString(PopupTabStyle.Render(" 目录为空或不可读") + "\n")
+				content.WriteString(keycapHint(" 目录为空或不可读") + "\n")
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 			}
-			content.WriteString("\n" + PopupTabStyle.Render(" 进目录:Enter 选文件:Enter C-j/k移动 Backspace返回 Esc取消"))
 		}
 	}
 
@@ -999,25 +1095,47 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 	return a.overlayToVL(box, vl)
 }
 
+// breadcrumbChain 把路径拆成徽章链：/var/log/app → [ / ][ var ][ log ][ app ]。
+func breadcrumbChain(p string) string {
+	parts := []string{BreadcrumbStyle.Render(" / ")}
+	for _, s := range strings.Split(strings.Trim(p, "/"), "/") {
+		if s == "" {
+			continue
+		}
+		parts = append(parts, BreadcrumbStyle.Render(" "+s+" "))
+	}
+	return strings.Join(parts, " ")
+}
+
 // renderCandidateListMark 渲染 context 列表（当前 context 打 ✓ 标）。
 func renderCandidateListMark(cands []sourceCandidate, cursor int, current string) string {
 	var b strings.Builder
 	start, end := scrollWindow(len(cands), cursor, 8)
 	for i := start; i < end; i++ {
 		prefix := "  "
+		labelStyle := candidateLabelStyle(cands[i].label)
 		if i == cursor {
-			prefix = SelectedStyle.Render(" >")
+			prefix = SelArrowStyle.Render("▶ ")
+			labelStyle = SelArrowStyle // 光标行文字高亮（橙色粗体，与 ▶ 同色系）
 		}
 		mark := "  "
 		if cands[i].value == current {
 			mark = DetailLabelStyle.Render("✓ ")
 		}
-		b.WriteString(prefix + " " + mark + DetailValueStyle.Render(cands[i].label) + "\n")
+		b.WriteString(prefix + " " + mark + labelStyle.Render(cands[i].label) + "\n")
 	}
 	if len(cands) > end {
-		b.WriteString(PopupTabStyle.Render(fmt.Sprintf("   …共%d项", len(cands))) + "\n")
+		b.WriteString(keycapHint(fmt.Sprintf("   …共%d项", len(cands))) + "\n")
 	}
 	return b.String()
+}
+
+// candidateLabelStyle 目录（"xxx/" 后缀）用蓝色与文件区分，增强弹窗层次。
+func candidateLabelStyle(label string) lipgloss.Style {
+	if strings.HasSuffix(label, "/") || label == "../" {
+		return TraceIDStyle
+	}
+	return DetailValueStyle
 }
 
 // renderCandidateList 渲染候选列表（可滚动窗口，勾选态仅 k8s 多选用）。
@@ -1026,17 +1144,19 @@ func renderCandidateList(cands []sourceCandidate, cursor int, checked map[string
 	start, end := scrollWindow(len(cands), cursor, maxRows)
 	for i := start; i < end; i++ {
 		prefix := "  "
+		labelStyle := candidateLabelStyle(cands[i].label)
 		mark := "  "
 		if checked != nil && checked[cands[i].value] {
 			mark = DetailLabelStyle.Render("✓ ")
 		}
 		if i == cursor {
-			prefix = SelectedStyle.Render(" >")
+			prefix = SelArrowStyle.Render("▶ ")
+			labelStyle = SelArrowStyle // 光标行文字高亮（橙色粗体，与 ▶ 同色系）
 		}
-		b.WriteString(prefix + " " + mark + DetailValueStyle.Render(cands[i].label) + "\n")
+		b.WriteString(prefix + " " + mark + labelStyle.Render(cands[i].label) + "\n")
 	}
 	if len(cands) > end {
-		b.WriteString(PopupTabStyle.Render(fmt.Sprintf("   …共%d项", len(cands))) + "\n")
+		b.WriteString(keycapHint(fmt.Sprintf("   …共%d项", len(cands))) + "\n")
 	}
 	return b.String()
 }

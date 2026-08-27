@@ -2,7 +2,20 @@
 
 终端实时日志查看器，支持实时搜索、高亮、字段过滤、多资源聚合。
 
-![LogView Demo](docs/screenshot.png)
+![LogView 主界面](docs/screenshot-main.png)
+
+<details>
+<summary>更多截图</summary>
+
+| 错误过滤（`E`） | 行详情面板（`d`） |
+|---|---|
+| ![错误过滤](docs/screenshot-errors.png) | ![行详情](docs/screenshot-detail.png) |
+
+| 源选择器（`o`） | 搜索弹窗（`/`） |
+|---|---|
+| ![源选择器](docs/screenshot-picker.png) | ![搜索](docs/screenshot-search.png) |
+
+</details>
 
 ---
 
@@ -166,6 +179,7 @@ SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；�
 | `s` | 导出日志 |
 | `e` | 展开 / 折叠堆栈 |
 | `w` | 切换自动换行 |
+| `d` | 行详情面板（完整字段 + 消息全文 + 原始行，`j/k` 联动换行） |
 | `o` / `q` | 打开源选择器（K8s/本地/SSH） |
 | `\` | 收起 / 展开底部快捷键提示栏 |
 | `S-c` | 清空屏幕 |
@@ -244,20 +258,24 @@ theme: dark
 #   - health check
 #   - heartbeat
 
-# fields: 字段显示/隐藏
+# fields: 字段显示/隐藏；width 为固定列宽（超长截断，logger 自动缩写，时间列超宽保时分秒）
 fields:
   - name: time
     visible: true
+    width: 12
   - name: source
     visible: true
   - name: level
     visible: true
   - name: thread
     visible: false
+    width: 10
   - name: traceId
     visible: false
+    width: 12
   - name: logger
     visible: false
+    width: 20
   - name: message
     visible: true
 
@@ -282,7 +300,7 @@ fields:
 | `history` | `-f` 模式默认尾行数 | `5000` |
 | `theme` | 配色主题，13 个内置（见下表） | `dark` |
 | `theme_colors` | 覆盖主题颜色（十六进制） | 无 |
-| `fields` | 字段显示控制，隐藏后搜索仍可用 | 全部显示 |
+| `fields` | 字段显示控制，隐藏后搜索仍可用；`width` 设固定列宽（超长截断，logger 缩写为 `c.y.c.Foo`，时间列超宽自动保时分秒） | 全部显示，默认列宽 time 12/thread 10/traceId 12/logger 20 |
 | `hides` | 默认隐藏关键词 | 无 |
 | `keybindings` | 自定义快捷键 | 见快捷键表 |
 | `ssh_hosts` | 源选择器 SSH tab 常用主机候选（与 ~/.ssh/config 合并） | 无 |
@@ -347,6 +365,8 @@ logview k8s deploy/<tab>   # Deployment 列表
 | 搜索历史 | `C-r` 打开历史列表（搜索/高亮/隐藏各自记录最近 20 条，j/k 选择 Enter 填入） |
 | 高亮与隐藏 | `h` 多色高亮，`x` 隐藏关键词，支持配置预设 |
 | 级别过滤 | `E`/`W`/`I`/`D`/`A` 快速切换 |
+| 行详情面板 | `d` 查看完整字段 + 消息全文 + 原始行，`j/k` 联动逐行审查，JSON 自动美化 |
+| 固定列宽对齐 | 字段列定宽、超长 logger 缩写，message 列起点恒定；显示层截断不影响 `y` 复制/导出全文 |
 | 书签标记 | `m` 标记，`'` 循环跳转 |
 | 统计面板 | `S` 显示各级别数量和占比 |
 | 行号显示 | `#` 切换 |

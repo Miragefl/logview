@@ -39,5 +39,5 @@ func (a *App) renderSearchBar() string {
 		return fmt.Sprintf(" 搜索: %s  [%d/%d匹配] [/修改] [Esc清除]%s",
 			a.searchInput, a.searchMatchIdx, a.searchMatchCount, hint)
 	}
-	return a.renderDetailBar()
+	return ""
 }
