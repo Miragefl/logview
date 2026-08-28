@@ -33,5 +33,5 @@ func popupTabSep(boxW int) string {
 	if n < 8 {
 		n = 8
 	}
-	return FrameStyle.Render(strings.Repeat("─", n))
+	return DetailDimStyle.Render(strings.Repeat("─", n))
 }

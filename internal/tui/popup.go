@@ -10,10 +10,9 @@ import (
 // buildPopupLines returns exactly vl lines for the field settings popup overlay.
 func (a *App) buildPopupLines(vl int) []string {
 	panelContent := a.renderFieldsPanel()
-	hint := PopupTabStyle.Render("[Up/Down] [Space] [Esc]")
-	content := "字段显示设置\n\n" + panelContent + "\n\n" + hint
+	boxW := min(48, a.width-4)
+	content := PopupActiveTabStyle.Render(" 字段显示设置 ") + "\n" + popupTabSep(boxW) + "\n\n" + panelContent
 
-	boxW := min(60, a.width-6)
 	box := PopupBoxStyle.Width(boxW).Render(content)
 	return a.overlayToVL(box, vl)
 }

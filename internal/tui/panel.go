@@ -10,15 +10,18 @@ import (
 func (a *App) renderFieldsPanel() string {
 	var items []string
 	for i, f := range model.AllFields {
-		cb := CheckboxUnchecked
+		cb := DetailDimStyle.Render(CheckboxUnchecked)
 		if a.fieldMask.IsVisible(f) {
-			cb = CheckboxChecked
+			cb = DetailLabelStyle.Render(CheckboxChecked)
 		}
-		item := fmt.Sprintf("%s %s", cb, f)
+		prefix := "  "
+		nameStyle := DetailValueStyle
 		if a.panelFocus && i == a.fieldCursor {
-			item = SelectedStyle.Render(item)
+			// 光标行：▶ + 橙色高亮（与选择器列表同一套焦点语言）
+			prefix = SelArrowStyle.Render("▶ ")
+			nameStyle = SelArrowStyle
 		}
-		items = append(items, item)
+		items = append(items, prefix+" "+cb+" "+nameStyle.Render(string(f)))
 	}
 	return strings.Join(items, "\n")
 }
@@ -64,7 +67,7 @@ func (a *App) buildStatsPanel(vl int) []string {
 	rows = append(rows, strings.Repeat("─", 30))
 	rows = append(rows, fmt.Sprintf("  显示: %d  总计: %d  隐藏: %d", total, bufTotal, bufTotal-total))
 
-	content := "统计\n\n" + strings.Join(rows, "\n")
+	content := PopupActiveTabStyle.Render(" 统计 ") + "\n" + popupTabSep(min(40, a.width-6)) + "\n\n" + strings.Join(rows, "\n")
 	boxW := min(40, a.width-6)
 	box := PopupBoxStyle.Width(boxW).Render(content)
 	return a.overlayToVL(box, vl)

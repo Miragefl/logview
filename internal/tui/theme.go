@@ -133,10 +133,10 @@ func ApplyTheme(cfg ThemeConfig) {
 	DetailLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cfg.Accent))
 	DetailDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))
 
-	// 弹窗不铺背景色：与主视图日志区一致的透明浮层，避免色块割裂感
+	// 弹窗不铺背景色：透明浮层靠边框界定区域——边框用主题色暗化档（可见但不抢戏）
 	PopupBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(darken(cfg.Dim, 0.55))).
+		BorderForeground(lipgloss.Color(darken(cfg.Accent, 0.55))).
 		Padding(0, 1)
 
 	PopupTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))

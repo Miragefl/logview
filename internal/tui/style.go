@@ -64,7 +64,7 @@ var (
 
 	PopupBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("239")).
+			BorderForeground(lipgloss.Color("73")).
 			Padding(0, 1)
 
 	PopupActiveTabStyle = lipgloss.NewStyle().
