@@ -121,6 +121,9 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if a.searchHistMode {
 		return a.handleSearchHistKeys(msg)
 	}
+	if a.timePresetMode {
+		return a.handleTimePresetKeys(msg)
+	}
 	input := a.activeSearchInput()
 	switch msg.Type {
 	case tea.KeyEscape:
@@ -138,6 +141,12 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.recomputeView()
 		}
 		switch msg.String() {
+		case "ctrl+t":
+			// 时间快捷片（仅搜索分区）
+			if a.searchTab == 0 {
+				a.timePresetMode = !a.timePresetMode
+				a.timePresetCursor = 0
+			}
 		case "ctrl+r":
 			// 打开当前分区（搜索/高亮/隐藏）的历史列表
 			if len(a.currentTabHistory()) > 0 {

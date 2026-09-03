@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,15 +22,18 @@ type termType int
 const (
 	keywordTerm termType = iota
 	fieldTerm
-	timeAfterTerm
-	timeBeforeTerm
+	timeTerm  // time: 条件（op + 绝对时刻；time2 非空为闭区间）
+	errorTerm // time: 值解析错误（匹配恒 false，hint 红字提示）
 )
 
 type termNode struct {
-	typ   termType
-	field string
-	value string
-	time  *time.Time
+	typ    termType
+	field  string
+	value  string
+	time   *time.Time
+	time2  *time.Time // 区间上界（闭区间 time:a..b）
+	op     string     // ">" "<" ">=" "<="
+	errMsg string     // errorTerm 的错误说明
 }
 
 func (n *termNode) match(line *model.ParsedLine) bool {
@@ -43,22 +49,64 @@ func (n *termNode) match(line *model.ParsedLine) bool {
 			return strings.EqualFold(val, n.value)
 		}
 		return containsIgnoreCase(val, n.value)
-	case timeAfterTerm:
+	case timeTerm:
 		if line.Time.IsZero() || n.time == nil {
-			return false
+			return false // 无时间字段的行不参与任何 time 条件（NULL 语义）
 		}
-		lineMin := line.Time.Hour()*60 + line.Time.Minute()
-		afterMin := n.time.Hour()*60 + n.time.Minute()
-		return lineMin > afterMin
-	case timeBeforeTerm:
-		if line.Time.IsZero() || n.time == nil {
-			return false
+		if line.Time.Year() <= 0 {
+			return n.matchHMS(line.Time) // 无日期时间戳（如 HH:mm:ss.SSS 日志）：按当日时分窗口退化
 		}
-		lineMin := line.Time.Hour()*60 + line.Time.Minute()
-		beforeMin := n.time.Hour()*60 + n.time.Minute()
-		return lineMin < beforeMin
+		lt := line.Time
+		if n.time2 != nil { // 闭区间
+			return !lt.Before(*n.time) && !lt.After(*n.time2)
+		}
+		switch n.op {
+		case ">":
+			return lt.After(*n.time)
+		case ">=":
+			return !lt.Before(*n.time)
+		case "<":
+			return lt.Before(*n.time)
+		case "<=":
+			return !lt.After(*n.time)
+		}
+		return true
+	case errorTerm:
+		return false
 	}
 	return true
+}
+
+// matchHMS 无日期时间戳行的退化匹配：行与查询值都取当日时分秒比较。
+// 日志时间戳无时区、按用户本地视角解析（parser 侧 ParseInLocation(time.Local)），
+// 查询锚点同为本地——同 location 下字面即时分语义，无跨时区偏移。
+// 跨午夜窗口有歧义（23:50 vs >00:10），属无日期日志的固有限制。
+func (n *termNode) matchHMS(lt time.Time) bool {
+	ls := hmsOfDay(lt)
+	if n.time2 != nil { // 区间糖
+		lo, hi := hmsOfDay(*n.time), hmsOfDay(*n.time2)
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		return ls >= lo && ls <= hi
+	}
+	ts := hmsOfDay(*n.time)
+	switch n.op {
+	case ">":
+		return ls > ts
+	case ">=":
+		return ls >= ts
+	case "<":
+		return ls < ts
+	case "<=":
+		return ls <= ts
+	}
+	return true
+}
+
+// hmsOfDay 折叠为当日秒数（0..86399）。
+func hmsOfDay(t time.Time) int {
+	return t.Hour()*3600 + t.Minute()*60 + t.Second()
 }
 
 func (n *termNode) keywords() []string {
@@ -118,9 +166,43 @@ type notNode struct {
 	child queryNode
 }
 
-func (n *notNode) match(line *model.ParsedLine) bool { return !n.child.match(line) }
+func (n *notNode) match(line *model.ParsedLine) bool {
+	// NULL 传播：无时间字段行不参与任何 time 条件（含 NOT 包裹，取反不得复活）。
+	// 深层子树同样传播：NOT NOT time:x / NOT (time:x OR ...) 不得把无时间行翻回来。
+	// 取舍：不做严格三值逻辑（NOT (time:x AND f) 对无时间且 f=false 的行按"未知→排除"处理）。
+	if line.Time.IsZero() && containsTimeTerm(n.child) {
+		return false
+	}
+	if tn, ok := n.child.(*termNode); ok && tn.typ == errorTerm {
+		return false
+	}
+	return !n.child.match(line)
+}
 
 func (n *notNode) keywords() []string { return nil } // 排除项不参与高亮
+
+// containsTimeTerm 报告子树是否含 timeTerm（NULL 传播范围判定）。
+func containsTimeTerm(n queryNode) bool {
+	switch v := n.(type) {
+	case *termNode:
+		return v.typ == timeTerm
+	case *notNode:
+		return containsTimeTerm(v.child)
+	case *andNode:
+		for _, c := range v.children {
+			if containsTimeTerm(c) {
+				return true
+			}
+		}
+	case *orNode:
+		for _, c := range v.children {
+			if containsTimeTerm(c) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // --- Tokenizer ---
 
@@ -143,7 +225,7 @@ type token struct {
 }
 
 var fieldPrefixes = []string{
-	"after:", "before:",
+	"time:",
 	"traceId:", "thread:", "level:", "logger:", "message:", "source:",
 }
 
@@ -265,13 +347,14 @@ func isOperatorOrField(tok string) bool {
 
 // --- Recursive descent parser ---
 // Precedence: AND > OR, adjacent terms = implicit AND
+// anchor 为 time: 条件的锚定时刻（UTC），测试可注入固定值。
 
-func parseOrExpr(tokens []token, pos int) (queryNode, int) {
-	left, pos := parseAndExpr(tokens, pos)
+func parseOrExpr(tokens []token, pos int, anchor time.Time) (queryNode, int) {
+	left, pos := parseAndExpr(tokens, pos, anchor)
 	children := []queryNode{left}
 	for pos < len(tokens) && tokens[pos].kind == tokOr {
 		pos++ // consume OR
-		right, newPos := parseAndExpr(tokens, pos)
+		right, newPos := parseAndExpr(tokens, pos, anchor)
 		children = append(children, right)
 		pos = newPos
 	}
@@ -281,8 +364,8 @@ func parseOrExpr(tokens []token, pos int) (queryNode, int) {
 	return &orNode{children: children}, pos
 }
 
-func parseAndExpr(tokens []token, pos int) (queryNode, int) {
-	left, pos := parseNotExpr(tokens, pos)
+func parseAndExpr(tokens []token, pos int, anchor time.Time) (queryNode, int) {
+	left, pos := parseNotExpr(tokens, pos, anchor)
 	children := []queryNode{left}
 	for pos < len(tokens) {
 		if tokens[pos].kind == tokOr || tokens[pos].kind == tokRParen {
@@ -295,7 +378,7 @@ func parseAndExpr(tokens []token, pos int) (queryNode, int) {
 		if pos >= len(tokens) || tokens[pos].kind == tokOr || tokens[pos].kind == tokRParen {
 			break
 		}
-		next, newPos := parseNotExpr(tokens, pos)
+		next, newPos := parseNotExpr(tokens, pos, anchor)
 		children = append(children, next)
 		pos = newPos
 	}
@@ -305,21 +388,21 @@ func parseAndExpr(tokens []token, pos int) (queryNode, int) {
 	return &andNode{children: children}, pos
 }
 
-func parseNotExpr(tokens []token, pos int) (queryNode, int) {
+func parseNotExpr(tokens []token, pos int, anchor time.Time) (queryNode, int) {
 	if pos < len(tokens) && tokens[pos].kind == tokNot {
-		child, newPos := parseNotExpr(tokens, pos+1) // 支持 NOT NOT
+		child, newPos := parseNotExpr(tokens, pos+1, anchor) // 支持 NOT NOT
 		return &notNode{child: child}, newPos
 	}
-	return parseTerm(tokens, pos)
+	return parseTerm(tokens, pos, anchor)
 }
 
-func parseTerm(tokens []token, pos int) (queryNode, int) {
+func parseTerm(tokens []token, pos int, anchor time.Time) (queryNode, int) {
 	if pos >= len(tokens) {
 		return &termNode{typ: keywordTerm, value: ""}, pos
 	}
 	tok := tokens[pos]
 	if tok.kind == tokLParen {
-		node, newPos := parseOrExpr(tokens, pos+1)
+		node, newPos := parseOrExpr(tokens, pos+1, anchor)
 		if newPos < len(tokens) && tokens[newPos].kind == tokRParen {
 			newPos++ // 消费 )
 		}
@@ -328,30 +411,19 @@ func parseTerm(tokens []token, pos int) (queryNode, int) {
 	switch tok.kind {
 	case tokField:
 		n := &termNode{field: tok.field, value: tok.value}
-		switch tok.field {
-		case "after":
-			t, err := time.Parse("15:04", tok.value)
-			if err == nil {
-				n.typ = timeAfterTerm
-				pt := t
-				n.time = &pt
+		if tok.field == "time" {
+			// time: 值白名单解析——明确意图，非法即报错（不静默降级关键字）
+			t1, t2, op, err := parseTimeExpr(tok.value, anchor)
+			if err != nil {
+				n.typ = errorTerm
+				n.errMsg = err.Error()
 			} else {
-				n.typ = keywordTerm
-				n.value = tok.field + ":" + tok.value
+				n.typ = timeTerm
+				n.time, n.time2, n.op = t1, t2, op
 			}
-		case "before":
-			t, err := time.Parse("15:04", tok.value)
-			if err == nil {
-				n.typ = timeBeforeTerm
-				pt := t
-				n.time = &pt
-			} else {
-				n.typ = keywordTerm
-				n.value = tok.field + ":" + tok.value
-			}
-		default:
-			n.typ = fieldTerm
+			return n, pos + 1
 		}
+		n.typ = fieldTerm
 		return n, pos + 1
 	case tokKeyword:
 		return &termNode{typ: keywordTerm, value: tok.value}, pos + 1
@@ -364,11 +436,18 @@ func parseTerm(tokens []token, pos int) (queryNode, int) {
 // --- SearchQuery ---
 
 type SearchQuery struct {
-	Raw  string
-	root queryNode
+	Raw    string
+	root   queryNode
+	errMsg string // 任一 time: 值解析错误（整个查询匹配空集，UI 红字提示）
 }
 
 func parseSearchQuery(input string) SearchQuery {
+	return parseSearchQueryAt(input, time.Now()) // 本地视角锚点（与 parser 的 Local 解析一致）
+}
+
+// parseSearchQueryAt 以指定锚定时刻解析（锚点 location 即查询值的时区视角）；
+// 测试注入固定时刻获得确定性结果。
+func parseSearchQueryAt(input string, anchor time.Time) SearchQuery {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return SearchQuery{Raw: input}
@@ -377,8 +456,37 @@ func parseSearchQuery(input string) SearchQuery {
 	if len(tokens) == 0 {
 		return SearchQuery{Raw: input}
 	}
-	root, _ := parseOrExpr(tokens, 0)
-	return SearchQuery{Raw: input, root: root}
+	root, _ := parseOrExpr(tokens, 0, anchor)
+	q := SearchQuery{Raw: input, root: root}
+	if msg := collectTimeError(root); msg != "" {
+		q.errMsg = msg
+	}
+	return q
+}
+
+// collectTimeError 深度收集第一个 time: 解析错误（OR 右支也不能静默吞）。
+func collectTimeError(n queryNode) string {
+	switch v := n.(type) {
+	case *termNode:
+		if v.typ == errorTerm {
+			return v.errMsg
+		}
+	case *notNode:
+		return collectTimeError(v.child)
+	case *andNode:
+		for _, c := range v.children {
+			if m := collectTimeError(c); m != "" {
+				return m
+			}
+		}
+	case *orNode:
+		for _, c := range v.children {
+			if m := collectTimeError(c); m != "" {
+				return m
+			}
+		}
+	}
+	return ""
 }
 
 // isPartialQuery 报告 s 是否为仍在输入中的未完成查询。
@@ -399,11 +507,34 @@ func isPartialQuery(s string) bool {
 	case strings.Count(s, `"`)%2 != 0:
 		return true
 	}
-	return false
+	return isPartialTimeValue(t)
 }
 
-// strippedQuery 去掉查询末尾未完成的操作符（and/or/not），
-// 用于中间态时用"剩余完整部分"搜索（如 "ERROR not" → "ERROR"，"not" → ""）。
+// isPartialTimeValue 报告末尾 time: 词是否仍在输入中：
+// 值解析失败但只含合法字符（数字/分隔符/方向符/时长单位）→ 视为未完成，保持上次结果。
+// 含其它字母 → 确定错误，走 errorTerm 红字提示。
+func isPartialTimeValue(t string) bool {
+	idx := strings.LastIndex(t, "time:")
+	if idx < 0 {
+		return false
+	}
+	rest := t[idx+len("time:"):]
+	if rest == "" {
+		return true
+	}
+	if _, _, _, err := parseTimeExpr(rest, time.Now()); err == nil {
+		return false // 完整合法值不是中间态
+	}
+	for _, r := range rest {
+		if !(r >= '0' && r <= '9') && !strings.ContainsRune(":.-_Ttsmhd><", r) {
+			return false
+		}
+	}
+	return true
+}
+
+// strippedQuery 去掉查询末尾未完成的操作符（and/or/not）与 time: 悬空词，
+// 用于中间态时用"剩余完整部分"搜索（如 "ERROR not" → "ERROR"，"ERROR time:>" → "ERROR"）。
 func strippedQuery(s string) string {
 	t := strings.TrimRight(s, " \t")
 	low := strings.ToLower(t)
@@ -415,6 +546,12 @@ func strippedQuery(s string) string {
 	if low == "and" || low == "or" || low == "not" {
 		return ""
 	}
+	// time: 悬空词剥离：中间态按剩余完整部分过滤，结果不突变
+	if isPartialTimeValue(t) {
+		if idx := strings.LastIndex(t, "time:"); idx >= 0 {
+			return strings.TrimRight(t[:idx], " \t")
+		}
+	}
 	return s
 }
 
@@ -422,11 +559,19 @@ func (q SearchQuery) MatchLine(line *model.ParsedLine) bool {
 	if q.root == nil {
 		return true
 	}
+	if q.errMsg != "" {
+		return false // time: 解析错误 → 空集，不降级
+	}
 	return q.root.match(line)
 }
 
 func (q SearchQuery) IsEmpty() bool {
 	return q.root == nil
+}
+
+// ParseError 返回 time: 解析错误信息（无错为空），UI 用红字展示。
+func (q SearchQuery) ParseError() string {
+	return q.errMsg
 }
 
 func (q SearchQuery) HighlightKeywords() []string {
@@ -436,51 +581,204 @@ func (q SearchQuery) HighlightKeywords() []string {
 	return q.root.keywords()
 }
 
+// TimeRangeHint 显示实际解析出的绝对时刻（含日期；相对时间附原始写法）。
+// OR/NOT 语境不显示（时间条件不构成过滤窗口）。
 func (q SearchQuery) TimeRangeHint() string {
-	after, before := findTimeRange(q.root)
+	if q.errMsg != "" {
+		return ""
+	}
+	after, before, rel := findTimeRange(q.root)
 	if after == nil && before == nil {
 		return ""
 	}
-	a, b := "", ""
-	if after != nil {
-		a = after.Format("15:04")
+	const layout = "01-02 15:04:05"
+	switch {
+	case after != nil && before != nil:
+		return after.Format(layout) + "~" + before.Format(layout)
+	case after != nil:
+		// 锚点 location 即展示视角（生产为本地，测试随注入的 anchor）
+		h := "> " + after.Format(layout)
+		if rel != "" {
+			h += " (" + rel + ")"
+		}
+		return h
+	default:
+		return "< " + before.Format(layout)
 	}
-	if before != nil {
-		b = before.Format("15:04")
-	}
-	return a + "~" + b
 }
 
-func findTimeRange(n queryNode) (*time.Time, *time.Time) {
+// findTimeRange 收集 AND 语境下的时间窗口；返回 (下界, 上界, 相对写法)。
+func findTimeRange(n queryNode) (*time.Time, *time.Time, string) {
 	if n == nil {
-		return nil, nil
+		return nil, nil, ""
 	}
 	switch v := n.(type) {
 	case *termNode:
-		var after, before *time.Time
-		if v.typ == timeAfterTerm {
-			after = v.time
+		if v.typ != timeTerm {
+			return nil, nil, ""
 		}
-		if v.typ == timeBeforeTerm {
-			before = v.time
+		if v.time2 != nil { // 区间糖
+			return v.time, v.time2, ""
 		}
-		return after, before
+		switch v.op {
+		case ">", ">=":
+			if rel := strings.TrimLeft(v.value, "><="); strings.HasPrefix(rel, "-") {
+				return v.time, nil, rel // 相对写法（如 -10m），hint 附注
+			}
+			return v.time, nil, ""
+		case "<", "<=":
+			return nil, v.time, ""
+		}
+		return nil, nil, ""
 	case *andNode:
 		var after, before *time.Time
+		rel := ""
 		for _, c := range v.children {
-			a, b := findTimeRange(c)
+			a, b, r := findTimeRange(c)
 			if a != nil {
 				after = a
+				if r != "" {
+					rel = r
+				}
 			}
 			if b != nil {
 				before = b
 			}
 		}
-		return after, before
-	case *orNode:
-		if len(v.children) > 0 {
-			return findTimeRange(v.children[0])
+		return after, before, rel
+	}
+	return nil, nil, "" // orNode/notNode：不构成过滤窗口
+}
+
+// --- time: 值解析（词法白名单，唯一形态映射，零试探） ---
+
+var (
+	timeClockRe = regexp.MustCompile(`^(\d{1,2}):(\d{2})(?::(\d{2}))?$`)                              // 9:00 / 09:00:30
+	timeDateRe  = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})$`)                                    // 2026-08-26
+	timeDTRe    = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})[T_](\d{1,2}):(\d{2})(?::(\d{2}))?$`)   // 2026-08-26T09:00[:30]（_ 宽容别名）
+	relSegRe    = regexp.MustCompile(`\d+(?:\.\d+)?[smhd]`)                                          // 相对时长段：10m / 1h30m / 2d
+)
+
+// parseTimeExpr 解析 time: 的值：方向符+时间值 / 相对时长（默认 >）/ 闭区间 a..b。
+// 返回（下界时刻, 区间上界, 操作符, 错误）；一切时刻均为 UTC。
+func parseTimeExpr(raw string, anchor time.Time) (*time.Time, *time.Time, string, error) {
+	if raw == "" {
+		return nil, nil, "", fmt.Errorf("缺少时间值")
+	}
+	// 区间糖：a..b（闭区间，无方向符）
+	if i := strings.Index(raw, ".."); i >= 0 {
+		lo, err := parseTimeValue(raw[:i], anchor)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		hi, err := parseTimeValue(raw[i+2:], anchor)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("区间上界: %w", err)
+		}
+		if lo.After(*hi) {
+			lo, hi = hi, lo
+		}
+		return lo, hi, "..", nil
+	}
+	// 方向符（最长匹配）
+	op, rest := "", raw
+	for _, cand := range []string{">=", "<=", ">", "<"} {
+		if strings.HasPrefix(rest, cand) {
+			op, rest = cand, rest[len(cand):]
+			break
 		}
 	}
-	return nil, nil
+	// 相对时长：-10m / -1h30m（可带显式方向符，默认 >）
+	if strings.HasPrefix(rest, "-") {
+		d, err := parseRelDuration(rest[1:])
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if op == "" {
+			op = ">"
+		}
+		t := anchor.Add(-d)
+		return &t, nil, op, nil
+	}
+	if op == "" {
+		return nil, nil, "", fmt.Errorf("缺少比较符（> < >= <=）或区间（..）")
+	}
+	t, err := parseTimeValue(rest, anchor)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return t, nil, op, nil
+}
+
+// parseTimeValue 解析单个时间值：时分秒（锚定 anchor 当天）/ 日期 / 日期T时间。一律 UTC。
+func parseTimeValue(s string, anchor time.Time) (*time.Time, error) {
+	if m := timeClockRe.FindStringSubmatch(s); m != nil {
+		h, _ := strconv.Atoi(m[1])
+		mi, _ := strconv.Atoi(m[2])
+		sec := 0
+		if m[3] != "" {
+			sec, _ = strconv.Atoi(m[3])
+		}
+		if h > 23 || mi > 59 || sec > 59 {
+			return nil, fmt.Errorf("时间越界: %s", s)
+		}
+		t := time.Date(anchor.Year(), anchor.Month(), anchor.Day(), h, mi, sec, 0, anchor.Location())
+		return &t, nil
+	}
+	if m := timeDateRe.FindStringSubmatch(s); m != nil {
+		y, _ := strconv.Atoi(m[1])
+		mo, _ := strconv.Atoi(m[2])
+		d, _ := strconv.Atoi(m[3])
+		t := time.Date(y, time.Month(mo), d, 0, 0, 0, 0, anchor.Location())
+		if t.Month() != time.Month(mo) {
+			return nil, fmt.Errorf("日期非法: %s", s) // 2026-02-30 溢出
+		}
+		return &t, nil
+	}
+	if m := timeDTRe.FindStringSubmatch(s); m != nil {
+		y, _ := strconv.Atoi(m[1])
+		mo, _ := strconv.Atoi(m[2])
+		d, _ := strconv.Atoi(m[3])
+		h, _ := strconv.Atoi(m[4])
+		mi, _ := strconv.Atoi(m[5])
+		sec := 0
+		if m[6] != "" {
+			sec, _ = strconv.Atoi(m[6])
+		}
+		if h > 23 || mi > 59 || sec > 59 {
+			return nil, fmt.Errorf("时间越界: %s", s)
+		}
+		t := time.Date(y, time.Month(mo), d, h, mi, sec, 0, anchor.Location())
+		if t.Month() != time.Month(mo) {
+			return nil, fmt.Errorf("日期非法: %s", s)
+		}
+		return &t, nil
+	}
+	return nil, fmt.Errorf("无法识别时间值 %q（支持 H:MM[:SS] / YYYY-MM-DD / YYYY-MM-DD THH:MM[:SS] / -时长）", s)
+}
+
+// parseRelDuration 相对时长：s/m/h/d 单位可复合（1h30m、90m、2d），d = 24h；拒绝正号与 ns/us/ms。
+func parseRelDuration(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, fmt.Errorf("缺少时长")
+	}
+	segs := relSegRe.FindAllString(s, -1)
+	if len(segs) == 0 || strings.Join(segs, "") != s {
+		return 0, fmt.Errorf("无法识别时长 %q（支持 s/m/h/d 复合，如 1h30m）", s)
+	}
+	var total time.Duration
+	for _, seg := range segs {
+		num, _ := strconv.ParseFloat(seg[:len(seg)-1], 64)
+		switch seg[len(seg)-1] {
+		case 'd':
+			total += time.Duration(num * 24 * float64(time.Hour))
+		case 'h':
+			total += time.Duration(num * float64(time.Hour))
+		case 'm':
+			total += time.Duration(num * float64(time.Minute))
+		case 's':
+			total += time.Duration(num * float64(time.Second))
+		}
+	}
+	return total, nil
 }

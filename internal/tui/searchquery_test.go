@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -136,10 +137,11 @@ func TestFieldMatchLevel(t *testing.T) {
 }
 
 func TestTimeRange(t *testing.T) {
-	q := parseSearchQuery("after:09:00 before:10:00")
-	t0930 := time.Date(2026, 5, 15, 9, 30, 0, 0, time.Local)
-	t1001 := time.Date(2026, 5, 15, 10, 1, 0, 0, time.Local)
-	t0830 := time.Date(2026, 5, 15, 8, 30, 0, 0, time.Local)
+	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	q := parseSearchQueryAt("time:>09:00 time:<10:00", anchor)
+	t0930 := time.Date(2026, 5, 15, 9, 30, 0, 0, time.UTC)
+	t1001 := time.Date(2026, 5, 15, 10, 1, 0, 0, time.UTC)
+	t0830 := time.Date(2026, 5, 15, 8, 30, 0, 0, time.UTC)
 
 	line1 := parsedLineWithTime("INFO", "abc", "main", "com.example.App", "test", t0930)
 	if !q.MatchLine(line1) {
@@ -152,6 +154,105 @@ func TestTimeRange(t *testing.T) {
 	line3 := parsedLineWithTime("INFO", "abc", "main", "com.example.App", "test", t0830)
 	if q.MatchLine(line3) {
 		t.Error("8:30 should be outside 9:00~10:00")
+	}
+	// 跨天：昨天 23:50 不被 time:>09:00（今天锚定）命中
+	yesterday := time.Date(2026, 5, 14, 23, 50, 0, 0, time.UTC)
+	line4 := parsedLineWithTime("INFO", "abc", "main", "com.example.App", "test", yesterday)
+	if q.MatchLine(line4) {
+		t.Error("yesterday 23:50 should not match today-anchored >09:00")
+	}
+}
+
+func TestTimeRangeSugar(t *testing.T) {
+	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	q := parseSearchQueryAt("time:9:00..10:00", anchor) // 前导零宽容 + 区间闭区间
+	inLow := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC))
+	inHigh := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC))
+	below := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 8, 59, 59, 0, time.UTC))
+	above := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 10, 0, 1, 0, time.UTC))
+	if !q.MatchLine(inLow) || !q.MatchLine(inHigh) {
+		t.Error("区间糖应含两端（闭区间）")
+	}
+	if q.MatchLine(below) || q.MatchLine(above) {
+		t.Error("区间糖两端之外不命中")
+	}
+}
+
+func TestTimeRelative(t *testing.T) {
+	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	q := parseSearchQueryAt("time:>-10m", anchor)
+	in := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-5*time.Minute))
+	out := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-11*time.Minute))
+	if !q.MatchLine(in) || q.MatchLine(out) {
+		t.Error("time:>-10m 应命中 anchor 前 10 分钟内")
+	}
+	// 简写 time:-1h 等价 >-1h
+	q2 := parseSearchQueryAt("time:-1h", anchor)
+	in2 := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-30*time.Minute))
+	if !q2.MatchLine(in2) {
+		t.Error("time:-1h 简写应等价 >-1h")
+	}
+	// 复合时长
+	q3 := parseSearchQueryAt("time:>-1h30m", anchor)
+	in3 := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-90*time.Minute+time.Second))
+	if !q3.MatchLine(in3) {
+		t.Error("time:>-1h30m 应命中 anchor 前 90 分钟内")
+	}
+}
+
+func TestTimeUTCAnchor(t *testing.T) {
+	// 日期字面量 + 秒级 + RFC3339 T 与 _ 别名
+	anchor := time.Date(2026, 8, 28, 23, 0, 0, 0, time.UTC)
+	q := parseSearchQueryAt("time:>2026-08-26T09:00:30", anchor)
+	in := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 8, 26, 9, 0, 31, 0, time.UTC))
+	out := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 8, 26, 9, 0, 30, 0, time.UTC))
+	if !q.MatchLine(in) || q.MatchLine(out) {
+		t.Error("time:> 应为严格大于")
+	}
+	q2 := parseSearchQueryAt("time:>=2026-08-26_09:00:30", anchor) // _ 别名 + 含边界
+	boundary := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 8, 26, 9, 0, 30, 0, time.UTC))
+	if !q2.MatchLine(boundary) {
+		t.Error("time:>= 应含边界行（cron 整点不丢）")
+	}
+}
+
+func TestTimeErrors(t *testing.T) {
+	// 非法值必须显式报错（不静默降级），查询匹配空集
+	for _, bad := range []string{
+		"time:09:00",     // 缺比较符
+		"time:>8-26",     // MM-DD 已删
+		"time:>9:0",      // 格式错
+		"time:>",         // 空值
+		"time:>10:00..",  // 区间缺右值
+		"time:-10x",      // 非法单位
+		"time:>+10m",     // 正号拒绝
+		"time:>2026-02-30", // 日期非法
+	} {
+		q := parseSearchQuery(bad)
+		if q.ParseError() == "" {
+			t.Errorf("%q 应产生解析错误", bad)
+		}
+		if q.MatchLine(parsedLine("INFO", "", "", "", "anything")) {
+			t.Errorf("%q 解析错误时查询应为空集", bad)
+		}
+	}
+	// 错误经 OR 右支传播：整体空集
+	q := parseSearchQuery("level:ERROR OR time:>xx")
+	if q.ParseError() == "" || q.MatchLine(parsedLine("ERROR", "", "", "", "boom")) {
+		t.Error("OR 右支 time 错误应使整体空集")
+	}
+}
+
+func TestTimeNullPropagation(t *testing.T) {
+	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	noTime := parsedLine("INFO", "abc", "main", "App", "msg") // 无时间字段
+	q := parseSearchQueryAt("time:>09:00", anchor)
+	if q.MatchLine(noTime) {
+		t.Error("无时间行不参与 time 条件")
+	}
+	q2 := parseSearchQueryAt("NOT time:>09:00", anchor)
+	if q2.MatchLine(noTime) {
+		t.Error("NOT time 也不得复活无时间行（NULL 传播）")
 	}
 }
 
@@ -168,13 +269,14 @@ func TestFieldAndKeyword(t *testing.T) {
 }
 
 func TestTimeRangeWithKeyword(t *testing.T) {
-	q := parseSearchQuery("after:09:00 level:ERROR OR level:WARN")
-	t0930 := time.Date(2026, 5, 15, 9, 30, 0, 0, time.Local)
-	t0800 := time.Date(2026, 5, 15, 8, 0, 0, 0, time.Local)
+	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	q := parseSearchQueryAt("time:>09:00 (level:ERROR OR level:WARN)", anchor)
+	t0930 := time.Date(2026, 5, 15, 9, 30, 0, 0, time.UTC)
+	t0800 := time.Date(2026, 5, 15, 8, 0, 0, 0, time.UTC)
 
 	line1 := parsedLineWithTime("ERROR", "abc", "main", "com.example.App", "broke", t0930)
 	if !q.MatchLine(line1) {
-		t.Error("9:30 ERROR should match after:09:00 level:ERROR OR level:WARN")
+		t.Error("9:30 ERROR should match time:>09:00 (level:ERROR OR level:WARN)")
 	}
 	line2 := parsedLineWithTime("WARN", "abc", "main", "com.example.App", "careful", t0930)
 	if !q.MatchLine(line2) {
@@ -182,7 +284,7 @@ func TestTimeRangeWithKeyword(t *testing.T) {
 	}
 	line3 := parsedLineWithTime("ERROR", "abc", "main", "com.example.App", "broke", t0800)
 	if q.MatchLine(line3) {
-		t.Error("8:00 ERROR should not match after:09:00")
+		t.Error("8:00 ERROR should not match time:>09:00")
 	}
 }
 
@@ -198,14 +300,29 @@ func TestEmptyQuery(t *testing.T) {
 }
 
 func TestTimeRangeHint(t *testing.T) {
-	q1 := parseSearchQuery("after:09:00 before:10:00 ERROR")
+	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	q1 := parseSearchQueryAt("time:>09:00 time:<10:00 ERROR", anchor)
 	hint := q1.TimeRangeHint()
-	if hint != "09:00~10:00" {
-		t.Errorf("expected '09:00~10:00', got %q", hint)
+	want := "05-15 09:00:00~05-15 10:00:00"
+	if hint != want {
+		t.Errorf("expected %q, got %q", want, hint)
 	}
-	q2 := parseSearchQuery("ERROR")
-	if q2.TimeRangeHint() != "" {
-		t.Errorf("expected empty hint, got %q", q2.TimeRangeHint())
+	// 相对时间显示本地视角锚点 + 原始写法
+	q2 := parseSearchQueryAt("time:>-10m", anchor)
+	h2 := q2.TimeRangeHint()
+	want2 := anchor.Add(-10 * time.Minute).Format("01-02 15:04:05")
+	if !strings.Contains(h2, want2) || !strings.Contains(h2, "-10m") {
+		t.Errorf("relative hint 应含本地锚点 %s 与原始写法, got %q", want2, h2)
+	}
+	// 无 time 条件 → 空
+	q3 := parseSearchQuery("ERROR")
+	if q3.TimeRangeHint() != "" {
+		t.Errorf("expected empty hint, got %q", q3.TimeRangeHint())
+	}
+	// OR 语境不显示
+	q4 := parseSearchQueryAt("time:>09:00 OR level:ERROR", anchor)
+	if q4.TimeRangeHint() != "" {
+		t.Errorf("OR 语境不应显示区间 hint, got %q", q4.TimeRangeHint())
 	}
 }
 
@@ -262,18 +379,31 @@ func TestTokenizeNewTokens(t *testing.T) {
 	}
 }
 
-// --- time: 字段已移除 ---
+// --- time: 为时间条件入口（历史：曾作为普通前缀移除，v2 起为时间语义） ---
 
-func TestTimeFieldRemoved(t *testing.T) {
-	q := parseSearchQuery("time:09:30")
-	line := parsedLine("INFO", "", "", "", "some message")
-	if q.MatchLine(line) {
-		t.Error("time:09:30 as keyword should not match message without it")
-	}
+func TestTimeFieldPresent(t *testing.T) {
+	found := false
 	for _, p := range fieldPrefixes {
 		if p == "time:" {
-			t.Error("time: should be removed from fieldPrefixes")
+			found = true
 		}
+	}
+	if !found {
+		t.Error("time: 应在 fieldPrefixes 中")
+	}
+	// 裸 >X 不进时间语义（字面量关键字）
+	q := parseSearchQuery(">09:00")
+	line := parsedLine("INFO", "", "", "", "value >09:00 here")
+	if !q.MatchLine(line) {
+		t.Error("裸 >09:00 应为字面量关键字搜索")
+	}
+	if q.ParseError() != "" {
+		t.Error("裸 >09:00 不应产生解析错误")
+	}
+	// after:/before: 前缀移除后按未知前缀 → 关键字
+	q2 := parseSearchQuery("after:09:00")
+	if q2.ParseError() != "" {
+		t.Error("after: 移除后应按普通词处理（不报错）")
 	}
 }
 

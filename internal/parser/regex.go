@@ -48,7 +48,20 @@ func (p *RegexParser) Parse(raw model.RawLine) *model.ParsedLine {
 
 		switch model.Field(name) {
 		case model.FieldTime:
-			if t, err := time.Parse("2006-01-02 15:04:05.000", val); err == nil {
+			// 布局按精度降级尝试；无日期格式落到 0000-01-01（匹配层按时分窗口比较）
+			if t, err := time.ParseInLocation("2006-01-02 15:04:05.000", val, time.Local); err == nil {
+				result.Time = t
+			} else if t, err := time.ParseInLocation("2006-01-02 15:04:05", val, time.Local); err == nil {
+				result.Time = t
+			} else if t, err := time.ParseInLocation("2006-01-02T15:04:05", val, time.Local); err == nil {
+				result.Time = t
+			} else if t, err := time.ParseInLocation("15:04:05.000", val, time.Local); err == nil {
+				result.Time = t
+			} else if t, err := time.ParseInLocation("15:04:05", val, time.Local); err == nil {
+				result.Time = t
+			} else if t, err := time.ParseInLocation("15:04:05,000", val, time.Local); err == nil {
+				result.Time = t
+			} else if t, err := time.ParseInLocation("15:04", val, time.Local); err == nil {
 				result.Time = t
 			}
 		case model.FieldLevel:

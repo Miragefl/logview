@@ -57,8 +57,11 @@ func (p *JSONParser) Parse(raw model.RawLine) *model.ParsedLine {
 			"2006-01-02 15:04:05",
 			time.RFC3339,
 			time.RFC3339Nano,
+			"15:04:05.000", // 无日期：0000-01-01，匹配层按时分窗口
+			"15:04:05",
+			"15:04",
 		} {
-			if t, err := time.Parse(layout, f.Time); err == nil {
+			if t, err := time.ParseInLocation(layout, f.Time, time.Local); err == nil {
 				result.Time = t
 				result.Fields[model.FieldTime] = f.Time
 				break

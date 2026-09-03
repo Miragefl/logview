@@ -48,6 +48,7 @@ func (a *App) shortcutItems() []helpItem {
 		return []helpItem{
 			{"Enter", "确认"},
 			{"Tab", "切换分区"},
+			{"C-t", "时间片"},
 			{"C-j/C-k", "切换字段"},
 			{"C-u", "清空输入"},
 			{"C-r", "历史"},

@@ -45,6 +45,11 @@ func (a *App) buildSearchPopup(maxPopupRows int) []string {
 }
 
 func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
+	if a.timePresetMode {
+		a.renderTimePresetList(content)
+		content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
+		return
+	}
 	if a.searchHistMode {
 		a.renderSearchHistoryList(content)
 		content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
