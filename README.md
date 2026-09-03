@@ -243,9 +243,11 @@ level:ERROR AND time:>-30s       与其它条件自由组合
 # patterns: 可复用的正则片段，在 rules 中用 {name} 引用
 patterns:
   time: '(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})'
+  hmsTime: '(?P<time>\d{2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?)'
   thread: '(?P<thread>[^\]]+)'
   traceId: '(?P<traceId>[^\]]+)'
   level: '(?P<level>\w+)'
+  simpleLevel: '(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)'
   logger: '(?P<logger>\S+)'
   message: '(?P<message>.*)'
 
@@ -253,6 +255,9 @@ patterns:
 rules:
   - name: java-logback
     pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - {message}'
+  # 无日期时间戳的简单日志（HH:mm:ss[.SSS] 级别 消息）：time: 搜索按当日时分窗口
+  - name: simple-time-level
+    pattern: '{hmsTime}\s+{simpleLevel}\s+{message}'
   - name: json-log
     pattern: '(?P<raw>.*)'
     parse: json
