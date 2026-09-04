@@ -602,13 +602,14 @@ func TestSourcePickerLinesHidesUnavailableTabs(t *testing.T) {
 	app := newTestApp()
 	app.availableTabs = []int{1}
 	app.openSourcePicker(1)
-	lines := stripANSI(strings.Join(app.buildSourcePickerLines(10), "\n"))
+	// tab 栏在弹窗首条内容行（第 0 行是弹窗上边框与底层日志的合成行）；断言只圈定它，避免后续本地路径等行误伤
+	tabBar := stripANSI(app.buildSourcePickerLines(10)[1])
 	for _, name := range []string{"K8s", "SSH", "FRP"} {
-		if strings.Contains(lines, name) {
+		if strings.Contains(tabBar, name) {
 			t.Fatalf("远端会话 tab 栏不应包含 %s", name)
 		}
 	}
-	if !strings.Contains(lines, "本地") {
+	if !strings.Contains(tabBar, "本地") {
 		t.Fatal("远端会话 tab 栏应包含 本地")
 	}
 }

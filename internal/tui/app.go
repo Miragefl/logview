@@ -277,7 +277,11 @@ func (a *App) openSourcePickerInit() tea.Cmd {
 	base := tea.Batch(waitForStream(ch), tickEvery())
 	if a.pickSourceOnStart {
 		a.openSourcePicker(0)
-		return tea.Batch(base, fetchK8sContextsCmd())
+		// K8s tab 隐藏时入口已钳制到其他 tab，此时拉取 context 是死 exec
+		if a.sourceTab == 0 {
+			return tea.Batch(base, fetchK8sContextsCmd())
+		}
+		return base
 	}
 	return base
 }
@@ -457,6 +461,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// 统一进目录浏览（表单新建与已存记录一致）；起始目录取 conn.Path 父目录
 		a.sourcePickerMode = true
+		// 有意不钳制：本消息只可能来自 FRP tab 可见的建连流程，且下方已完成 FRP 浏览态初始化——钳制回本地 tab 反而会渲染出半初始化状态
 		a.sourceTab = 3
 		a.pickerFRPLevel = 2
 		a.pickerFRPTunnel = msg.tunnel
@@ -733,7 +738,10 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		// 日志页按 q：打开源选择器（再按 q 退出）
 		a.openSourcePicker(0)
-		return a, fetchK8sContextsCmd()
+		// K8s tab 隐藏时入口已钳制到其他 tab，此时拉取 context 是死 exec
+		if a.sourceTab == 0 {
+			return a, fetchK8sContextsCmd()
+		}
 	case "C":
 		a.clearScreen()
 	case "esc":
@@ -757,7 +765,10 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.showKeyHints = !a.showKeyHints
 	case "o":
 		a.openSourcePicker(0)
-		return a, fetchK8sContextsCmd()
+		// K8s tab 隐藏时入口已钳制到其他 tab，此时拉取 context 是死 exec
+		if a.sourceTab == 0 {
+			return a, fetchK8sContextsCmd()
+		}
 	case "s":
 		a.exportMode = true
 	case "d":

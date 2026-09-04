@@ -67,7 +67,7 @@ func availableSourceTabs() []int {
 ## 错误处理
 
 - LookPath 失败、环境变量缺失均为预期路径,无 error 面。
-- 隐藏 tab 的候选拉取 cmd 因入口不可达永不触发。
+- 入口钳制后 K8s 隐藏时不主动拉取候选（入口处按 `a.sourceTab == 0` 守卫）；若曾有在途拉取，迟到的候选消息由 app.go 的 tab 守卫（`a.sourceTab != msg.tab`）丢弃，不产生 UI 影响。
 - 可见集至少含本地 tab,钳制与循环无越界路径。
 
 ## 测试设计(纯单元,沿用 newTestApp() 风格)
