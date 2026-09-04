@@ -7,7 +7,7 @@ LogView 是 Go 编写的终端日志查看器(TUI):支持本地文件 / 管道 /
 ## 知识库归属
 
 - 项目:logview(`~/Obsidian/10-Projects/logview/`,个人开源项目,无 DB/接口交付物豁免)
-- 分支映射:main → tui-overhaul(TUI 界面翻新,已完成);main → time-range-search(时间范围搜索 time: 语法,进行中)
+- 分支映射:main → tui-overhaul(TUI 界面翻新,已完成);main → time-range-search(时间范围搜索 time: 语法,进行中);main → source-picker-env(源选择器环境过滤,进行中)
 
 ## 常用命令
 
