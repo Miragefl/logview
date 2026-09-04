@@ -84,7 +84,7 @@ func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
 	content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
 }
 
-// renderSearchHistoryList 渲染倒序历史列表（最新在上），最多 8 行，光标跟随滚动。
+// renderSearchHistoryList 渲染历史列表（搜索=最新在上；高亮/隐藏=高频在上），最多 8 行，光标跟随滚动。
 // 列表内容随当前分区（搜索/高亮/隐藏）取对应历史。
 func (a *App) renderSearchHistoryList(content *strings.Builder) {
 	hist := a.currentTabHistory()
@@ -107,14 +107,14 @@ func (a *App) renderSearchHistoryList(content *strings.Builder) {
 		if row >= n {
 			break
 		}
-		histIdx := n - 1 - row // 倒序映射到 searchHistory
+		item := a.histRowAt(hist, row) // 搜索=时序倒序;高亮/隐藏=频次快照序
 		prefix := "  "
 		rowStyle := DetailDimStyle
 		if row == a.searchHistCursor {
 			prefix = SelArrowStyle.Render("▶ ")
 			rowStyle = SelArrowStyle // 光标行文字高亮（橙色粗体，与 ▶ 同色系）
 		}
-		content.WriteString(prefix + " " + rowStyle.Render(hist[histIdx]) + "\n")
+		content.WriteString(prefix + " " + rowStyle.Render(item) + "\n")
 	}
 	content.WriteString("\n")
 }

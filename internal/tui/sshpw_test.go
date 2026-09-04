@@ -9,8 +9,9 @@ import (
 	"github.com/justfun/logview/internal/stream"
 )
 
-// 高亮/隐藏确认时记录历史；C-r 打开对应分区历史并可填入。
+// 高亮/隐藏确认拆词计频;C-r 打开当前源词频列表并可填入。
 func TestHighlightHideHistory(t *testing.T) {
+	resetUsage(t)
 	app := newTestApp()
 	// 高亮 tab 确认两次（第二次前清空回显值）
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
@@ -24,8 +25,12 @@ func TestHighlightHideHistory(t *testing.T) {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.highlightHistory) != 2 {
-		t.Fatalf("高亮历史应 2 条，实际 %v", app.highlightHistory)
+	// 计频断言用容差带:usageScore 是衰减分,bump 后即时读取恒略 < 1
+	// (LastUsed 截断到 Unix 秒的亚秒级幻影衰减),惯例同 keywordhist_test。
+	for _, k := range []string{"hl::err", "hl::fail", "hl::timeout"} {
+		if s := usageScore(k); s < 0.99 || s > 1.01 {
+			t.Fatalf("key %s 应计 1 次, got %v", k, s)
+		}
 	}
 
 	// 隐藏 tab 确认
@@ -34,19 +39,19 @@ func TestHighlightHideHistory(t *testing.T) {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.hideHistory) != 1 {
-		t.Fatalf("隐藏历史应 1 条，实际 %d", len(app.hideHistory))
+	if s := usageScore("hide::health"); s < 0.99 || s > 1.01 {
+		t.Fatal("隐藏词应计频")
 	}
-	// 高亮 tab C-r 打开历史并填入最新一条（先清空残留输入）
+	// 高亮 tab C-r 打开词频列表并填入首行(三词同分,词序 err 最小)
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
 	app.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	if !app.searchHistMode {
 		t.Fatal("高亮 tab C-r 应打开历史列表")
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 填入最新（timeout）
-	if app.highlightInput != "timeout" {
-		t.Fatalf("历史应填入高亮输入框，实际 %q", app.highlightInput)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 填入首行
+	if app.highlightInput != "err" {
+		t.Fatalf("历史应填入首行 err,实际 %q", app.highlightInput)
 	}
 }
 

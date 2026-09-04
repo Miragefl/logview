@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // resetUsage 清空 usage 全局缓存(隔离跨测试污染,惯例同 frppicker_test)。
@@ -133,5 +135,70 @@ func TestConfirmScopedBump(t *testing.T) {
 	}
 	if usageScore("hl::pay") != 0 {
 		t.Fatal("不应污染全局域")
+	}
+}
+
+// C-r 高亮历史:频次降序快照,首行高频词,Enter 填入首行。
+func TestKeywordHistFreqOrderAndFill(t *testing.T) {
+	resetUsage(t)
+	BumpUsage("hl::err")
+	BumpUsage("hl::err")
+	BumpUsage("hl::timeout")
+	app := newTestApp()
+	app.searchTab = 1
+	app.searchMode = true // ctrl+r 仅在搜索弹窗内处理
+	app.Update(fakeKey("ctrl+r"))
+	if !app.searchHistMode {
+		t.Fatal("C-r 应打开高亮历史列表")
+	}
+	if got := app.histRowAt(app.keywordHist, 0); got != "err" {
+		t.Fatalf("首行应为高频词 err, got %q", got)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.highlightInput != "err" {
+		t.Fatalf("Enter 应填入首行 err, got %q", app.highlightInput)
+	}
+}
+
+// scope 隔离:frp2 的列表只含 frp2 域词条。
+func TestKeywordHistScopeIsolation(t *testing.T) {
+	resetUsage(t)
+	BumpUsage("hl:frp1:pay")
+	BumpUsage("hl:frp2:gw")
+	app := newTestApp()
+	app.currentScope = "frp2"
+	app.searchTab = 1
+	app.searchMode = true
+	app.Update(fakeKey("ctrl+r"))
+	if len(app.keywordHist) != 1 || app.keywordHist[0] != "gw" {
+		t.Fatalf("frp2 列表应仅 [gw], got %v", app.keywordHist)
+	}
+}
+
+// 跨会话:丢内存缓存(模拟重启,从盘重读)后列表仍在。
+func TestKeywordHistPersistAcrossRestart(t *testing.T) {
+	resetUsage(t)
+	BumpUsage("hl::err")
+	usageMu.Lock()
+	usageData = nil
+	usageMu.Unlock()
+	app := newTestApp()
+	app.searchTab = 1
+	app.searchMode = true
+	app.Update(fakeKey("ctrl+r"))
+	if len(app.keywordHist) != 1 || app.keywordHist[0] != "err" {
+		t.Fatalf("重启后列表应仍含 err, got %v", app.keywordHist)
+	}
+}
+
+// 搜索 tab 零改动:时序倒序(最新在首行)。
+func TestSearchHistUnchanged(t *testing.T) {
+	app := newTestApp()
+	app.searchHistory = []string{"a", "b"} // append 序,b 最新
+	app.searchTab = 0
+	app.searchMode = true
+	app.Update(fakeKey("ctrl+r"))
+	if got := app.histRowAt(app.currentTabHistory(), 0); got != "b" {
+		t.Fatalf("搜索首行应为最新 b, got %q", got)
 	}
 }

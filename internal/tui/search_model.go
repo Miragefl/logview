@@ -148,7 +148,14 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.timePresetCursor = 0
 			}
 		case "ctrl+r":
-			// 打开当前分区（搜索/高亮/隐藏）的历史列表
+			// 打开当前分区历史列表(搜索=时序;高亮/隐藏=当前源词频快照)
+			if a.searchTab == 1 || a.searchTab == 2 {
+				kind := usageHighlight
+				if a.searchTab == 2 {
+					kind = usageHide
+				}
+				a.keywordHist = sortedUsageWords(kind, a.currentScope, 20)
+			}
 			if len(a.currentTabHistory()) > 0 {
 				a.searchHistMode = true
 				a.searchHistCursor = 0
@@ -166,15 +173,23 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// currentTabHistory 返回当前分区对应的历史列表。
+// currentTabHistory 返回当前分区对应的历史列表
+// (搜索=时序;高亮/隐藏=打开 C-r 时的词频快照)。
 func (a *App) currentTabHistory() []string {
 	switch a.searchTab {
-	case 1:
-		return a.highlightHistory
-	case 2:
-		return a.hideHistory
+	case 1, 2:
+		return a.keywordHist
 	}
 	return a.searchHistory
+}
+
+// histRowAt 历史列表第 row 行的条目:
+// 搜索=时序倒序(最新在前);高亮/隐藏=快照序(高频在前)。
+func (a *App) histRowAt(hist []string, row int) string {
+	if a.searchTab == 0 {
+		return hist[len(hist)-1-row]
+	}
+	return hist[row]
 }
 
 // handleSearchHistKeys 处理历史列表展开时的按键（导航/选中/关闭/续输）。
@@ -190,8 +205,7 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEscape:
 		a.searchHistMode = false
 	case tea.KeyEnter:
-		// 倒序：cursor=0 对应最新（历史末尾）
-		a.applySearchHistory(hist[n-1-a.searchHistCursor])
+		a.applySearchHistory(a.histRowAt(hist, a.searchHistCursor))
 	case tea.KeyUp:
 		if a.searchHistCursor > 0 {
 			a.searchHistCursor--
@@ -274,29 +288,10 @@ func splitKeywords(kw string) []string {
 	return clean
 }
 
-// addKeywordHistory 去重追加历史（最新在尾），上限 20。
-func addKeywordHistory(hist []string, entry string) []string {
-	if entry == "" {
-		return hist
-	}
-	for i, h := range hist {
-		if h == entry {
-			hist = append(hist[:i], hist[i+1:]...)
-			break
-		}
-	}
-	hist = append(hist, entry)
-	if len(hist) > 20 {
-		hist = hist[len(hist)-20:]
-	}
-	return hist
-}
-
 func (a *App) confirmHighlights() {
 	kw := strings.TrimSpace(a.highlightInput)
 	if kw != "" {
 		a.highlights = splitKeywords(kw)
-		a.highlightHistory = addKeywordHistory(a.highlightHistory, kw)
 		// 逐词计频(源 scope 隔离):C-r 高频列表数据源
 		for _, w := range a.highlights {
 			BumpUsage(keywordHistKey(usageHighlight, a.currentScope, w))
@@ -310,7 +305,7 @@ func (a *App) confirmHides() {
 	kw := strings.TrimSpace(a.hideInput)
 	if kw != "" {
 		a.hides = splitKeywords(kw)
-		a.hideHistory = addKeywordHistory(a.hideHistory, kw)
+		// 逐词计频(源 scope 隔离):C-r 高频列表数据源
 		for _, w := range a.hides {
 			BumpUsage(keywordHistKey(usageHide, a.currentScope, w))
 		}

@@ -97,12 +97,10 @@ type App struct {
 	searchHistory    []string
 	currentScope     string // 当前源词频隔离域(NewApp/ReplaceStream 刷新,空=全局)
 	searchHistMode   bool // ctrl+r 历史列表 overlay 是否展开
+	keywordHist      []string // 高亮/隐藏 C-r 快照(当前 scope 词频降序,打开时刷新)
 	timePresetMode   bool // ctrl+t 时间快捷片 overlay 是否展开（仅搜索分区）
 	timePresetCursor int  // 快捷片选中索引
-	searchHistCursor int  // 列表选中索引，0=最新（列表倒序）
-
-	highlightHistory []string // 高亮关键词历史（确认时记录）
-	hideHistory      []string // 隐藏关键词历史（确认时记录）
+	searchHistCursor int  // 列表选中索引（搜索=最新在前；高亮/隐藏=高频在前）
 
 	sshPwMode   bool   // SSH 密码输入框展开（密码认证重连）
 	sshPwInput  string // 密码（内存暂存，不落盘不进历史）
