@@ -25,6 +25,7 @@ func newTestApp() *App {
 	app := NewApp(&mockStream{}, nil, 1000, nil)
 	app.width = 120
 	app.height = 40
+	app.availableTabs = []int{0, 1, 2, 3} // 固定全量：环境过滤由专门测试覆盖
 	// push some test data
 	for i := 0; i < 20; i++ {
 		app.processLine(model.RawLine{

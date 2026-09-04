@@ -19,10 +19,10 @@ import (
 //   FRP tab:   连接列表（+ 新建连接 / 已存记录，搜索过滤）
 // Backspace 逐级返回；手动输入仍保留（路径/ns 直达）。
 
-// openSourcePicker 打开选择器（tab 可预选）。
+// openSourcePicker 打开选择器（tab 可预选；不可见时钳制到首个可见 tab）。
 func (a *App) openSourcePicker(tab int) {
+	a.sourceTab = a.clampSourceTab(tab)
 	a.sourcePickerMode = true
-	a.sourceTab = tab
 	a.pickerChecked = map[string]bool{}
 	a.pickerCursor = 0
 	a.pickerLoading = false
@@ -59,6 +59,19 @@ func (a *App) openSourcePicker(tab int) {
 	a.pickerFRPUser = ""
 	a.pickerFRPDir = ""
 	a.pickerFRPConnName = ""
+}
+
+// clampSourceTab tab 不在可见集时回落首个可见 tab（可见集恒含本地 tab 1）。
+func (a *App) clampSourceTab(tab int) int {
+	for _, t := range a.availableTabs {
+		if t == tab {
+			return tab
+		}
+	}
+	if len(a.availableTabs) == 0 {
+		return 1 // 防御：NewApp 未初始化/空集时至少本地可用
+	}
+	return a.availableTabs[0]
 }
 
 func (a *App) closeSourcePicker() {
