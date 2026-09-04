@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,11 +125,13 @@ func saveUsageLocked() {
 
 // usageKey 各候选域的 key 前缀。
 const (
-	usageSSHHost = "ssh:"
-	usageK8sCtx  = "k8sctx:"
-	usageK8sNS   = "k8sns:"
-	usageK8sRes  = "k8sres:"
-	usageFRPConn = "frp:"
+	usageSSHHost   = "ssh:"
+	usageK8sCtx    = "k8sctx:"
+	usageK8sNS     = "k8sns:"
+	usageK8sRes    = "k8sres:"
+	usageFRPConn   = "frp:"
+	usageHighlight = "hl:"
+	usageHide      = "hide:"
 )
 
 // sortCandidatesHot 候选按（衰减频次降序, 名称升序）排序；带 hot 标记（★ 前缀给常用项 label）。
@@ -161,6 +164,50 @@ func sortCandidatesHot(items []sourceCandidate, keyPrefix string, mark bool) []s
 			it.label = "★ " + it.label
 		}
 		out[i] = it
+	}
+	return out
+}
+
+// keywordHistKey 高亮/隐藏词频 key:kind+scope+":"+词(scope 空即全局)。
+func keywordHistKey(kind, scope, word string) string {
+	return kind + scope + ":" + word
+}
+
+// sortedUsageWords 按 kind+scope 前缀捞词条,衰减分降序、同分 LastUsed 新→旧、
+// 再同则词序升序,剥前缀返回词,截前 limit(C-r 高亮/隐藏历史列表数据源)。
+func sortedUsageWords(kind, scope string, limit int) []string {
+	usageMu.Lock()
+	m := loadUsage()
+	usageMu.Unlock()
+	prefix := kind + scope + ":"
+	now := time.Now()
+	type ranked struct {
+		word  string
+		score float64
+		last  int64
+	}
+	var rs []ranked
+	for k, e := range m {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		rs = append(rs, ranked{word: k[len(prefix):], score: e.decayed(now), last: e.LastUsed})
+	}
+	sort.Slice(rs, func(i, j int) bool {
+		if rs[i].score != rs[j].score {
+			return rs[i].score > rs[j].score
+		}
+		if rs[i].last != rs[j].last {
+			return rs[i].last > rs[j].last
+		}
+		return rs[i].word < rs[j].word
+	})
+	if len(rs) > limit {
+		rs = rs[:limit]
+	}
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.word
 	}
 	return out
 }

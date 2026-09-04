@@ -95,6 +95,7 @@ type App struct {
 	searchMatchIdx   int
 
 	searchHistory    []string
+	currentScope     string // 当前源词频隔离域(NewApp/ReplaceStream 刷新,空=全局)
 	searchHistMode   bool // ctrl+r 历史列表 overlay 是否展开
 	timePresetMode   bool // ctrl+t 时间快捷片 overlay 是否展开（仅搜索分区）
 	timePresetCursor int  // 快捷片选中索引
@@ -221,6 +222,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		showKeyHints:   true,
 		exportState:    newExportState(),
 		sshPasswords:   make(map[string]string),
+		currentScope:   src.Scope(),
 		sourceColorIdx: make(map[string]int),
 		bookmarks:      make(map[uint64]bool),
 		availableTabs:  availableSourceTabs(),
@@ -294,6 +296,7 @@ func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
 	}
 	a.stream.Cleanup()
 	a.stream = src
+	a.currentScope = src.Scope()
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
 	// 无论 Start 成败都按新源重置视图（失败时在干净视图上展示错误行）
