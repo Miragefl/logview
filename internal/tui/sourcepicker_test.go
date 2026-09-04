@@ -562,3 +562,37 @@ func TestOpenSourcePickerClampsHiddenTab(t *testing.T) {
 		t.Fatalf("可见 tab 应原样保留, got %d", app.sourceTab)
 	}
 }
+
+// 空集防御:可见集为空时钳制回本地 tab。
+func TestClampSourceTabEmptySet(t *testing.T) {
+	app := newTestApp()
+	app.availableTabs = nil
+	if got := app.clampSourceTab(2); got != 1 {
+		t.Fatalf("空集防御应回本地 tab 1, got %d", got)
+	}
+}
+
+// K8s 隐藏时 Tab 循环 3→1、ShiftTab 1→3(跳过 0);单可见 tab 原地不动。
+func TestSourcePickerTabCycleSkipsHidden(t *testing.T) {
+	app := newTestApp()
+	app.availableTabs = []int{1, 2, 3}
+	app.openSourcePicker(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if app.sourceTab != 1 {
+		t.Fatalf("FRP(3) Tab 后应到本地(1),跳过隐藏的 K8s(0), got %d", app.sourceTab)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if app.sourceTab != 3 {
+		t.Fatalf("本地(1) ShiftTab 后应到 FRP(3), got %d", app.sourceTab)
+	}
+}
+
+func TestSourcePickerTabCycleSingleTab(t *testing.T) {
+	app := newTestApp()
+	app.availableTabs = []int{1} // 远端会话:仅本地
+	app.openSourcePicker(1)
+	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if app.sourceTab != 1 {
+		t.Fatalf("单可见 tab 时 Tab 应原地不动, got %d", app.sourceTab)
+	}
+}

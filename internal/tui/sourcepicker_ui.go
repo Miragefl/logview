@@ -200,10 +200,10 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.closeSourcePicker()
 		return a, nil
 	case tea.KeyTab:
-		a.sourceTab = (a.sourceTab + 1) % 4
+		a.sourceTab = a.cycleSourceTab(1)
 		return a, a.pickerTabEnterCmd()
 	case tea.KeyShiftTab:
-		a.sourceTab = (a.sourceTab + 3) % 4
+		a.sourceTab = a.cycleSourceTab(-1)
 		return a, a.pickerTabEnterCmd()
 	case tea.KeyUp:
 		if a.pickerCursor > 0 {
@@ -298,6 +298,19 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// cycleSourceTab 可见集内循环切换 tab(dir=1 正向,-1 反向);当前 tab 不在可见集时回落首个。
+func (a *App) cycleSourceTab(dir int) int {
+	if len(a.availableTabs) == 0 {
+		return a.sourceTab
+	}
+	for i, t := range a.availableTabs {
+		if t == a.sourceTab {
+			return a.availableTabs[(i+dir+len(a.availableTabs))%len(a.availableTabs)]
+		}
+	}
+	return a.availableTabs[0]
 }
 
 // pickerTabEnterCmd 切换 tab 后按需拉取候选。
