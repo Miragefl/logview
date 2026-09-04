@@ -297,6 +297,10 @@ func (a *App) confirmHighlights() {
 	if kw != "" {
 		a.highlights = splitKeywords(kw)
 		a.highlightHistory = addKeywordHistory(a.highlightHistory, kw)
+		// 逐词计频(源 scope 隔离):C-r 高频列表数据源
+		for _, w := range a.highlights {
+			BumpUsage(keywordHistKey(usageHighlight, a.currentScope, w))
+		}
 	} else {
 		a.highlights = nil
 	}
@@ -307,6 +311,9 @@ func (a *App) confirmHides() {
 	if kw != "" {
 		a.hides = splitKeywords(kw)
 		a.hideHistory = addKeywordHistory(a.hideHistory, kw)
+		for _, w := range a.hides {
+			BumpUsage(keywordHistKey(usageHide, a.currentScope, w))
+		}
 	} else {
 		a.hides = nil
 	}

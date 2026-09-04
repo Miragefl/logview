@@ -81,3 +81,57 @@ func TestSortedUsageWordsLimit(t *testing.T) {
 		t.Fatalf("截断/词序错误: len=%d first=%q last=%q", len(got), got[0], got[19])
 	}
 }
+
+// 确认多词输入逐词计频(全局域,mockStream scope 为空)。
+// 注:usageScore 返回衰减分(半衰期 7 天,LastUsed 截断到 Unix 秒),
+// bump 后即时读取恒 < 1(亚秒级幻影衰减),故用容差带而非精确等值。
+func TestConfirmHighlightsBumpPerWord(t *testing.T) {
+	resetUsage(t)
+	app := newTestApp()
+	app.searchTab = 1
+	app.highlightInput = "err,fail"
+	app.confirmHighlights()
+	for _, k := range []string{"hl::err", "hl::fail"} {
+		if s := usageScore(k); s < 0.99 || s > 1.01 {
+			t.Fatalf("key %s 应计 1 次, got %v", k, s)
+		}
+	}
+	if usageScore("hl::timeout") != 0 {
+		t.Fatal("未确认的词不应计数")
+	}
+}
+
+// 隐藏同构 + 空输入不计数。
+func TestConfirmHidesBumpAndEmpty(t *testing.T) {
+	resetUsage(t)
+	app := newTestApp()
+	app.searchTab = 2
+	app.hideInput = "health,metrics"
+	app.confirmHides()
+	for _, k := range []string{"hide::health", "hide::metrics"} {
+		if s := usageScore(k); s < 0.99 || s > 1.01 {
+			t.Fatalf("key %s 应计 1 次, got %v", k, s)
+		}
+	}
+	app.hideInput = ""
+	app.confirmHides() // 清空:不计数
+	if usageScore("hide::") != 0 {
+		t.Fatal("空输入不应产生计数")
+	}
+}
+
+// scope 隔离计频:切到 frp1 后确认,词计入 frp1 域而非全局。
+func TestConfirmScopedBump(t *testing.T) {
+	resetUsage(t)
+	app := newTestApp()
+	app.ReplaceStream(&scopedMock{scope: "frp1"})
+	app.searchTab = 1
+	app.highlightInput = "pay"
+	app.confirmHighlights()
+	if s := usageScore("hl:frp1:pay"); s < 0.99 || s > 1.01 {
+		t.Fatalf("应计入 frp1 域, got %v", s)
+	}
+	if usageScore("hl::pay") != 0 {
+		t.Fatal("不应污染全局域")
+	}
+}
