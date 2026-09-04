@@ -30,6 +30,9 @@ func NewFRPSource(name string, t frpTunnelHandle, user, path string, tailLines i
 
 func (s *FRPSource) Label() string { return fmt.Sprintf("frp://%s%s", s.name, s.inner.path) }
 
+// Scope 词频隔离域=FRP 连接名(同连接多条路径共享词频历史)。
+func (s *FRPSource) Scope() string { return s.name }
+
 func (s *FRPSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	return s.inner.Start(ctx)
 }

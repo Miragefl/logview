@@ -58,6 +58,9 @@ func (k *K8sSource) Label() string {
 	return fmt.Sprintf("k8s/%s/%s", k.resource.Kind, k.resource.Name)
 }
 
+// Scope 词频隔离域=统一 "k8s"(集群内资源共享词频历史)。
+func (k *K8sSource) Scope() string { return "k8s" }
+
 func (k *K8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	pods := k.podNames
 	var err error
@@ -193,6 +196,9 @@ func (m *MultiK8sSource) Label() string {
 	}
 	return strings.Join(labels, "+")
 }
+
+// Scope 词频隔离域=统一 "k8s"(与单 k8s 源同域聚合)。
+func (m *MultiK8sSource) Scope() string { return "k8s" }
 
 func (m *MultiK8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	out := make(chan model.RawLine, 512)

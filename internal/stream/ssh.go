@@ -115,6 +115,9 @@ func (s *SSHSource) Label() string {
 	return fmt.Sprintf("ssh://%s%s", s.host, s.path)
 }
 
+// Scope 词频隔离域=SSH 主机(同主机的多个路径共享词频历史)。
+func (s *SSHSource) Scope() string { return s.host }
+
 func (s *SSHSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	ch := make(chan model.RawLine, 256)
 	go func() {

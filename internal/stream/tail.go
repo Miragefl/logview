@@ -24,6 +24,9 @@ func NewTailSource(paths []string, followLines int) *TailSource {
 
 func (t *TailSource) Label() string { return "tail" }
 
+// Scope 本地 tail 属全局域(词频与全局历史共享)。
+func (t *TailSource) Scope() string { return "" }
+
 func (t *TailSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	ch := make(chan model.RawLine, 256)
 	go func() {

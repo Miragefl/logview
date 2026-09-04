@@ -19,6 +19,7 @@ func (m *mockStream) Start(_ context.Context) (<-chan model.RawLine, error) {
 	return ch, nil
 }
 func (m *mockStream) Label() string    { return "test" }
+func (m *mockStream) Scope() string    { return "" }
 func (m *mockStream) Cleanup() error   { return nil }
 
 func newTestApp() *App {

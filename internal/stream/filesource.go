@@ -22,6 +22,9 @@ func NewFileSource(paths []string) *FileSource {
 
 func (f *FileSource) Label() string { return "file" }
 
+// Scope 本地文件属全局域(词频与全局历史共享)。
+func (f *FileSource) Scope() string { return "" }
+
 func (f *FileSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	ch := make(chan model.RawLine, 256)
 	go func() {

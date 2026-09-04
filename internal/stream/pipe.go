@@ -20,6 +20,9 @@ func NewPipeSource(r io.Reader) *PipeSource {
 
 func (p *PipeSource) Label() string { return "pipe" }
 
+// Scope 管道属全局域(词频与全局历史共享)。
+func (p *PipeSource) Scope() string { return "" }
+
 func (p *PipeSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	ch := make(chan model.RawLine, 256)
 	go func() {
