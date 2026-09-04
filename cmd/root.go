@@ -43,7 +43,7 @@ var rootCmd = &cobra.Command{
 
 var pickerCmd = &cobra.Command{
 	Use:   "picker",
-	Short: "Open TUI with the source picker (k8s/local/ssh)",
+	Short: "Open TUI with the source picker (k8s/local/ssh/frp)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
