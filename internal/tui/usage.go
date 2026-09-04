@@ -160,7 +160,11 @@ func sortCandidatesHot(items []sourceCandidate, keyPrefix string, mark bool) []s
 	out := make([]sourceCandidate, len(ranks))
 	for i, r := range ranks {
 		it := r.item
-		if mark && r.score >= 1 {
+		// ★ 门槛取 0.99 而非 1:BumpUsage 落盘时 LastUsed 截断到整 Unix 秒,
+		// 而读取用带亚秒的 now 惰性衰减,刚用过一次的词读回 0.9999x < 1
+		// (7 天半衰期下的亚秒幻影衰减),严格 >= 1 会让 ★ 在新机器上永不点亮。
+		// 0.99 只影响 ★ 点亮门槛,不影响排序本身。
+		if mark && r.score >= 0.99 {
 			it.label = "★ " + it.label
 		}
 		out[i] = it

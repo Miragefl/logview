@@ -73,11 +73,16 @@ func TestSortedUsageWordsTieLastUsed(t *testing.T) {
 }
 
 // limit 截断:25 个同分词按词序取前 20。
+// 直写 entry 钉死相同 LastUsed(手法同 TestSortedUsageWordsTieLastUsed):
+// 真实 BumpUsage 逐词写盘,循环跨秒边界时各词 LastUsed 出现秒差,
+// 衰减分不再全同,词序断言会跨秒 flake;钉死后断言与真实时钟解耦。
 func TestSortedUsageWordsLimit(t *testing.T) {
 	resetUsage(t)
+	usageMu.Lock()
 	for i := 0; i < 25; i++ {
-		BumpUsage(fmt.Sprintf("hide::w%02d", i))
+		loadUsage()[fmt.Sprintf("hide::w%02d", i)] = usageEntry{Count: 1, LastUsed: 1000}
 	}
+	usageMu.Unlock()
 	got := sortedUsageWords(usageHide, "", 20)
 	if len(got) != 20 || got[0] != "w00" || got[19] != "w19" {
 		t.Fatalf("截断/词序错误: len=%d first=%q last=%q", len(got), got[0], got[19])
