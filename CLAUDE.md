@@ -7,7 +7,7 @@ LogView 是 Go 编写的终端日志查看器(TUI):支持本地文件 / 管道 /
 ## 知识库归属
 
 - 项目:logview(`~/Obsidian/10-Projects/logview/`,个人开源项目,无 DB/接口交付物豁免)
-- 分支映射:main → tui-overhaul(TUI 界面翻新,已完成);main → time-range-search(时间范围搜索 time: 语法,进行中);main → source-picker-env(源选择器环境过滤,进行中)
+- 分支映射:main → source-picker-env(源选择器环境过滤,已实现待发布);main → time-range-search(时间范围搜索 time: 语法,已实现待发布);main → tui-overhaul(TUI 界面翻新,已完成)。历史需求(initial-build/multi-k8s-resource/search-syntax-enhancement/search-history-popup/frp-stcp-source/source-picker-v2/code-refactor/builtin-themes)已归档 vault,开工前先 ls 需求目录
 
 ## 常用命令
 
@@ -67,5 +67,5 @@ LogStream.Start() → chan model.RawLine → tui.App.Update(batchMsg)
 ## 注意事项
 
 - **搜索/grep 时务必排除 `.worktrees/`**——里面是同名副本 worktree,不排除则每个文件命中两遍。
-- 设计文档有两套并行体系:`docs/plans/` + `docs/specs/` 是 plan 工作流产物(spec 与任务清单同名配对);`docs/superpowers/{plans,specs}/` 是 superpowers/writing-plans 工作流的日期前缀文档(仍在用,如 2026-08-25-frp-stcp-source)。新工作按需选一套,别混放。
+- skill 产物(spec/plan/design)一律写入 vault 需求目录 `specs/`/`plans/`(命名 `YYYY-MM-DD-主题.md`),禁止写入代码仓库;历史 23 份已于 2026-09-04 迁入 vault 各需求目录,代码仓库 `docs/` 仅存 README 截图。
 - 版本注入变量在 `main.go`(`main.version/commit/date`),Makefile 与 .goreleaser.yml 的 ldflags 必须一致。
