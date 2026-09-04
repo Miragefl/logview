@@ -596,3 +596,19 @@ func TestSourcePickerTabCycleSingleTab(t *testing.T) {
 		t.Fatalf("单可见 tab 时 Tab 应原地不动, got %d", app.sourceTab)
 	}
 }
+
+// 远端会话可见集 [1]:弹窗 tab 栏只画本地,不画 K8s/SSH/FRP。
+func TestSourcePickerLinesHidesUnavailableTabs(t *testing.T) {
+	app := newTestApp()
+	app.availableTabs = []int{1}
+	app.openSourcePicker(1)
+	lines := stripANSI(strings.Join(app.buildSourcePickerLines(10), "\n"))
+	for _, name := range []string{"K8s", "SSH", "FRP"} {
+		if strings.Contains(lines, name) {
+			t.Fatalf("远端会话 tab 栏不应包含 %s", name)
+		}
+	}
+	if !strings.Contains(lines, "本地") {
+		t.Fatal("远端会话 tab 栏应包含 本地")
+	}
+}

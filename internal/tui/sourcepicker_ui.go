@@ -303,7 +303,7 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // cycleSourceTab 可见集内循环切换 tab(dir=1 正向,-1 反向);当前 tab 不在可见集时回落首个。
 func (a *App) cycleSourceTab(dir int) int {
 	if len(a.availableTabs) == 0 {
-		return a.sourceTab
+		return a.sourceTab // 防御:可见集为空时保持当前 tab 不动
 	}
 	for i, t := range a.availableTabs {
 		if t == a.sourceTab {
@@ -1000,13 +1000,13 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 func (a *App) buildSourcePickerLines(vl int) []string {
 	var content strings.Builder
 
-	tabs := []string{"K8s", "本地", "SSH", "FRP"}
+	tabNames := []string{"K8s", "本地", "SSH", "FRP"}
 	var tabParts []string
-	for i, t := range tabs {
+	for _, i := range a.availableTabs {
 		if i == a.sourceTab {
-			tabParts = append(tabParts, PopupActiveTabStyle.Render(" "+t+" "))
+			tabParts = append(tabParts, PopupActiveTabStyle.Render(" "+tabNames[i]+" "))
 		} else {
-			tabParts = append(tabParts, PopupTabStyle.Render(" "+t+" "))
+			tabParts = append(tabParts, PopupTabStyle.Render(" "+tabNames[i]+" "))
 		}
 	}
 	content.WriteString(strings.Join(tabParts, "  ") + "\n" + popupTabSep(min(64, a.width-4)) + "\n\n")
