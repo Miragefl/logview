@@ -2,7 +2,10 @@ package stream
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -67,9 +70,46 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 
 	source := filepath.Base(path)
 
+	// gz 归档:全量解压顺序读(解压读满,行进 ring buffer,容量天然封顶),
+	// 读到 EOF 即止——归档不追加,follow 轮询无意义(followLines 同样不生效)。
+	br := bufio.NewReader(f)
+	if isGzipMagic(br) {
+		gz, gzErr := gzip.NewReader(br)
+		if gzErr != nil {
+			t.sendLine(ctx, ch, fmt.Sprintf("[logview] 解压 %s 失败: %v", path, gzErr), source)
+			return
+		}
+		defer gz.Close()
+		reader := bufio.NewReader(gz)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if line != "" {
+					if !t.sendLine(ctx, ch, trimNewline(line), source) {
+						return
+					}
+				}
+				if err != io.EOF {
+					t.sendLine(ctx, ch, fmt.Sprintf("[logview] 读取 %s 出错(可能已损坏): %v", path, err), source)
+				}
+				return
+			}
+			if !t.sendLine(ctx, ch, trimNewline(line), source) {
+				return
+			}
+		}
+	}
+
+	// 非 gz:现有逻辑(seek 取尾 + follow 轮询)零改动;全量读分支复用 br——
+	// Peek 虽不消费 br 缓冲,但已触发底层预读推进 fd 偏移,重建 reader 会丢文件头。
 	if t.followLines <= 0 {
 		// read all existing content
-		reader := bufio.NewReader(f)
+		reader := br
 		for {
 			select {
 			case <-ctx.Done():

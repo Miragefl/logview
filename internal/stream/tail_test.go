@@ -275,3 +275,60 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 		t.Errorf("appended = %v, want [new1, new2]", appended)
 	}
 }
+
+// gz 归档:followLines 不截断(解压读满),读完即止不进 follow 轮询(2s 超时内收齐即通过)。
+func TestTailSourceGzipFullContent(t *testing.T) {
+	dir := t.TempDir()
+	gzPath := filepath.Join(dir, "app.log.gz")
+	writeGzip(t, gzPath, "l1\nl2\nl3\nl4\nl5\n")
+
+	src := NewTailSource([]string{gzPath}, 2) // followLines=2 对 gz 不生效
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := src.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for len(lines) < 5 {
+		select {
+		case raw := <-ch:
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("gz 应解压读满 5 行, got %d: %v", len(lines), lines)
+		}
+	}
+	for i, want := range []string{"l1", "l2", "l3", "l4", "l5"} {
+		if lines[i] != want {
+			t.Fatalf("第 %d 行 = %q, want %q", i, lines[i], want)
+		}
+	}
+}
+
+// 非 gz 文件 seek 取尾行为不变(followLines 生效)。
+func TestTailSourcePlainUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	fpath := filepath.Join(dir, "a.log")
+	os.WriteFile(fpath, []byte("1\n2\n3\n4\n5\n"), 0644)
+
+	src := NewTailSource([]string{fpath}, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, _ := src.Start(ctx)
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for len(lines) < 2 {
+		select {
+		case raw := <-ch:
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("普通文件尾部 2 行超时, got %v", lines)
+		}
+	}
+	if lines[0] != "4" || lines[1] != "5" {
+		t.Fatalf("尾部 2 行 = %v, want [4 5]", lines)
+	}
+}
