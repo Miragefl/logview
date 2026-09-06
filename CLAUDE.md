@@ -7,7 +7,7 @@ LogView 是 Go 编写的终端日志查看器(TUI):支持本地文件 / 管道 /
 ## 知识库归属
 
 - 项目:logview(`~/Obsidian/10-Projects/logview/`,个人开源项目,无 DB/接口交付物豁免)
-- 分支映射:main → gzip-log-support(gzip 日志支持,已实现待发布);main → keyword-history-freq(关键词历史频次+拆词统计+源 scope 隔离,已实现待发布);main → source-picker-env(源选择器环境过滤,已完成,v0.16.0 发布);main → time-range-search(时间范围搜索 time: 语法,已完成,v0.16.0 发布);main → tui-overhaul(TUI 界面翻新,已完成)。历史需求(initial-build/multi-k8s-resource/search-syntax-enhancement/search-history-popup/frp-stcp-source/source-picker-v2/code-refactor/builtin-themes)已归档 vault,开工前先 ls 需求目录
+- 分支映射:main → gzip-log-support(gzip 日志支持,已完成,v0.17.0 发布);main → keyword-history-freq(关键词历史频次+拆词统计+源 scope 隔离,已完成,v0.17.0 发布);main → source-picker-env(源选择器环境过滤,已完成,v0.16.0 发布);main → time-range-search(时间范围搜索 time: 语法,已完成,v0.16.0 发布);main → tui-overhaul(TUI 界面翻新,已完成)。历史需求(initial-build/multi-k8s-resource/search-syntax-enhancement/search-history-popup/frp-stcp-source/source-picker-v2/code-refactor/builtin-themes)已归档 vault,开工前先 ls 需求目录
 
 ## 常用命令
 
