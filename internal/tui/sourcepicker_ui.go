@@ -784,6 +784,7 @@ func (a *App) confirmFRPPicker() tea.Cmd {
 	a.pickerFRPTunnel = nil // 隧道移交 FRPSource，防 closeSourcePicker 清理
 	a.closeSourcePicker()
 	src := stream.NewFRPSource(name, tunnel, user, path, 200)
+	src.SetBufferLines(a.bufSize) // gz 归档传回行数对齐本地 ring 容量
 	if pw := a.sshPasswords["frp:"+name]; pw != "" {
 		src.SetPassword(pw)
 	}
@@ -988,6 +989,7 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 		}
 		BumpUsage(usageSSHHost + host) // 热点：确认打开的 SSH 主机计入频次
 		src := stream.NewSSHSource(host, path, 200)
+		src.SetBufferLines(a.bufSize) // gz 归档传回行数对齐本地 ring 容量
 	if pw := a.sshPw(host); pw != "" {
 		src.SetPassword(pw)
 	}

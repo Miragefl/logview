@@ -86,12 +86,13 @@ func sshCommandPrefix(host string, port int) []string {
 // Auth is fully delegated to ssh (~/.ssh/config aliases, keys, agent, ProxyJump).
 // 密码认证：SetPassword 后经 SSH_ASKPASS 临时脚本喂给 ssh（免交互）。
 type SSHSource struct {
-	host      string
-	port      int
-	path      string
-	tailLines int
-	password  string
-	seq       atomic.Uint64
+	host        string
+	port        int
+	path        string
+	tailLines   int
+	bufferLines int // gz 归档的传回行数上限(与本地 ring 容量对齐;0=未注入,兜底 tailLines)
+	password    string
+	seq         atomic.Uint64
 }
 
 func NewSSHSource(host, path string, tailLines int) *SSHSource {
@@ -100,6 +101,9 @@ func NewSSHSource(host, path string, tailLines int) *SSHSource {
 
 // SetPort 指定 ssh 端口（frp 隧道场景 127.0.0.1:bindPort）。
 func (s *SSHSource) SetPort(p int) { s.port = p }
+
+// SetBufferLines 设置 gz 归档的传回行数上限(装配处传 ring buffer 容量,多传纯浪费网线)。
+func (s *SSHSource) SetBufferLines(n int) { s.bufferLines = n }
 
 // SetPassword 设置密码认证（TUI 密码框输入后调用）。
 func (s *SSHSource) SetPassword(pw string) { s.password = pw }
@@ -127,13 +131,28 @@ func (s *SSHSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 	return ch, nil
 }
 
+// remoteTailCommand 远端读取命令:gz 归档走解压管道(归档不追加,无 -F;
+// 截断行数优先 bufferLines,兜底 tailLines);普通文件维持 tail -F 语义。
+func (s *SSHSource) remoteTailCommand() string {
+	if strings.HasSuffix(s.path, ".gz") {
+		n := s.bufferLines
+		if n <= 0 {
+			n = s.tailLines
+		}
+		if n > 0 {
+			return fmt.Sprintf("gzip -dc %s | tail -n %d", shellQuote(s.path), n)
+		}
+		return fmt.Sprintf("gzip -dc %s", shellQuote(s.path))
+	}
+	if s.tailLines > 0 {
+		return fmt.Sprintf("tail -n %d -F %s", s.tailLines, shellQuote(s.path))
+	}
+	return fmt.Sprintf("tail -F %s", shellQuote(s.path))
+}
+
 func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
 	args := sshCommandPrefix(s.host, s.port)
-	if s.tailLines > 0 {
-		args = append(args, fmt.Sprintf("tail -n %d -F %s", s.tailLines, shellQuote(s.path)))
-	} else {
-		args = append(args, fmt.Sprintf("tail -F %s", shellQuote(s.path)))
-	}
+	args = append(args, s.remoteTailCommand())
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cleanup, err := applySSHAuth(cmd, s.password)
@@ -235,6 +254,7 @@ func isSSHErrorLine(text string) bool {
 		"timed out",
 		"tail: cannot open",
 		"tail: no such file",
+		"gzip:",
 	} {
 		if strings.Contains(lower, pat) {
 			return true

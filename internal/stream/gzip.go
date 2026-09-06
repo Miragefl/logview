@@ -11,7 +11,8 @@ import (
 // gzipMagic gzip 流头两字节(RFC 1952),本地嗅探依据(与文件名无关)。
 var gzipMagic = []byte{0x1f, 0x8b}
 
-// isGzipMagic br 头两字节是否 gzip magic(Peek 不消费流,调用方可继续读/Seek)。
+// isGzipMagic br 头两字节是否 gzip magic(Peek 不消费 bufio 的逻辑读位,
+// 但可能触发预读推进底层 fd 偏移——嗅探后请复用同一 br,勿重建 reader)。
 func isGzipMagic(br *bufio.Reader) bool {
 	magic, err := br.Peek(2)
 	return err == nil && bytes.Equal(magic, gzipMagic)

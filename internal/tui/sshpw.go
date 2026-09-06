@@ -100,6 +100,7 @@ func (a *App) confirmSSHPw() tea.Cmd {
 		return nil
 	}
 	src := stream.NewSSHSource(host, path, 200)
+	src.SetBufferLines(a.bufSize) // gz 归档传回行数对齐本地 ring 容量
 	src.SetPassword(pw)
 	return a.ReplaceStream(src)
 }

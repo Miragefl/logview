@@ -121,6 +121,7 @@ type App struct {
 	sourceTab         int   // 0=K8s 1=本地 2=SSH 3=FRP
 	availableTabs     []int // 环境可见 tab 集（NewApp 探测一次；空集防御时回本地）
 	pickSourceOnStart bool  // 启动即打开源选择器（picker 子命令）
+	bufSize           int   // ring 容量(SSH/FRP gz 装配传给 SSHSource)
 
 	pickerK8sLevel   int    // K8s 浏览层级：0=context 1=namespace 2=资源
 	pickerKubeCtx    string // 已选 kubectl context（空=当前）
@@ -211,6 +212,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		stream:         src,
 		parsers:        parsers,
 		buffer:         buffer.NewRingBuffer(bufSize),
+		bufSize:        bufSize,
 		keymap:         DefaultKeyMap(),
 		fieldMask:      fm,
 		fieldAlias:     overrideFieldAlias,

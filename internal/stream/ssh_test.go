@@ -113,3 +113,49 @@ func TestIsSSHErrorLine(t *testing.T) {
 		t.Error("normal line misclassified")
 	}
 }
+
+// 远端命令拼装:gz 走解压管道(无 -F,行数优先 bufferLines);普通文件零变化。
+func TestRemoteTailCommand(t *testing.T) {
+	cases := []struct {
+		name string
+		src  *SSHSource
+		want string
+	}{
+		{"普通+行数", &SSHSource{path: "/var/log/a.log", tailLines: 200},
+			"tail -n 200 -F /var/log/a.log"},
+		{"普通带空格路径", &SSHSource{path: "/var/log/my app.log", tailLines: 10},
+			"tail -n 10 -F '/var/log/my app.log'"},
+		{"普通无行数", &SSHSource{path: "/var/log/a.log"},
+			"tail -F /var/log/a.log"},
+		{"gz+bufferLines", &SSHSource{path: "/var/log/a.log.gz", tailLines: 200, bufferLines: 100000},
+			"gzip -dc /var/log/a.log.gz | tail -n 100000"},
+		{"gz 兜底 tailLines", &SSHSource{path: "/var/log/a.log.2026-09-05.gz", tailLines: 200},
+			"gzip -dc /var/log/a.log.2026-09-05.gz | tail -n 200"},
+		{"gz 双零全量", &SSHSource{path: "/var/log/x.gz"},
+			"gzip -dc /var/log/x.gz"},
+	}
+	for _, c := range cases {
+		if got := c.src.remoteTailCommand(); got != c.want {
+			t.Errorf("%s: remoteTailCommand() = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// SetBufferLines 注入。
+func TestSSHSourceSetBufferLines(t *testing.T) {
+	s := NewSSHSource("h", "/x.gz", 200)
+	if s.bufferLines != 0 {
+		t.Fatalf("默认 bufferLines 应为 0, got %d", s.bufferLines)
+	}
+	s.SetBufferLines(5000)
+	if s.bufferLines != 5000 {
+		t.Fatalf("SetBufferLines 后 = %d, want 5000", s.bufferLines)
+	}
+	// FRPSource 转发注入(inner 拿到同一值)。
+	// (NewFRPSource 对 nil 隧道会在构造期调 t.LocalPort() 触发 nil panic,故字面量构造)
+	fs := &FRPSource{inner: NewSSHSource("u@127.0.0.1", "/x.gz", 200)}
+	fs.SetBufferLines(7777)
+	if fs.inner.bufferLines != 7777 {
+		t.Fatalf("FRPSource 转发后 inner.bufferLines = %d, want 7777", fs.inner.bufferLines)
+	}
+}
