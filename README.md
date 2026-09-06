@@ -85,6 +85,7 @@ logview tail -f /var/log/app.log            # follow 模式
 logview tail -200f /var/log/app.log         # 最后 200 行 + 追踪
 logview file /var/log/app.log               # 只读模式
 logview file app1.log app2.log              # 多文件只读
+logview tail /var/log/app.log.gz            # gzip 归档直接打开:自动解压读满(-f 对归档无效,读到 EOF 即止)
 
 # 恢复会话
 logview tail -R -f /var/log/app.log         # 恢复搜索、过滤、光标位置
@@ -97,6 +98,7 @@ echo "hello" | logview                      # 自动检测 stdin
 ssh user@server "tail -f /var/log/app.log" | logview        # follow 远程日志
 ssh user@server "cat /var/log/app.log" | logview            # 只读整个远程文件
 ssh user@server "tail -200f /var/log/app.log" | logview     # 最后 200 行 + 追踪
+ssh user@server "gunzip -c /var/log/app.log.gz" | logview   # 远端 .gz 走服务器端解压管道(网络只传解压后行)
 
 # 其他
 logview version                             # 版本信息

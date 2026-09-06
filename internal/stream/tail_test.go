@@ -305,6 +305,16 @@ func TestTailSourceGzipFullContent(t *testing.T) {
 			t.Fatalf("第 %d 行 = %q, want %q", i, lines[i], want)
 		}
 	}
+
+	// gz 读完即止:follow 轮询若被误入,channel 不会关闭(1s 内应有关闭信号)
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("gz 读完后不应再收到新行(follow 轮询被误入?)")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("gz 读完后 channel 应关闭(误入 follow 轮询?)")
+	}
 }
 
 // 非 gz 文件 seek 取尾行为不变(followLines 生效)。
