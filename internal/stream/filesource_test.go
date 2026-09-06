@@ -201,3 +201,74 @@ func TestFileSourceCleanup(t *testing.T) {
 		t.Errorf("Cleanup() error: %v", err)
 	}
 }
+
+// gz 文件透明解压;混装普通文件逐个独立嗅探;损坏 gz 出错误行。
+func TestFileSourceReadsGzip(t *testing.T) {
+	dir := t.TempDir()
+	gzPath := filepath.Join(dir, "app.log.gz")
+	writeGzip(t, gzPath, "g1\ng2\ng3\n")
+	plainPath := filepath.Join(dir, "plain.log")
+	os.WriteFile(plainPath, []byte("p1\n"), 0644)
+
+	src := NewFileSource([]string{gzPath, plainPath})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := src.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+	for len(lines) < 4 {
+		select {
+		case raw := <-ch:
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			t.Fatalf("timed out, got %d/4 lines: %v", len(lines), lines)
+		}
+	}
+	want := []string{"g1", "g2", "g3", "p1"}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("第 %d 行 = %q, want %q", i, lines[i], want[i])
+		}
+	}
+}
+
+func TestFileSourceCorruptGzip(t *testing.T) {
+	dir := t.TempDir()
+	gzPath := filepath.Join(dir, "bad.log.gz")
+	writeGzip(t, gzPath, "line1\nline2\n")
+	data, _ := os.ReadFile(gzPath)
+	os.WriteFile(gzPath, data[:len(data)/2], 0644) // 截断一半:头合法,中途损坏
+
+	src := NewFileSource([]string{gzPath})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, _ := src.Start(ctx)
+
+	var lines []string
+	timeout := time.After(2 * time.Second)
+collect:
+	for {
+		select {
+		case raw, ok := <-ch:
+			if !ok {
+				break collect
+			}
+			lines = append(lines, raw.Text)
+		case <-timeout:
+			break collect
+		}
+	}
+	found := false
+	for _, l := range lines {
+		if strings.HasPrefix(l, "[logview]") && strings.Contains(l, "bad.log.gz") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("损坏 gz 应出 [logview] 错误行, got %v", lines)
+	}
+}

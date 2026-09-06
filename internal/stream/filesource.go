@@ -1,10 +1,9 @@
 package stream
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"sync/atomic"
 
@@ -37,7 +36,7 @@ func (f *FileSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 }
 
 func (f *FileSource) readFile(ctx context.Context, ch chan<- model.RawLine, path string) {
-	file, err := os.Open(path)
+	reader, closer, _, err := openMaybeGzip(path)
 	if err != nil {
 		// 打不开时向通道写一条错误提示行，避免用户面对空屏无反馈
 		raw := model.RawLine{
@@ -51,10 +50,9 @@ func (f *FileSource) readFile(ctx context.Context, ch chan<- model.RawLine, path
 		}
 		return
 	}
-	defer file.Close()
+	defer closer.Close()
 
 	source := filepath.Base(path)
-	reader := bufio.NewReader(file)
 	for {
 		select {
 		case <-ctx.Done():
@@ -66,6 +64,10 @@ func (f *FileSource) readFile(ctx context.Context, ch chan<- model.RawLine, path
 			// 末行无换行符时 ReadString 仍返回数据，先消费再退出
 			if line != "" {
 				f.sendLine(ctx, ch, trimNewline(line), source)
+			}
+			// 非 EOF 的读错误(如中途损坏的 gz)提示用户,而非静默截断
+			if err != io.EOF {
+				f.sendLine(ctx, ch, fmt.Sprintf("[logview] 读取 %s 出错(可能已损坏): %v", path, err), source)
 			}
 			break
 		}

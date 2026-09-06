@@ -57,7 +57,9 @@ func TestOpenMaybeGzip(t *testing.T) {
 	if err != nil || !isGz {
 		t.Fatalf("改名归档应嗅探成功: isGz=%v err=%v", isGz, err)
 	}
-	readAll(t, r)
+	if got := readAll(t, r); got != "hello\nworld\n" {
+		t.Fatalf("改名归档解压内容 = %q", got)
+	}
 	closer.Close()
 
 	// 普通文本:原样
