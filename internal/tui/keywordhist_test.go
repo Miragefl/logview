@@ -207,3 +207,58 @@ func TestSearchHistUnchanged(t *testing.T) {
 		t.Fatalf("搜索首行应为最新 b, got %q", got)
 	}
 }
+
+// 高亮/隐藏历史选词追加进输入框(逗号拼接、已含则不重复);搜索 tab 仍整框替换。
+func TestApplySearchHistoryAppend(t *testing.T) {
+	resetUsage(t)
+	app := newTestApp()
+
+	// 追加:框已有内容,选中新词拼接
+	app.searchTab = 1
+	app.highlightInput = "error,timeout"
+	app.highlightCursor = len([]rune("error,timeout"))
+	app.applySearchHistory("fail")
+	if app.highlightInput != "error,timeout,fail" {
+		t.Fatalf("追加后 = %q, want error,timeout,fail", app.highlightInput)
+	}
+	if app.highlightCursor != len([]rune("error,timeout,fail")) {
+		t.Fatalf("光标应在末尾, got %d", app.highlightCursor)
+	}
+
+	// 去重:已含的词不重复追加,框保持原样
+	app.applySearchHistory("error")
+	if app.highlightInput != "error,timeout,fail" {
+		t.Fatalf("重复词不应追加, got %q", app.highlightInput)
+	}
+
+	// 空框:直接填入
+	app.searchTab = 2
+	app.hideInput = ""
+	app.applySearchHistory("health")
+	if app.hideInput != "health" || app.hideCursor != len([]rune("health")) {
+		t.Fatalf("空框应直接填入, got %q cursor=%d", app.hideInput, app.hideCursor)
+	}
+
+	// 搜索 tab:整框替换不变
+	app.searchTab = 0
+	app.searchInput = "old query"
+	app.applySearchHistory("field:value")
+	if app.searchInput != "field:value" {
+		t.Fatalf("搜索 tab 应整框替换, got %q", app.searchInput)
+	}
+}
+
+// 纯函数:拼接与去重。
+func TestAppendKeywordToInput(t *testing.T) {
+	cases := []struct{ existing, q, want string }{
+		{"", "err", "err"},
+		{"err", "fail", "err,fail"},
+		{"err,fail", "err", "err,fail"}, // 已含不重复
+		{"err,", "fail", "err,,fail"},  // 尾悬逗号原样拼接(splitKeywords 容忍)
+	}
+	for _, c := range cases {
+		if got := appendKeywordToInput(c.existing, c.q); got != c.want {
+			t.Errorf("appendKeywordToInput(%q,%q) = %q, want %q", c.existing, c.q, got, c.want)
+		}
+	}
+}

@@ -239,17 +239,31 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// appendKeywordToInput 历史选词追加进输入框:框空直接返回 q,
+// 已含该词(拆词比较)则原样返回,否则逗号拼接。
+func appendKeywordToInput(existing, q string) string {
+	if existing == "" {
+		return q
+	}
+	for _, w := range splitKeywords(existing) {
+		if w == q {
+			return existing
+		}
+	}
+	return existing + "," + q
+}
+
 // applySearchHistory 把选中的历史词填入搜索框、关闭列表、重新过滤。
 func (a *App) applySearchHistory(q string) {
 	a.searchHistMode = false
-	// 填入当前分区的输入框
+	// 填入当前分区的输入框(高亮/隐藏追加累加,搜索整句替换)
 	switch a.searchTab {
 	case 1:
-		a.highlightInput = q
-		a.highlightCursor = len([]rune(q))
+		a.highlightInput = appendKeywordToInput(a.highlightInput, q)
+		a.highlightCursor = len([]rune(a.highlightInput))
 	case 2:
-		a.hideInput = q
-		a.hideCursor = len([]rune(q))
+		a.hideInput = appendKeywordToInput(a.hideInput, q)
+		a.hideCursor = len([]rune(a.hideInput))
 	default:
 		a.searchInput = q
 		a.searchCursor = len([]rune(q))
