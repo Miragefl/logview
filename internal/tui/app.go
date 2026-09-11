@@ -713,11 +713,11 @@ func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		a.panelFocus = false
-	case "up", "k":
+	case "up", "ctrl+k":
 		if a.fieldCursor > 0 {
 			a.fieldCursor--
 		}
-	case "down", "j":
+	case "down", "ctrl+j":
 		if a.fieldCursor < len(model.AllFields)-1 {
 			a.fieldCursor++
 		}
@@ -806,7 +806,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleLevelFilter("")
 	case "g", "G", "H", "M", "L",
 		"ctrl+d", "ctrl+f", "ctrl+u", "ctrl+b",
-		"up", "k", "down", "j", "pgup", "pgdown":
+		"up", "ctrl+k", "down", "ctrl+j", "pgup", "pgdown":
 		a.moveCursor(msg.String())
 	}
 	return a, nil
@@ -985,13 +985,13 @@ func (a *App) moveCursor(key string) {
 		}
 		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
-	case "up", "k":
+	case "up", "ctrl+k":
 		if a.cursor > 0 {
 			a.cursor--
 			a.cursor = a.skipFolded(a.cursor, -1)
 			a.autoscroll = false
 		}
-	case "down", "j":
+	case "down", "ctrl+j":
 		if a.cursor < last {
 			a.cursor++
 			a.cursor = a.skipFolded(a.cursor, 1)
@@ -1023,11 +1023,11 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.yankLines(a.visualStart, a.cursor)
 	case "esc":
 		a.visualMode = false
-	case "up", "k":
+	case "up", "ctrl+k":
 		if a.cursor > 0 {
 			a.cursor--
 		}
-	case "down", "j":
+	case "down", "ctrl+j":
 		if a.cursor < len(a.filteredView)-1 {
 			a.cursor++
 		}
@@ -1051,11 +1051,11 @@ func (a *App) handleExportKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		a.exportMode = false
-	case "up", "k":
+	case "up", "ctrl+k":
 		if a.exportState.Cursor > 0 {
 			a.exportState.Cursor--
 		}
-	case "down", "j":
+	case "down", "ctrl+j":
 		if a.exportState.Cursor < 2 {
 			a.exportState.Cursor++
 		}

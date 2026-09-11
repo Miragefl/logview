@@ -18,7 +18,7 @@ func (a *App) shortcutItems() []helpItem {
 	switch {
 	case a.detailMode:
 		return []helpItem{
-			{"j/k", "上下换行"},
+			{"C-j/C-k", "上下换行"},
 			{"y", "复制该行"},
 			{"Esc/d", "关闭"},
 		}
@@ -56,20 +56,20 @@ func (a *App) shortcutItems() []helpItem {
 		}
 	case a.visualMode:
 		return []helpItem{
-			{"j/k", "上下移动"},
+			{"C-j/C-k", "上下移动"},
 			{"g/G", "顶/底"},
 			{"y", "复制选中"},
 			{"Esc", "退出选择"},
 		}
 	case a.panelFocus:
 		return []helpItem{
-			{"↑/k ↓/j", "移动"},
+			{"C-k/↑ C-j/↓", "移动"},
 			{"Space/Enter", "切换显示"},
 			{"Esc/q", "关闭"},
 		}
 	case a.exportMode:
 		return []helpItem{
-			{"↑/k ↓/j", "移动"},
+			{"C-k/↑ C-j/↓", "移动"},
 			{"←/h →/l", "切换选项"},
 			{"Enter", "导出"},
 			{"Esc/q", "关闭"},

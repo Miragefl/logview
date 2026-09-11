@@ -51,16 +51,18 @@ func (a *App) handleTimePresetKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.timePresetCursor < n-1 {
 			a.timePresetCursor++
 		}
+	case tea.KeyCtrlJ:
+		if a.timePresetCursor < n-1 {
+			a.timePresetCursor++
+		}
+	case tea.KeyCtrlK:
+		if a.timePresetCursor > 0 {
+			a.timePresetCursor--
+		}
 	case tea.KeyRunes:
 		switch string(msg.Runes) {
-		case "k":
-			if a.timePresetCursor > 0 {
-				a.timePresetCursor--
-			}
-		case "j":
-			if a.timePresetCursor < n-1 {
-				a.timePresetCursor++
-			}
+		case "j", "k":
+			// 导航统一 C-j/C-k：裸 j/k 退役，列表内不移动、不关闭
 		default:
 			a.timePresetMode = false
 			return a.handleSearchKeys(msg)

@@ -10,17 +10,17 @@ import (
 	"github.com/justfun/logview/internal/model"
 )
 
-// handleDetailKeys 详情面板按键：j/k 联动移动光标（面板内容跟随），Esc/d/Enter/q 关闭。
+// handleDetailKeys 详情面板按键：C-j/C-k 联动移动光标（面板内容跟随，方向键兜底），Esc/d/Enter/q 关闭。
 func (a *App) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "enter", "q", "d":
 		a.detailMode = false
-	case "j", "down":
+	case "ctrl+j", "down":
 		if a.cursor < len(a.filteredView)-1 {
 			a.cursor++
 			a.detailClampOffset()
 		}
-	case "k", "up":
+	case "ctrl+k", "up":
 		if a.cursor > 0 {
 			a.cursor--
 			a.detailClampOffset()

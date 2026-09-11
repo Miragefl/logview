@@ -267,19 +267,7 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
-		// 无输入框的层（context 列表/ssh 主机候选）：j/k 移动
-		switch string(msg.Runes) {
-		case "k":
-			if a.pickerCursor > 0 {
-				a.pickerCursor--
-			}
-			return a, nil
-		case "j":
-			if a.pickerCursor < len(cands)-1 {
-				a.pickerCursor++
-			}
-			return a, nil
-		}
+		// 无输入框的层（context 列表/ssh 主机候选）：导航统一 C-j/C-k（外层 KeyCtrlJ/KeyCtrlK 分支），裸 j/k 退役为无操作
 	}
 
 	// 输入框编辑（K8s ns/资源过滤、本地路径/过滤、SSH 主机/过滤）

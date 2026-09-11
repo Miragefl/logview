@@ -13,6 +13,10 @@ func fakeKey(s string) tea.KeyMsg {
 	switch s {
 	case "ctrl+r":
 		return tea.KeyMsg{Type: tea.KeyCtrlR}
+	case "ctrl+j":
+		return tea.KeyMsg{Type: tea.KeyCtrlJ}
+	case "ctrl+k":
+		return tea.KeyMsg{Type: tea.KeyCtrlK}
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
@@ -85,7 +89,7 @@ func TestSearchHistPopupEscCloses(t *testing.T) {
 }
 
 // 历史 ["ERROR","WARN","INFO"]，倒序显示 WARN/INFO/ERROR... 展开后 cursor=0（最新=最后append的）。
-// j/↓ 往下（更旧），k/↑ 往上（更新），夹紧。
+// C-j/↓ 往下（更旧），C-k/↑ 往上（更新），夹紧。
 func TestSearchHistPopupNavigate(t *testing.T) {
 	app := newTestApp()
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
@@ -99,7 +103,7 @@ func TestSearchHistPopupNavigate(t *testing.T) {
 	app.Update(fakeKey("ctrl+r")) // 打开，cursor=0
 	n := len(app.searchHistory)   // 3
 
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // 往下
+	app.Update(fakeKey("ctrl+j")) // 往下
 	if app.searchHistCursor != 1 {
 		t.Fatalf("j 后 cursor 应=1，实际 %d", app.searchHistCursor)
 	}
@@ -115,11 +119,11 @@ func TestSearchHistPopupNavigate(t *testing.T) {
 	if app.searchHistCursor != 1 {
 		t.Fatalf("↑ 后 cursor 应=1，实际 %d", app.searchHistCursor)
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}) // k 往上
+	app.Update(fakeKey("ctrl+k")) // C-k 往上
 	if app.searchHistCursor != 0 {
-		t.Fatalf("k 后 cursor 应=0，实际 %d", app.searchHistCursor)
+		t.Fatalf("C-k 后 cursor 应=0，实际 %d", app.searchHistCursor)
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}) // 到顶夹紧
+	app.Update(fakeKey("ctrl+k")) // 到顶夹紧
 	if app.searchHistCursor != 0 {
 		t.Fatalf("到顶应夹紧 0，实际 %d", app.searchHistCursor)
 	}
@@ -199,5 +203,25 @@ func TestSearchHistPopupEmptyNoPanic(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})                     // 之前会 panic，现在应被 guard 拦截
 	if app.searchHistMode {
 		t.Fatalf("空历史时 guard 应关闭列表")
+	}
+}
+
+// 导航统一 C-j/C-k:历史列表裸 j/k 退役,cursor 不再移动。
+func TestSearchHistBareJKRetired(t *testing.T) {
+	app := newTestApp()
+	app.searchHistory = []string{"a", "b", "c"}
+	app.searchTab = 0
+	app.searchMode = true
+	app.Update(fakeKey("ctrl+r"))
+	if !app.searchHistMode {
+		t.Fatal("C-r 应打开历史列表")
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if app.searchHistCursor != 0 {
+		t.Fatalf("裸 j 应无导航作用, cursor=%d", app.searchHistCursor)
+	}
+	app.Update(fakeKey("ctrl+j"))
+	if app.searchHistCursor != 1 {
+		t.Fatalf("C-j 应下移, cursor=%d", app.searchHistCursor)
 	}
 }

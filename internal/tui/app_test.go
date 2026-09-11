@@ -170,11 +170,11 @@ func TestFieldPanelWorks(t *testing.T) {
 		t.Error("View should show field popup after pressing f")
 	}
 
-	// 按 j 移动光标到 thread 字段
+	// 按 C-j 移动光标到 thread 字段
 	// AllFields: time(0), source(1), level(2), thread(3), traceId(4), logger(5), message(6)
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=1 (source)
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=2 (level)
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // -> fieldCursor=3 (thread)
+	_, _ = app.Update(fakeKey("ctrl+j")) // -> fieldCursor=1 (source)
+	_, _ = app.Update(fakeKey("ctrl+j")) // -> fieldCursor=2 (level)
+	_, _ = app.Update(fakeKey("ctrl+j")) // -> fieldCursor=3 (thread)
 
 	// 按空格切换 thread 的显示
 	_, _ = app.Update(tea.KeyMsg{Type: tea.KeySpace})
@@ -322,8 +322,8 @@ func TestFieldToggleFullViewChange(t *testing.T) {
 
 	// 按 f 进入字段面板
 	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
-	// 按 j 到 level (index 1)
-	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	// 按 C-j 到 level (index 1)
+	_, _ = app.Update(fakeKey("ctrl+j"))
 	// 按空格切换 level 为不可见
 	_, _ = app.Update(tea.KeyMsg{Type: tea.KeySpace})
 	// 按 Esc 退出面板
@@ -402,11 +402,24 @@ func TestDetailPanel(t *testing.T) {
 			t.Errorf("详情面板应包含 %q", want)
 		}
 	}
-	// j 联动移动光标不崩
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	// C-j 联动移动光标不崩
+	app.Update(fakeKey("ctrl+j"))
 	// Esc 关闭
 	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	if app.detailMode {
 		t.Fatal("Esc 应关闭详情面板")
+	}
+}
+
+// 导航统一 C-j/C-k:主视图裸 j/k 退役,光标不再滚动。
+func TestMainViewBareJKRetired(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if app.cursor != 0 {
+		t.Fatalf("裸 j 应不再滚动, cursor=%d", app.cursor)
+	}
+	app.Update(fakeKey("ctrl+j"))
+	if app.cursor == 0 {
+		t.Fatal("C-j 应下移光标")
 	}
 }

@@ -214,16 +214,18 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.searchHistCursor < n-1 {
 			a.searchHistCursor++
 		}
+	case tea.KeyCtrlJ:
+		if a.searchHistCursor < n-1 {
+			a.searchHistCursor++
+		}
+	case tea.KeyCtrlK:
+		if a.searchHistCursor > 0 {
+			a.searchHistCursor--
+		}
 	case tea.KeyRunes:
 		switch string(msg.Runes) {
-		case "k":
-			if a.searchHistCursor > 0 {
-				a.searchHistCursor--
-			}
-		case "j":
-			if a.searchHistCursor < n-1 {
-				a.searchHistCursor++
-			}
+		case "j", "k":
+			// 导航统一 C-j/C-k：裸 j/k 退役，列表内不移动、不关闭
 		default:
 			// 其他字符：关闭列表，按正常逻辑进入搜索框
 			a.searchHistMode = false
