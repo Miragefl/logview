@@ -122,6 +122,7 @@ type App struct {
 	availableTabs     []int // 环境可见 tab 集（NewApp 探测一次；空集防御时回本地）
 	pickSourceOnStart bool  // 启动即打开源选择器（picker 子命令）
 	bufSize           int   // ring 容量(SSH/FRP gz 装配传给 SSHSource)
+	statsDirty        bool  // ring 发生淘汰后流式统计失真,recomputeView 需全量重算 levelCounts
 
 	pickerK8sLevel   int    // K8s 浏览层级：0=context 1=namespace 2=资源
 	pickerKubeCtx    string // 已选 kubectl context（空=当前）
@@ -323,6 +324,7 @@ func (a *App) resetViewState() {
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
 	a.levelCounts = make(map[string]int)
+	a.statsDirty = false // 清空后流式从头精确
 	a.bookmarks = make(map[uint64]bool)
 	a.bookmarkSeq = nil
 	a.cursor = 0
@@ -510,6 +512,10 @@ func (a *App) processLine(raw model.RawLine) {
 	}
 	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
+	// ring 满后每行淘汰旧行,流式 levelCounts 不减失真——标记待全量重算
+	if a.buffer.TotalReceived() > uint64(a.bufSize) {
+		a.statsDirty = true
+	}
 	if lv := pl.Get(model.FieldLevel); lv != "" {
 		if a.levelCounts == nil {
 			a.levelCounts = make(map[string]int)
@@ -545,6 +551,8 @@ func (a *App) reparsePending(p parser.Parser) {
 			}
 		}
 	}
+	// 升级重解析会原地改行(buffer.Set),流式 levelCounts 未跟进——标记待全量重算
+	a.statsDirty = true
 }
 
 func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
@@ -567,16 +575,23 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 }
 
 func (a *App) recomputeView() {
-	var view []*model.ParsedLine
+	// 预分配:省 append 扩容与 GC(10 万行下每键路径的最大头)
+	view := make([]*model.ParsedLine, 0, a.buffer.Len())
 	hiddenByHides := 0
-	levelCounts := make(map[string]int)
+	// levelCounts 仅在 ring 淘汰后失真(statsDirty),无淘汰时流式精确可跳过全量重算
+	var levelCounts map[string]int
+	if a.statsDirty {
+		levelCounts = make(map[string]int)
+	}
 	for i := 0; i < a.buffer.Len(); i++ {
 		line := a.buffer.Get(i)
 		if line == nil {
 			continue
 		}
-		if lv := line.Get(model.FieldLevel); lv != "" {
-			levelCounts[lv]++
+		if levelCounts != nil {
+			if lv := line.Get(model.FieldLevel); lv != "" {
+				levelCounts[lv]++
+			}
 		}
 		if len(a.hides) > 0 && a.matchHides(line) {
 			hiddenByHides++
@@ -595,13 +610,25 @@ func (a *App) recomputeView() {
 		view = append(view, line)
 	}
 	a.hiddenByHides = hiddenByHides
-	a.levelCounts = levelCounts
+	if levelCounts != nil {
+		a.levelCounts = levelCounts
+		a.statsDirty = false
+	}
 	a.filteredView = view
 	if a.cursor >= len(a.filteredView) {
 		a.cursor = max(0, len(a.filteredView)-1)
 	}
 	a.stGroups = stacktrace.Detect(view)
-	a.updateSearchStats()
+	// updateSearchStats 折叠:主循环已用同一 currentQuery 过滤,view 内必是命中行,
+	// 无需再对 filteredView 全量 MatchLine 一遍(10 万行约 30ms)——计数=len(view),
+	// 光标序号=光标前命中数(全命中即 min(cursor+1, len));searchInput 空则归零。
+	if a.searchInput == "" {
+		a.searchMatchCount = 0
+		a.searchMatchIdx = 0
+	} else {
+		a.searchMatchCount = len(view)
+		a.searchMatchIdx = max(0, min(a.cursor+1, len(view)))
+	}
 }
 
 func (a *App) SetRulesPath(path string) {
@@ -840,6 +867,7 @@ func (a *App) clearScreen() {
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
 	a.levelCounts = make(map[string]int)
+	a.statsDirty = false // 清空后流式从头精确
 	a.cursor = 0
 	a.offset = 0
 	a.newLogs = 0
