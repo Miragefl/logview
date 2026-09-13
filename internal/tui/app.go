@@ -106,7 +106,10 @@ type App struct {
 
 	ctxInput  string     // +x/-x 上下文输入态("+"/"-" 前缀 + 累积数字;空=未激活)
 	ctxLines  []ctxEntry // 上下文混入快照(nil=纯过滤视图;不随 follow 刷新)
-	ctxAnchor int        // 触发行在 filteredView 的索引(恢复回位)
+	// ctxViewCache 是 ctxLines 的物化视图(viewLines 渲染行集),buildCtxLines 构建、
+	// exitCtxView 置空——免 viewLines 每帧重建切片(混入态每行渲染调用一次)。
+	ctxViewCache []*model.ParsedLine
+	ctxAnchor    int // 触发行在 filteredView 的索引(恢复回位)
 
 	sshPwMode   bool   // SSH 密码输入框展开（密码认证重连）
 	sshPwInput  string // 密码（内存暂存，不落盘不进历史）
@@ -773,14 +776,10 @@ type ctxEntry struct {
 	dim bool
 }
 
-// viewLines 渲染用行集:混入态返回快照行,否则过滤视图。
+// viewLines 渲染用行集:混入态返回快照物化缓存(buildCtxLines 构建,与 ctxLines 同生共死),否则过滤视图。
 func (a *App) viewLines() []*model.ParsedLine {
-	if len(a.ctxLines) > 0 {
-		out := make([]*model.ParsedLine, len(a.ctxLines))
-		for i, e := range a.ctxLines {
-			out[i] = e.pl
-		}
-		return out
+	if a.ctxViewCache != nil {
+		return a.ctxViewCache
 	}
 	return a.filteredView
 }
@@ -842,15 +841,24 @@ func (a *App) buildCtxLines(before bool, n int) {
 		bi := idxOf[pl]
 		if bi >= lo && bi <= hi {
 			insertUpto(bi) // 该命中行之前的窗口未命中行先插入
+		} else if bi > hi && emitted <= hi {
+			// 首个越过窗口上界的命中行之前,先补齐窗口尾部未命中行(时间序,不得甩到列表末尾);
+			// 补齐后 emitted>hi,本分支与收尾 insertUpto 均自然失效。+x 路径 hi=anchorIdx,
+			// anchor 处理完 emitted 已=hi+1,此分支不触发,行为不变。
+			insertUpto(hi + 1)
 		}
 		lines = append(lines, ctxEntry{pl: pl, dim: false})
 		if pl == anchor {
 			newAnchor = len(lines) - 1
 		}
 	}
-	insertUpto(hi + 1) // 窗口尾部未命中行(下侧窗口越过窗口内最后一个命中行时)
+	insertUpto(hi + 1) // 兜底:窗口之后无命中行时,尾部未命中行补在列表末(即时间序原位)
 	a.autoscroll = false
 	a.ctxLines = lines
+	a.ctxViewCache = make([]*model.ParsedLine, len(lines))
+	for i, e := range lines {
+		a.ctxViewCache[i] = e.pl
+	}
 	if newAnchor >= 0 {
 		a.cursor = newAnchor
 	}
@@ -876,6 +884,7 @@ func (a *App) exitCtxView() {
 		return
 	}
 	a.ctxLines = nil
+	a.ctxViewCache = nil
 	if a.ctxAnchor < len(a.filteredView) {
 		a.cursor = a.ctxAnchor
 	}

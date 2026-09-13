@@ -203,6 +203,10 @@ func (a *App) buildWrapLines(vl int) []string {
 			text = a.renderLineTextWithBg(a.viewLines()[i], VisualBgColor, VisualFgColor)
 		} else {
 			text = a.renderLineText(a.viewLines()[i])
+			// 混入态插入行整体暗色(与 renderLine 非 wrap 路径一致);非混入态 ctxDim 恒 false,路径不变
+			if a.ctxDim(i) {
+				text = DetailDimStyle.Render(text)
+			}
 		}
 		wrapped := wrapAnsiText(text, w)
 		if a.showLineNum {

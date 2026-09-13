@@ -2,11 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/model"
+	"github.com/muesli/termenv"
 )
 
 // ctxSetup:12 行 buffer(L01..L12,奇数行 ERROR/偶数行 INFO),真实过滤(levelFilter=ERROR)
@@ -93,6 +96,87 @@ func TestCtxViewInsertMinus(t *testing.T) {
 		if !strings.Contains(out, probe) {
 			t.Fatalf("View 应含 %s(插入行+列表远端行共存)", probe)
 		}
+	}
+}
+
+// 回归:-x 窗口尾部未命中行必须按时间序插入(首个越过窗口的命中行之前),
+// 不得甩到混合列表末尾(-3 曾把 L08 追加到 L11 之后)。
+func TestCtxViewMinusTailOrder(t *testing.T) {
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// 窗口 (4,7]:L06/L08 未命中插入 dim;L08 必须落在 L07 与 L09 之间
+	want := []string{"L01", "L03", "L05", "L06d", "L07", "L08d", "L09", "L11"}
+	var got []string
+	for _, e := range app.ctxLines {
+		m := e.pl.Message
+		if e.dim {
+			m += "d"
+		}
+		got = append(got, m)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("-3 混合顺序 = %v, want %v", got, want)
+	}
+}
+
+// 回归:默认 - (n=5) 窗口 (4,9] 内未命中 L06/L08/L10 全部按时间序插入
+// (L10 落在 L09 与 L11 之间,曾甩尾到 L11 之后)。
+// 注:终审 brief 给的 want 漏了 L10d——手工推演 buffer idx9=L10 属窗口内 INFO,
+// 按 spec((idx, idx+n] 全量未命中行)应插入 dim,want 已修正为含 L10d。
+func TestCtxViewMinusDefaultOrder(t *testing.T) {
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	want := []string{"L01", "L03", "L05", "L06d", "L07", "L08d", "L09", "L10d", "L11"}
+	var got []string
+	for _, e := range app.ctxLines {
+		m := e.pl.Message
+		if e.dim {
+			m += "d"
+		}
+		got = append(got, m)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("- 默认混合顺序 = %v, want %v", got, want)
+	}
+}
+
+// 回归:wrap 模式(w)下插入行同样暗色——buildWrapLines 非 cursor 路径补 ctxDim 分支。
+// 探针策略:默认主题未加载时 DetailDimStyle 与 TimeStyle/HelpStyle 同为色 243,且
+// 详情面板也用 DetailDimStyle——按行定位断言:临时把全局 DetailDimStyle 换成独占色
+// (用毕还原),TrueColor profile 强制开启(无 TTY 测试环境会剥色),断言 L06 所在
+// 渲染行带独占 SGR。
+func TestCtxViewWrapDim(t *testing.T) {
+	prevProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(prevProfile)
+	prevStyle := DetailDimStyle
+	DetailDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ABCDEF"))
+	defer func() { DetailDimStyle = prevStyle }()
+
+	app := ctxSetup(t)
+	app.wrapMode = true
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	var dimRow string
+	for _, row := range strings.Split(app.View(), "\n") {
+		if strings.Contains(stripANSI(row), "L06") {
+			dimRow = row
+			break
+		}
+	}
+	if dimRow == "" {
+		t.Fatal("wrap 模式 View 应渲染插入行 L06")
+	}
+	seq := strings.Split(DetailDimStyle.Render("PROBE"), "PROBE")[0]
+	if seq == "" {
+		t.Fatal("前置:TrueColor 下 DetailDimStyle 应产生 SGR 序列")
+	}
+	if !strings.Contains(dimRow, seq) {
+		t.Fatalf("wrap 模式插入行 L06 应带 DetailDimStyle SGR %q, row=%q", seq, dimRow)
 	}
 }
 
