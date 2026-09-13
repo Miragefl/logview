@@ -100,6 +100,11 @@ ssh user@server "cat /var/log/app.log" | logview            # 只读整个远程
 ssh user@server "tail -200f /var/log/app.log" | logview     # 最后 200 行 + 追踪
 ssh user@server "gunzip -c /var/log/app.log.gz" | logview   # 远端 .gz 走服务器端解压管道(网络只传解压后行)
 
+# 管道 DSL(grep 预过滤后进 TUI,仍可搜索/高亮)
+logview './park.log | grep 123'
+logview 'tail -100f /var/log/app.log | grep -E "ERROR|WARN"'
+logview 'cat app.log.gz | gunzip | grep 123'
+
 # 其他
 logview version                             # 版本信息
 logview --config /path/to/config ...        # 指定配置目录
@@ -188,6 +193,7 @@ SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；�
 | `e` | 展开 / 折叠堆栈 |
 | `w` | 切换自动换行 |
 | `d` | 行详情面板（完整字段 + 消息全文 + 原始行，`C-j/C-k` 联动换行，`Esc`/`Enter`/`q`/`d` 关闭，`y` 复制） |
+| `+x` / `-x` | 过滤后查看当前行上/下 x 行原始日志(暗色混入,Enter 生效默认 5,Esc/移动恢复) |
 | `o` / `q` | 打开源选择器（K8s/本地/SSH/FRP） |
 | `\` | 收起 / 展开底部快捷键提示栏 |
 | `S-c` | 清空屏幕 |

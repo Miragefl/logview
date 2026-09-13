@@ -413,6 +413,14 @@ func Execute() {
 	// bare logview (+flags, no subcommand) on a TTY opens the TUI source picker instead of help;
 	// bare logview <file.log> on a TTY opens the file in tail mode (README 快速开始语义)
 	if !argsHasSubcommand(args) {
+		// 管道 DSL:logview './a.log | grep 123'(恰好一个含 | 的位置参数)
+		if dsl := pipeDSLArg(args); dsl != "" {
+			if err := runPipeDSL(dsl); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 		if info, _ := os.Stdin.Stat(); info.Mode()&os.ModeNamedPipe != 0 || !isTerminal(info) {
 			args = append([]string{"pipe"}, args...)
 		} else if argsHasPositional(args) {
