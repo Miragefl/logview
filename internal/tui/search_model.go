@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/justfun/logview/internal/model"
@@ -10,6 +11,31 @@ import (
 
 // 本文件集中承载搜索/高亮/隐藏三个同构弹窗的状态逻辑：
 // 输入编辑、历史、字段建议、确认与匹配跳转。app.go 只保留按键分发。
+
+// searchDebounce 搜索输入防抖间隔:连续打字期间不触发全量过滤,
+// 停手该时长后兜底扫描一次(空格/Enter/Esc 为立即路径)。测试可注入短值。
+var searchDebounce = 1 * time.Second
+
+// searchDebounceMsg 防抖到期消息(tok 为发起时的令牌,新输入会作废旧令牌)。
+type searchDebounceMsg struct{ tok int }
+
+// flushSearch 应用未生效的搜索输入(幂等):pending 时全量重算。
+// Enter/Esc/关闭弹窗/历史选词等立即路径调用。
+func (a *App) flushSearch() {
+	if a.searchPending {
+		a.searchPending = false
+		a.searchDebounceTok++
+		a.recomputeView()
+	}
+}
+
+// scheduleSearchDebounce 返回携带当前令牌的防抖 tick(输入变更时调用)。
+func (a *App) scheduleSearchDebounce() tea.Cmd {
+	tok := a.searchDebounceTok
+	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
+		return searchDebounceMsg{tok: tok}
+	})
+}
 
 func (a *App) updateSearchStats() {
 	if a.searchInput == "" {
@@ -133,12 +159,26 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyTab:
 		a.searchTab = (a.searchTab + 1) % 3
 		a.activeSearchInput().clamp()
+		a.searchPending = false // 切分区取消未应用输入的防抖
+		a.searchDebounceTok++
 	case tea.KeyShiftTab:
 		a.searchTab = (a.searchTab + 2) % 3
 		a.activeSearchInput().clamp()
+		a.searchPending = false
+		a.searchDebounceTok++
 	default:
 		if _, changed := input.handleEditKeys(msg); changed && a.searchTab == 0 {
-			a.recomputeView()
+			if msg.String() == " " {
+				// 词边界立即过滤(用户敲完一个词),并作废在途防抖
+				a.searchDebounceTok++
+				a.searchPending = false
+				a.recomputeView()
+			} else {
+				// 连续输入防抖:不立即全量扫描,停手 searchDebounce 后兜底
+				a.searchDebounceTok++
+				a.searchPending = true
+				return a, a.scheduleSearchDebounce()
+			}
 		}
 		switch msg.String() {
 		case "ctrl+t":
@@ -269,6 +309,8 @@ func (a *App) applySearchHistory(q string) {
 	default:
 		a.searchInput = q
 		a.searchCursor = len([]rune(q))
+		a.searchDebounceTok++ // 立即路径:作废在途防抖
+		a.searchPending = false
 		a.recomputeView()
 	}
 }
@@ -286,6 +328,7 @@ func (a *App) activeSearchInput() inputRef {
 }
 
 func (a *App) closeSearchPopup() {
+	a.flushSearch() // 关闭前应用未生效的输入(与防抖前语义一致,不丢最后一次输入)
 	a.searchMode = false
 	a.starFields = nil
 	a.starCursor = 0

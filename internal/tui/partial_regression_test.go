@@ -51,6 +51,7 @@ func TestPartialQueryNoFreezeOnDelete(t *testing.T) {
 		app := newApp()
 		enterSearch(app)
 		typeS(app, "ERROR")
+		app.flushSearch() // 防抖后按键输入不再立即过滤,断言前手动应用
 		if len(app.filteredView) != 11 {
 			t.Fatalf("ERROR 应匹配 11，实际 %d", len(app.filteredView))
 		}
@@ -64,6 +65,7 @@ func TestPartialQueryNoFreezeOnDelete(t *testing.T) {
 		if app.searchInput != "ERROR" {
 			t.Fatalf("应删回 ERROR，实际 %q", app.searchInput)
 		}
+		app.flushSearch() // 同上:退格后过滤未应用,断言前手动应用
 		if len(app.filteredView) != 11 {
 			t.Fatalf("删回 ERROR 应为 11，实际 %d", len(app.filteredView))
 		}

@@ -96,6 +96,8 @@ type App struct {
 
 	searchHistory    []string
 	currentScope     string // 当前源词频隔离域(NewApp/ReplaceStream 刷新,空=全局)
+	searchPending     bool // 搜索输入已变更未应用(防抖期)
+	searchDebounceTok int  // 防抖令牌:输入变更/立即应用时自增,在途 tick 携带旧令牌即作废
 	searchHistMode   bool // ctrl+r 历史列表 overlay 是否展开
 	keywordHist      []string // 高亮/隐藏 C-r 快照(当前 scope 词频降序,打开时刷新)
 	timePresetMode   bool // ctrl+t 时间快捷片 overlay 是否展开（仅搜索分区）
@@ -390,6 +392,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, waitForStream(a.streamCh)
 	case tickMsg:
 		return a, tickEvery()
+	case searchDebounceMsg:
+		// 防抖到期:令牌仍有效且弹窗开着且确有未应用输入才生效
+		//(旧令牌/已关闭/已切分区一律丢弃)
+		if a.searchMode && a.searchPending && msg.tok == a.searchDebounceTok {
+			a.flushSearch()
+		}
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return a, a.shutdown()
