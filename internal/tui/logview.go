@@ -226,7 +226,14 @@ func (a *App) buildWrapLines(vl int) []string {
 	return lines
 }
 
+// foldedGroup 返回 viewLines 第 lineIdx 行所属的折叠堆栈组(组首行不折叠;已展开 nil)。
+// 混入态(ctxLines 非空)一律返回 nil:混入视图显示原始快照行,索引是快照坐标,
+// 而 stGroups 是 filteredView 坐标——错位查表会把快照行误渲染成 (N lines) 占位
+// 并吞掉组内后续行,故混入态禁折叠。
 func (a *App) foldedGroup(lineIdx int) *stacktrace.Group {
+	if len(a.ctxLines) > 0 {
+		return nil
+	}
 	for i := range a.stGroups {
 		g := &a.stGroups[i]
 		if lineIdx > g.Start && lineIdx <= g.End && !a.expanded[g.Start] {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -116,5 +117,57 @@ func TestCtxViewNoFilterAndNavExit(t *testing.T) {
 	app2.Update(fakeKey("ctrl+j")) // 移动键 → 恢复且不移动
 	if len(app2.ctxLines) != 0 || app2.cursor != 1 {
 		t.Fatalf("移动键应恢复且光标回锚, lines=%d cursor=%d", len(app2.ctxLines), app2.cursor)
+	}
+}
+
+// 回归:混入态禁折叠——stGroups 是 filteredView 坐标,混入视图按快照索引查表会错位,
+// 曾把快照行误渲染成 (N lines) 占位并吞行;混入态必须逐行显示原始快照。
+func TestCtxViewMixedNoFold(t *testing.T) {
+	app := newTestApp()
+	app.buffer.Clear()
+	app.levelCounts = map[string]int{}
+	app.filteredView = nil
+	app.stGroups = nil
+	for _, txt := range []string{
+		"java.lang.RuntimeException: com.foo boom", // 组首(含 Exception,自身不折叠)
+		"\tat com.foo.Bar.run(Bar.java:10)",
+		"\tat com.foo.Baz.call(Baz.java:20)",
+		"\tat com.foo.Qux.work(Qux.java:30)",
+		"INFO all done, nothing here",
+	} {
+		app.processLine(model.RawLine{Text: txt, Source: "st.log"})
+	}
+	app.searchInput = "com.foo" // 过滤留组首+3 帧行(INFO 行不含 com.foo)
+	app.recomputeView()
+	if len(app.filteredView) != 4 || len(app.stGroups) != 1 {
+		t.Fatalf("前置:过滤视图应 4 行且检出 1 个堆栈组, view=%d groups=%d",
+			len(app.filteredView), len(app.stGroups))
+	}
+	if app.foldedGroup(1) == nil {
+		t.Fatal("前置:非混入态组内帧行应可折叠")
+	}
+
+	app.cursor = 2 // filteredView[2] = at com.foo.Baz(buffer idx 2)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(app.ctxLines) != 3 { // buffer[0..2]:组首+Bar+Baz,+5 clamp 到头
+		t.Fatalf("+5 应混入 3 行, got %d", len(app.ctxLines))
+	}
+	if app.foldedGroup(1) != nil {
+		t.Fatal("混入态应禁折叠查表")
+	}
+	view := stripANSI(app.View())
+	if strings.Contains(view, "lines) [e") {
+		t.Fatal("混入态渲染不得出现折叠占位 (N lines)")
+	}
+	// 快照 3 行(组首/Bar/Baz)逐行可见;Qux 不在快照内
+	for _, want := range []string{"boom", "Bar.run", "Baz.call"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("混入快照行 %q 应逐行可见", want)
+		}
+	}
+	if strings.Contains(view, "Qux.work") {
+		t.Fatal("快照外的行不应出现")
 	}
 }

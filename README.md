@@ -103,7 +103,7 @@ ssh user@server "gunzip -c /var/log/app.log.gz" | logview   # 远端 .gz 走服�
 # 管道 DSL(grep 预过滤后进 TUI,仍可搜索/高亮)
 logview './park.log | grep 123'
 logview 'tail -100f /var/log/app.log | grep -E "ERROR|WARN"'
-logview 'cat app.log.gz | gunzip | grep 123'
+logview './app.log.gz | grep 123'
 
 # 其他
 logview version                             # 版本信息

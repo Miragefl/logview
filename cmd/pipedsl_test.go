@@ -66,6 +66,20 @@ func TestPipeDSLArg(t *testing.T) {
 	}
 }
 
+// 回归:带值 flag 的值不计入位置参数——-100f 被 expandTailArgs 展开成 --tail 100 -f 后,
+// 100 曾被当位置参数,DSL 串成第二个位置参数 → DSL 不触发 → 整串按文件名打开(静默白屏)。
+func TestPipeDSLArgSkipsFlagValues(t *testing.T) {
+	if got := pipeDSLArg([]string{"--tail", "100", "-f", "./a.log | grep x"}); got != "./a.log | grep x" {
+		t.Fatalf("flag 值不应计入位置参数, got %q", got)
+	}
+	if got := pipeDSLArg([]string{"--config=/path/with|pipe", "./a.log | grep x"}); got != "./a.log | grep x" {
+		t.Fatalf("--flag=value 的值不应计入, got %q", got)
+	}
+	if got := pipeDSLArg([]string{"--config", "/path/with|pipe"}); got != "" {
+		t.Fatalf("仅 flag 值含 | 不应触发 DSL, got %q", got)
+	}
+}
+
 // 首段源构造:裸路径→tail;tail -100f x→TailSource 行数;file x→FileSource。
 func TestPipeDSLFirstSegment(t *testing.T) {
 	src, err := firstSegmentSource([]string{"./a.log"}, 5000)

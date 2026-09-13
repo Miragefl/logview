@@ -435,15 +435,18 @@ func Execute() {
 	}
 }
 
+// valueFlagSet 以独立参数取值的 flag 集（argsHasPositional/pipeDSLArg 共用）：
+// 其后随值不算位置参数；--flag=value 单 token 自带 - 前缀，天然不算。
+var valueFlagSet = map[string]bool{
+	"--rule": true, "--buffer-size": true, "--config": true, "--tail": true, "-n": true,
+}
+
 // argsHasPositional 检查 args 中是否存在非 flag 位置参数（文件路径）。
 // 已知带值 flag（--rule/--buffer-size/--config/--tail 及 -n）的值会被跳过。
 func argsHasPositional(args []string) bool {
-	valueFlags := map[string]bool{
-		"--rule": true, "--buffer-size": true, "--config": true, "--tail": true, "-n": true,
-	}
 	for i := 0; i < len(args); i++ {
 		if strings.HasPrefix(args[i], "-") {
-			if valueFlags[args[i]] {
+			if valueFlagSet[args[i]] {
 				i++ // 跳过 flag 的值
 			}
 			continue

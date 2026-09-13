@@ -269,13 +269,20 @@ func runPipeDSL(dsl string) error {
 	return runTUI(src, false, cfg, false)
 }
 
-// pipeDSLArg 无子命令时,恰好一个含 | 的位置参数(非 flag)→ 返回之;否则空。
+// pipeDSLArg 无子命令时,恰好一个含 | 的位置参数(非 flag、非带值 flag 的值)→ 返回之;否则空。
+// 跳过规则与 argsHasPositional 共用 valueFlagSet:-100f 已被 expandTailArgs 展开成
+// --tail 100 -f,100 若被计成位置参数,DSL 串就成了第二个位置参数 → DSL 不触发,
+// 整串被当文件名打开(静默白屏)。
 func pipeDSLArg(args []string) string {
 	var positional []string
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			positional = append(positional, a)
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			if valueFlagSet[args[i]] {
+				i++ // 跳过 flag 的值
+			}
+			continue
 		}
+		positional = append(positional, args[i])
 	}
 	if len(positional) == 1 && strings.Contains(positional[0], "|") {
 		return positional[0]
