@@ -104,6 +104,10 @@ type App struct {
 	timePresetCursor int  // 快捷片选中索引
 	searchHistCursor int  // 列表选中索引（搜索=最新在前；高亮/隐藏=高频在前）
 
+	ctxInput  string     // +x/-x 上下文输入态("+"/"-" 前缀 + 累积数字;空=未激活)
+	ctxLines  []ctxEntry // 上下文混入快照(nil=纯过滤视图;不随 follow 刷新)
+	ctxAnchor int        // 触发行在 filteredView 的索引(恢复回位)
+
 	sshPwMode   bool   // SSH 密码输入框展开（密码认证重连）
 	sshPwInput  string // 密码（内存暂存，不落盘不进历史）
 	sshPwCursor int
@@ -763,10 +767,137 @@ func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// ctxEntry 混入视图条目:anchor=过滤命中的触发行(不暗),其余为原始上下文行(暗)。
+type ctxEntry struct {
+	pl     *model.ParsedLine
+	anchor bool
+}
+
+// viewLines 渲染用行集:混入态返回快照行,否则过滤视图。
+func (a *App) viewLines() []*model.ParsedLine {
+	if len(a.ctxLines) > 0 {
+		out := make([]*model.ParsedLine, len(a.ctxLines))
+		for i, e := range a.ctxLines {
+			out[i] = e.pl
+		}
+		return out
+	}
+	return a.filteredView
+}
+
+// ctxDim viewLines 第 idx 行是否暗色(混入态的非 anchor 行)。
+func (a *App) ctxDim(idx int) bool {
+	if len(a.ctxLines) == 0 || idx < 0 || idx >= len(a.ctxLines) {
+		return false
+	}
+	return !a.ctxLines[idx].anchor
+}
+
+// hasActiveFilter 是否有过滤(无过滤时全量视图即原始流,+/- 无意义)。
+func (a *App) hasActiveFilter() bool {
+	return a.searchInput != "" || a.levelFilter != "" || len(a.hides) > 0
+}
+
+// buildCtxLines 构建上下文快照:before=true 取 [idx-n, idx](上 x 行),否则 [idx, idx+n](下 x 行)。
+func (a *App) buildCtxLines(before bool, n int) {
+	if !a.hasActiveFilter() || len(a.filteredView) == 0 || a.cursor < 0 || a.cursor >= len(a.filteredView) {
+		return
+	}
+	target := a.filteredView[a.cursor]
+	idx := -1
+	for i := 0; i < a.buffer.Len(); i++ {
+		if a.buffer.Get(i) == target {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	lo, hi := idx, idx
+	if before {
+		lo = max(0, idx-n)
+	} else {
+		hi = min(a.buffer.Len()-1, idx+n)
+	}
+	a.ctxAnchor = a.cursor
+	var lines []ctxEntry
+	for i := lo; i <= hi; i++ {
+		lines = append(lines, ctxEntry{pl: a.buffer.Get(i), anchor: i == idx})
+		if i == idx {
+			a.cursor = len(lines) - 1 // 光标落 anchor 行
+		}
+	}
+	a.autoscroll = false
+	a.ctxLines = lines
+}
+
+// exitCtxView 恢复纯过滤视图(光标回触发行)。
+func (a *App) exitCtxView() {
+	if len(a.ctxLines) == 0 {
+		return
+	}
+	a.ctxLines = nil
+	if a.ctxAnchor < len(a.filteredView) {
+		a.cursor = a.ctxAnchor
+	}
+}
+
+// handleCtxInputKeys +x/-x 数字输入态:数字累积,Enter 生效(空=5),Esc 取消,其余忽略。
+func (a *App) handleCtxInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.ctxInput = ""
+		a.yankMsg = ""
+	case tea.KeyEnter:
+		n := 5
+		if digits := a.ctxInput[1:]; digits != "" {
+			n = 0
+			for _, r := range digits {
+				n = n*10 + int(r-'0')
+			}
+			if n > 1000 {
+				n = 1000 // 上限防呆
+			}
+		}
+		before := a.ctxInput[0] == '+'
+		a.ctxInput = ""
+		a.yankMsg = ""
+		a.buildCtxLines(before, n)
+	case tea.KeyRunes:
+		for _, r := range msg.Runes {
+			if r >= '0' && r <= '9' {
+				a.ctxInput += string(r)
+			}
+		}
+		a.yankMsg = "上下文 " + a.ctxInput + " (Enter 确认/Esc 取消)"
+	case tea.KeyBackspace:
+		if len(a.ctxInput) > 1 {
+			a.ctxInput = a.ctxInput[:len(a.ctxInput)-1]
+			a.yankMsg = "上下文 " + a.ctxInput + " (Enter 确认/Esc 取消)"
+		}
+	}
+	return a, nil
+}
+
 func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	a.yankMsg = ""
 	if a.handlePendingKey(msg) {
 		return a, nil
+	}
+	if a.ctxInput != "" {
+		return a.handleCtxInputKeys(msg)
+	}
+	if len(a.ctxLines) > 0 {
+		// 混入态:导航键族与 Esc 恢复(不继续移动),其余键先恢复再按原语义处理
+		switch msg.String() {
+		case "up", "ctrl+k", "down", "ctrl+j", "pgup", "pgdown", "g", "G",
+			"H", "M", "L", "ctrl+u", "ctrl+d", "ctrl+b", "ctrl+f", "esc", "z":
+			a.exitCtxView()
+			return a, nil
+		default:
+			a.exitCtxView()
+		}
 	}
 	if a.visualMode {
 		return a.handleVisualKeys(msg)
@@ -843,6 +974,11 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		"ctrl+d", "ctrl+f", "ctrl+u", "ctrl+b",
 		"up", "ctrl+k", "down", "ctrl+j", "pgup", "pgdown":
 		a.moveCursor(msg.String())
+	case "+", "-":
+		if a.hasActiveFilter() && len(a.filteredView) > 0 {
+			a.ctxInput = msg.String()
+			a.yankMsg = "上下文 " + a.ctxInput + " (Enter 确认/Esc 取消)"
+		}
 	}
 	return a, nil
 }

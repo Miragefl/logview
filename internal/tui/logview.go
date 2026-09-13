@@ -38,8 +38,8 @@ func (a *App) buildLogLines(vl int) []string {
 		vl = 1
 	}
 
-	if a.autoscroll && len(a.filteredView) > 0 {
-		a.cursor = len(a.filteredView) - 1
+	if a.autoscroll && len(a.viewLines()) > 0 {
+		a.cursor = len(a.viewLines()) - 1
 	}
 
 	if a.wrapMode {
@@ -51,8 +51,8 @@ func (a *App) buildLogLines(vl int) []string {
 	// pre-render cursor line to know its wrap height
 	cursorWrapped := []string{""}
 	cursorHeight := 1
-	if a.cursor >= 0 && a.cursor < len(a.filteredView) {
-		cursorWrapped = a.renderLineWrapped(a.filteredView[a.cursor], a.cursor)
+	if a.cursor >= 0 && a.cursor < len(a.viewLines()) {
+		cursorWrapped = a.renderLineWrapped(a.viewLines()[a.cursor], a.cursor)
 		cursorHeight = len(cursorWrapped)
 	}
 
@@ -98,7 +98,7 @@ func (a *App) buildLogLines(vl int) []string {
 			}
 			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines) [%s]", g.End-g.Start, hint)))
 		} else if g == nil {
-			lines = append(lines, a.renderLine(a.filteredView[idx], false, idx))
+			lines = append(lines, a.renderLine(a.viewLines()[idx], false, idx))
 		}
 	}
 
@@ -111,7 +111,7 @@ func (a *App) buildLogLines(vl int) []string {
 	lines = append(lines, cursorWrapped...)
 
 	// fill after cursor until we reach vl
-	for i := a.cursor + 1; i < len(a.filteredView) && len(lines) < vl; i++ {
+	for i := a.cursor + 1; i < len(a.viewLines()) && len(lines) < vl; i++ {
 		addLine(i)
 	}
 
@@ -152,7 +152,7 @@ func (a *App) buildWrapLines(vl int) []string {
 				// count visual rows from start, check if cursor beyond viewport
 				rows := 0
 				seen := make(map[int]bool)
-				for i := start; i <= a.cursor && i < len(a.filteredView); i++ {
+				for i := start; i <= a.cursor && i < len(a.viewLines()); i++ {
 					if g := a.foldedGroup(i); g != nil {
 						if seen[g.Start] {
 							continue
@@ -162,7 +162,7 @@ func (a *App) buildWrapLines(vl int) []string {
 						i = g.End
 						continue
 					}
-					text := a.renderLineText(a.filteredView[i])
+					text := a.renderLineText(a.viewLines()[i])
 					rows += len(wrapAnsiText(text, w))
 				}
 				if rows > vl {
@@ -176,7 +176,7 @@ func (a *App) buildWrapLines(vl int) []string {
 	var lines []string
 	rendered := make(map[int]bool)
 
-	for i := start; i < len(a.filteredView) && len(lines) < vl; i++ {
+	for i := start; i < len(a.viewLines()) && len(lines) < vl; i++ {
 		// folded group handling
 		if g := a.foldedGroup(i); g != nil {
 			if rendered[g.Start] {
@@ -198,15 +198,15 @@ func (a *App) buildWrapLines(vl int) []string {
 		inVisual := a.visualMode && i >= min(a.visualStart, a.cursor) && i <= max(a.visualStart, a.cursor)
 		var text string
 		if isCursor {
-			text = a.renderLineTextWithBg(a.filteredView[i], SelectedBgColor, SelectedFgColor)
+			text = a.renderLineTextWithBg(a.viewLines()[i], SelectedBgColor, SelectedFgColor)
 		} else if inVisual {
-			text = a.renderLineTextWithBg(a.filteredView[i], VisualBgColor, VisualFgColor)
+			text = a.renderLineTextWithBg(a.viewLines()[i], VisualBgColor, VisualFgColor)
 		} else {
-			text = a.renderLineText(a.filteredView[i])
+			text = a.renderLineText(a.viewLines()[i])
 		}
 		wrapped := wrapAnsiText(text, w)
 		if a.showLineNum {
-			wrapped = prefixLineNums(wrapped, i, len(a.filteredView))
+			wrapped = prefixLineNums(wrapped, i, len(a.viewLines()))
 		}
 
 		for _, wl := range wrapped {
@@ -306,7 +306,7 @@ func (a *App) visualStartFromWrap(cursor, targetRows int) int {
 			i = g.Start + 1
 			continue
 		}
-		text := a.renderLineText(a.filteredView[i])
+		text := a.renderLineText(a.viewLines()[i])
 		rows += len(wrapAnsiText(text, w))
 		if rows >= targetRows {
 			return i
@@ -387,7 +387,7 @@ func (a *App) renderLineWrapped(line *model.ParsedLine, lineIdx int) []string {
 	}
 	result := wrapAnsiText(text, w)
 	if a.showLineNum && len(result) > 0 {
-		result = prefixLineNums(result, lineIdx, len(a.filteredView))
+		result = prefixLineNums(result, lineIdx, len(a.viewLines()))
 	}
 	return result
 }
@@ -507,10 +507,14 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 	}
 	text = prefix + text
 	if a.showLineNum {
-		total := len(a.filteredView)
+		total := len(a.viewLines())
 		w := len(fmt.Sprintf("%d", total))
 		numStr := fmt.Sprintf("%*d │ ", w, lineIdx+1)
 		text = lineNumStyle.Render(numStr) + text
+	}
+	// 混入态非 anchor 行整体暗色(不做级别着色/选中高亮);非混入态 ctxDim 恒 false,路径不变
+	if a.ctxDim(lineIdx) {
+		return DetailDimStyle.Render(text)
 	}
 	inVisualRange := a.visualMode && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
 	cw := a.contentWidth()
