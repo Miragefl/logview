@@ -55,7 +55,7 @@ curl -L -o logview.tar.gz https://gitee.com/Mtok/logview/releases/download/v0.17
 tar xzf logview.tar.gz && rm logview.tar.gz
 sudo mv logview /usr/local/bin/
 
-# 或从源码编译（需要 Go >= 1.21）
+# 或从源码编译（需要 Go >= 1.26）
 git clone https://gitee.com/Mtok/logview.git
 cd logview && go build -o logview . && sudo mv logview /usr/local/bin/
 ```
@@ -115,7 +115,7 @@ logview --config /path/to/config ...        # 指定配置目录
 
 | 按键 | 功能 | | 按键 | 功能 |
 |------|------|-|------|------|
-| `↑` / `k` | 上移 | | `↓` / `j` | 下移 |
+| `↑` / `C-k` | 上移 | | `↓` / `C-j` | 下移 |
 | `g` | 顶部 | | `G` | 底部 |
 | `C-u` | 上半页 | | `C-d` | 下半页 |
 | `C-b` | 上翻页 | | `C-f` | 下翻页 |
@@ -132,6 +132,8 @@ logview --config /path/to/config ...        # 指定配置目录
 | `C-r` | 搜索/高亮/隐藏框内打开对应历史列表 |
 | `Esc` | 清除搜索 |
 
+> 输入防抖：连续打字不做全量过滤（任意大小文件都流畅），敲**空格**（词完成）、**停手约 1 秒**或 **Enter** 时生效。
+
 ### 切换日志源
 
 TUI 内按 `o` 或 `q` 打开源选择器，不退出即可切换日志源（切换后清屏）。选择器内再按 `q` 退出 logview（过滤输入时 `q` 作为字符，用 `C-c` 退出）：
@@ -139,8 +141,11 @@ TUI 内按 `o` 或 `q` 打开源选择器，不退出即可切换日志源（切
 | Tab | 浏览层级 | 操作 |
 |-----|---------|------|
 | `K8s` | context → namespace → 资源 | Enter 下钻/切换 context（全局生效），`Space` 勾选多个 deploy/pod，`C-j`/`C-k` 或方向键移动，`Backspace` 逐级返回 |
-| `本地` | 目录浏览器 | 目录列表（`/` 后缀）+ 日志文件，Enter 进目录/打开，`Backspace` 返回上级，也可直接输入路径 |
-| `SSH` | 主机 → 远程目录 | 主机候选（`ssh_hosts` + `~/.ssh/config`），Enter 连接浏览远程目录，Enter 选文件 `tail -F` |
+| `本地` | 目录浏览器 | 目录列表（`/` 后缀）+ 日志文件（`.gz` 直接打开，按内容自动解压），Enter 进目录/打开，`Backspace` 返回上级，也可直接输入路径 |
+| `SSH` | 主机 → 远程目录 | 主机候选（`ssh_hosts` + `~/.ssh/config`），Enter 连接浏览远程目录，Enter 选文件 `tail -F`；远端 `.gz` 自动走服务器端解压管道 |
+| `FRP` | 连接列表 → 远程目录 | 已存 frp(stcp) 连接一键直达（参数持久化），或表单新建；隧道自动建立，其余同 SSH 目录浏览 |
+
+**环境过滤**：本机无 `kubectl` 时自动隐藏 K8s tab；通过 SSH 登录的远端机器上只显示本地 tab（远端无需再嵌套选源）。
 
 SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；主机不可达时错误以 ERROR 行显示在日志区。裸 `logview`（无子命令）在终端中直接打开选择器。
 
@@ -182,7 +187,7 @@ SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；�
 | `e` | 展开 / 折叠堆栈 |
 | `w` | 切换自动换行 |
 | `d` | 行详情面板（完整字段 + 消息全文 + 原始行，`C-j/C-k` 联动换行） |
-| `o` / `q` | 打开源选择器（K8s/本地/SSH） |
+| `o` / `q` | 打开源选择器（K8s/本地/SSH/FRP） |
 | `\` | 收起 / 展开底部快捷键提示栏 |
 | `S-c` | 清空屏幕 |
 
@@ -237,7 +242,7 @@ level:ERROR AND time:>-30s       与其它条件自由组合
 
 ## 配置
 
-配置目录：`~/.config/logview/`，首次运行自动生成。修改后自动热重载，无需重启。
+配置目录：`~/.config/logview/`，首次运行自动生成。修改后重启 logview 生效。
 
 ### rules.yaml 完整示例
 
@@ -304,16 +309,10 @@ fields:
   - name: message
     visible: true
 
-# keybindings: 自定义快捷键（可选）
+# keybindings: 自定义快捷键（预留字段，当前版本未生效，按键固定见快捷键表）
 # keybindings:
 #   search: "/"
 #   search-next: "n"
-#   search-prev: "N"
-#   bookmark: "m"
-#   bookmark-jump: "'"
-#   line-numbers: "#"
-#   stats-panel: "S"
-#   quit: "q"
 ```
 
 ### 配置项说明
@@ -327,7 +326,7 @@ fields:
 | `theme_colors` | 覆盖主题颜色（十六进制） | 无 |
 | `fields` | 字段显示控制，隐藏后搜索仍可用；`width` 设固定列宽（超长截断，logger 缩写为 `c.y.c.Foo`，时间列超宽自动保时分秒） | 全部显示，默认列宽 time 12/thread 10/traceId 12/logger 20 |
 | `hides` | 默认隐藏关键词 | 无 |
-| `keybindings` | 自定义快捷键 | 见快捷键表 |
+| `keybindings` | 自定义快捷键（预留字段，当前版本未生效） | 见快捷键表 |
 | `ssh_hosts` | 源选择器 SSH tab 常用主机候选（与 ~/.ssh/config 合并） | 无 |
 
 ### 内置主题
@@ -369,7 +368,7 @@ logview completion fish > ~/.config/fish/completions/logview.fish
 ```
 
 ```
-logview <tab>              # 子命令: k8s, tail, file, pipe, version, completion
+logview <tab>              # 子命令: picker, k8s, tail, file, pipe, version, upgrade, completion
 logview k8s -n <tab>       # namespace 列表
 logview k8s deploy/<tab>   # Deployment 列表
 ```
@@ -380,14 +379,14 @@ logview k8s deploy/<tab>   # Deployment 列表
 
 | 功能 | 说明 |
 |------|------|
-| 多数据源 | k8s Pod/Deployment、本地文件、stdin 管道，多资源聚合 |
+| 多数据源 | k8s Pod/Deployment、本地文件（含 `.gz` 归档）、SSH/FRP 远程日志、stdin 管道，多资源聚合 |
 | follow 模式 | `-f` 追踪新日志，`-200f` 简写加载尾行数 |
 | 只读模式 | `logview file` 读取后停止，不追踪 |
 | 会话恢复 | `-R` 恢复搜索、过滤、光标位置 |
 | 智能解析 | 自动识别 JSON、Logback 等格式，patterns 模板复用 |
 | 搜索语法 | `field:value`、`AND/OR/NOT`、括号、引号、`time:` 时间范围（相对/日期/区间糖） |
 | 搜索导航 | `n`/`N` 跳转匹配，显示 `[当前/总数]` |
-| 搜索历史 | `C-r` 打开历史列表（搜索/高亮/隐藏各自记录最近 20 条，C-j/C-k 选择 Enter 填入） |
+| 搜索历史 | `C-r` 打开历史列表（搜索=最近 20 条时序；高亮/隐藏=按使用频次排序、跨会话留存、按日志源隔离），`C-j/C-k` 选择，高亮/隐藏 Enter **追加**进输入框 |
 | 高亮与隐藏 | `h` 多色高亮，`x` 隐藏关键词，支持配置预设 |
 | 级别过滤 | `E`/`W`/`I`/`D`/`A` 快速切换 |
 | 行详情面板 | `d` 查看完整字段 + 消息全文 + 原始行，`C-j/C-k` 联动逐行审查，JSON 自动美化 |
@@ -400,6 +399,6 @@ logview k8s deploy/<tab>   # Deployment 列表
 | Vim 滚动 | `zt/zz/zb`、`H/M/L`、`C-d/C-u`、`C-f/C-b`、scrolloff |
 | 可视化选择 | `v` 选择，`y` 复制 |
 | 主题配置 | 13 个内置主题，可逐项覆盖颜色 |
-| 自定义快捷键 | `rules.yaml` 的 `keybindings` 配置 |
+| 自定义快捷键 | `rules.yaml` 的 `keybindings`（预留，当前版本未生效） |
 | 配置热重载 | 修改 `rules.yaml` 自动生效 |
 | 命令补全 | bash / zsh / fish |
