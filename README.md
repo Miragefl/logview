@@ -400,5 +400,5 @@ logview k8s deploy/<tab>   # Deployment 列表
 | 可视化选择 | `v` 选择，`y` 复制 |
 | 主题配置 | 13 个内置主题，可逐项覆盖颜色 |
 | 自定义快捷键 | `rules.yaml` 的 `keybindings`（预留，当前版本未生效） |
-| 配置热重载 | 修改 `rules.yaml` 自动生效 |
+| 配置文件 | `rules.yaml` 解析规则/主题/字段显隐/默认隐藏词，重启生效 |
 | 命令补全 | bash / zsh / fish |
