@@ -767,10 +767,10 @@ func (a *App) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// ctxEntry 混入视图条目:anchor=过滤命中的触发行(不暗),其余为原始上下文行(暗)。
+// ctxEntry 混合视图条目:dim=插入的原始上下文行(未命中过滤);过滤命中行 dim=false。
 type ctxEntry struct {
-	pl     *model.ParsedLine
-	anchor bool
+	pl  *model.ParsedLine
+	dim bool
 }
 
 // viewLines 渲染用行集:混入态返回快照行,否则过滤视图。
@@ -785,12 +785,12 @@ func (a *App) viewLines() []*model.ParsedLine {
 	return a.filteredView
 }
 
-// ctxDim viewLines 第 idx 行是否暗色(混入态的非 anchor 行)。
+// ctxDim viewLines 第 idx 行是否暗色(插入的未命中上下文行)。
 func (a *App) ctxDim(idx int) bool {
 	if len(a.ctxLines) == 0 || idx < 0 || idx >= len(a.ctxLines) {
 		return false
 	}
-	return !a.ctxLines[idx].anchor
+	return a.ctxLines[idx].dim
 }
 
 // hasActiveFilter 是否有过滤(无过滤时全量视图即原始流,+/- 无意义)。
@@ -798,38 +798,76 @@ func (a *App) hasActiveFilter() bool {
 	return a.searchInput != "" || a.levelFilter != "" || len(a.hides) > 0
 }
 
-// buildCtxLines 构建上下文快照:before=true 取 [idx-n, idx](上 x 行),否则 [idx, idx+n](下 x 行)。
+// buildCtxLines 构建插入式混合视图:过滤列表完整保留,触发行旁插入原始流窗口内
+// 未命中过滤的行(before=true 上侧 [idx-n, idx),否则下侧 (idx, idx+n];命中行不重复插入)。
 func (a *App) buildCtxLines(before bool, n int) {
 	if !a.hasActiveFilter() || len(a.filteredView) == 0 || a.cursor < 0 || a.cursor >= len(a.filteredView) {
 		return
 	}
-	target := a.filteredView[a.cursor]
-	idx := -1
+	// 一次扫描:buffer 行 → bufferIdx 映射 + 触发行定位
+	idxOf := make(map[*model.ParsedLine]int, a.buffer.Len())
 	for i := 0; i < a.buffer.Len(); i++ {
-		if a.buffer.Get(i) == target {
-			idx = i
-			break
-		}
+		idxOf[a.buffer.Get(i)] = i
 	}
-	if idx < 0 {
+	anchor := a.filteredView[a.cursor]
+	anchorIdx, ok := idxOf[anchor]
+	if !ok {
 		return
 	}
-	lo, hi := idx, idx
+	lo, hi := anchorIdx, anchorIdx
 	if before {
-		lo = max(0, idx-n)
+		lo = max(0, anchorIdx-n)
 	} else {
-		hi = min(a.buffer.Len()-1, idx+n)
+		hi = min(a.buffer.Len()-1, anchorIdx+n)
 	}
 	a.ctxAnchor = a.cursor
+
 	var lines []ctxEntry
-	for i := lo; i <= hi; i++ {
-		lines = append(lines, ctxEntry{pl: a.buffer.Get(i), anchor: i == idx})
-		if i == idx {
-			a.cursor = len(lines) - 1 // 光标落 anchor 行
+	newAnchor := -1
+	// emitted=窗口内已输出到的 bufferIdx:逐命中行推进,既保证未命中行按流序插到位,又防重复插入
+	emitted := lo
+	insertUpto := func(upto int) { // 输出 [emitted, upto) 内的窗口未命中行(dim)
+		for i := emitted; i < upto && i <= hi; i++ {
+			pl := a.buffer.Get(i)
+			if filterHit(a, pl) {
+				continue
+			}
+			lines = append(lines, ctxEntry{pl: pl, dim: true})
+		}
+		if upto > emitted {
+			emitted = upto
 		}
 	}
+	for _, pl := range a.filteredView {
+		bi := idxOf[pl]
+		if bi >= lo && bi <= hi {
+			insertUpto(bi) // 该命中行之前的窗口未命中行先插入
+		}
+		lines = append(lines, ctxEntry{pl: pl, dim: false})
+		if pl == anchor {
+			newAnchor = len(lines) - 1
+		}
+	}
+	insertUpto(hi + 1) // 窗口尾部未命中行(下侧窗口越过窗口内最后一个命中行时)
 	a.autoscroll = false
 	a.ctxLines = lines
+	if newAnchor >= 0 {
+		a.cursor = newAnchor
+	}
+}
+
+// filterHit 行是否命中当前过滤(与 recomputeView 的判定一致,供插入式混入区分命中/未命中行)。
+func filterHit(a *App, line *model.ParsedLine) bool {
+	if len(a.hides) > 0 && a.matchHides(line) {
+		return false
+	}
+	if a.searchInput != "" && !a.currentQuery().MatchLine(line) {
+		return false
+	}
+	if a.levelFilter != "" && !a.matchLevelFilter(line) {
+		return false
+	}
+	return true
 }
 
 // exitCtxView 恢复纯过滤视图(光标回触发行)。

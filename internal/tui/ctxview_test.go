@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -8,90 +9,135 @@ import (
 	"github.com/justfun/logview/internal/model"
 )
 
-// ctxSetup 灌 12 行(L01..L12,message 含序号),过滤只留偶数行(6 行)。
+// ctxSetup:12 行 buffer(L01..L12,奇数行 ERROR/偶数行 INFO),真实过滤(levelFilter=ERROR)
+// 得过滤视图 6 行(L01/L03/.../L11),cursor 落 L05(过滤视图 idx=2,buffer idx=4)。
+// 用真实过滤而非手动视图:插入式混入靠 filterHit 判命中,setup 必须让 filterHit 语义真实。
 func ctxSetup(t *testing.T) *App {
 	t.Helper()
 	app := newTestApp()
+	app.width = 200
+	app.height = 50
 	app.buffer.Clear()
 	app.levelCounts = map[string]int{}
 	app.filteredView = nil
 	for i := 1; i <= 12; i++ {
-		app.processLine(model.RawLine{
-			Text:   "2026-09-13 10:00:00.000 [t] INFO  c.x.Svc - L" + string(rune('0'+i)),
-			Source: "ctx.log",
+		msg := fmt.Sprintf("L%02d", i)
+		lv := "INFO"
+		if i%2 == 1 {
+			lv = "ERROR" // 奇数行命中
+		}
+		app.buffer.Push(&model.ParsedLine{
+			Raw:     model.RawLine{Text: "2026-09-14 10:00:00.000 [t] " + lv + "  c.x.Svc - " + msg, Source: "ctx.log"},
+			Level:   lv,
+			Message: msg,
 		})
 	}
-	app.recomputeView()
-	app.searchInput = "L2 L4 L6 L8" // 占位,真实过滤用下面(hasActiveFilter 依据)
-	// 直接构造过滤视图:偶数行(用 search 语法不可表达奇偶,手动过滤)
-	var view []*model.ParsedLine
-	for i := 0; i < app.buffer.Len(); i++ {
-		pl := app.buffer.Get(i)
-		if i%2 == 1 { // L02/L04/.../L12
-			view = append(view, pl)
-		}
-	}
-	app.filteredView = view
-	app.cursor = 1 // L04
+	app.levelFilter = "ERROR"
+	app.recomputeView() // 真实过滤:L01/L03/.../L11 共 6 行
+	app.cursor = 2      // L05
 	return app
 }
 
-// +3:当前行(L04)+ 原始上 3 行(L01..L03),时间序,anchor=L04。
-func TestCtxViewPlus(t *testing.T) {
+// +3:过滤列表 6 行保留,触发行(L05)上方插入 buffer[L02,L04](未命中行,L03 命中不插)。
+func TestCtxViewInsertPlus(t *testing.T) {
 	app := ctxSetup(t)
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.ctxLines) != 4 {
-		t.Fatalf("+3 应混入 4 行(上3+当前), got %d", len(app.ctxLines))
+
+	vl := app.viewLines()
+	if len(vl) != 8 { // 6 过滤行 + 2 插入行(L02/L04)
+		t.Fatalf("+3 混合列表应 8 行(6+2), got %d", len(vl))
 	}
-	if app.ctxLines[0].pl != app.buffer.Get(0) || app.ctxLines[3].pl != app.buffer.Get(3) {
-		t.Fatal("混入行应为原始 buffer 指针 L01..L04")
+	// 顺序:L01,L02(dim),L03,L04(dim),L05(anchor),L07,L09,L11
+	wantDim := []bool{false, true, false, true, false, false, false, false}
+	for i, e := range app.ctxLines {
+		if e.dim != wantDim[i] {
+			t.Fatalf("ctxLines[%d].dim=%v, want %v", i, e.dim, wantDim[i])
+		}
 	}
-	if !app.ctxLines[3].anchor {
-		t.Fatal("最后一行应为 anchor(触发行)")
+	if app.cursor != 4 { // anchor(L05)在混合列表的新位置
+		t.Fatalf("anchor 光标应落 idx4, got %d", app.cursor)
 	}
-	// dim 语义:anchor 行不暗;上文行暗 —— ctxDim(idx) 以 viewLines 索引为准
-	if app.ctxDim(3) {
-		t.Fatal("anchor 行不应 dim(此处 anchor 在 idx 3)")
+	// View 级:插入行与列表远端行同时可见(替换式回归网——曾整视图被换成小快照)
+	out := app.View()
+	for _, probe := range []string{"L02", "L04", "L05", "L11"} {
+		if !strings.Contains(out, probe) {
+			t.Fatalf("View 应含 %s(插入行+列表远端行共存)", probe)
+		}
 	}
-	if !app.ctxDim(0) {
-		t.Fatal("非 anchor 上文行应 dim(此处 idx 0)")
-	}
-	// 恢复:Esc
+	// 恢复
 	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
-	if len(app.ctxLines) != 0 || app.cursor != 1 {
-		t.Fatalf("Esc 应恢复纯过滤视图与锚点光标, lines=%d cursor=%d", len(app.ctxLines), app.cursor)
+	if len(app.ctxLines) != 0 || app.cursor != 2 || len(app.viewLines()) != 6 {
+		t.Fatal("Esc 应恢复纯过滤视图与锚点")
 	}
 }
 
-// -2:当前行(L04)+ 下 2 行(L05/L06),anchor 在首位。
-func TestCtxViewMinus(t *testing.T) {
+// -2:触发行(L05)下方插入 (idx, idx+2] = L06,L07;L07 命中(奇数)不插 → 只插 L06。
+func TestCtxViewInsertMinus(t *testing.T) {
 	app := ctxSetup(t)
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.ctxLines) != 3 || !app.ctxLines[0].anchor {
-		t.Fatalf("-2 应 3 行且 anchor 在首位, got %d 行 anchor0=%v", len(app.ctxLines), app.ctxLines[0].anchor)
+
+	if len(app.ctxLines) != 7 { // 6 + L06
+		t.Fatalf("-2 混合列表应 7 行, got %d", len(app.ctxLines))
+	}
+	// 顺序:L01,L03,L05(anchor),L06(dim),L07,L09,L11
+	if !app.ctxLines[3].dim || app.ctxLines[3].pl != app.buffer.Get(5) {
+		t.Fatal("idx3 应为插入行 L06(dim)")
+	}
+	// View 级:插入行与列表远端行同时可见
+	out := app.View()
+	for _, probe := range []string{"L06", "L01", "L11"} {
+		if !strings.Contains(out, probe) {
+			t.Fatalf("View 应含 %s(插入行+列表远端行共存)", probe)
+		}
 	}
 }
 
-// Enter 空数字默认 5(边界 clamp 到 buffer 头)。
-func TestCtxViewDefaultAndClamp(t *testing.T) {
+// 边界 clamp:cursor 在列表首行(L01,buffer idx0)+默认5 → 上侧无行可插,视图=纯列表。
+func TestCtxViewInsertClampTop(t *testing.T) {
 	app := ctxSetup(t)
-	app.cursor = 0 // L02
+	app.cursor = 0 // L01
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.ctxLines) != 2 { // idx=1,上取 clamp 到 0:[0,1] 两行
-		t.Fatalf("+默认应 clamp 到 2 行, got %d", len(app.ctxLines))
+	if len(app.ctxLines) != 6 {
+		t.Fatalf("顶部 +默认应无插入行, got %d", len(app.ctxLines))
+	}
+	for i, e := range app.ctxLines {
+		if e.dim {
+			t.Fatalf("顶部 clamp 后不应有 dim 行, ctxLines[%d].dim=%v", i, e.dim)
+		}
 	}
 }
 
-// 输入态 Esc 取消;数字外字符忽略。
+// 移动键恢复回锚;无过滤 no-op。
+func TestCtxViewNavExitAndNoFilter(t *testing.T) {
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(fakeKey("ctrl+j"))
+	if len(app.ctxLines) != 0 || app.cursor != 2 {
+		t.Fatal("移动键应恢复且回锚")
+	}
+
+	app2 := newTestApp()
+	app2.searchInput = ""
+	app2.levelFilter = ""
+	app2.hides = nil
+	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app2.ctxInput != "" || len(app2.ctxLines) != 0 {
+		t.Fatal("无过滤时 + 应无操作")
+	}
+}
+
+// 输入态取消/非数字忽略。
 func TestCtxViewInputCancel(t *testing.T) {
 	app := ctxSetup(t)
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}) // 非数字忽略
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	if app.ctxInput != "+" {
 		t.Fatalf("非数字应忽略, ctxInput=%q", app.ctxInput)
 	}
@@ -101,27 +147,9 @@ func TestCtxViewInputCancel(t *testing.T) {
 	}
 }
 
-// 无过滤时 +/- 无操作;混入态导航键恢复。
-func TestCtxViewNoFilterAndNavExit(t *testing.T) {
-	app := newTestApp()
-	app.searchInput = ""
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if app.ctxInput != "" || len(app.ctxLines) != 0 {
-		t.Fatal("无过滤时 + 应无操作")
-	}
-
-	app2 := ctxSetup(t)
-	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
-	app2.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app2.Update(fakeKey("ctrl+j")) // 移动键 → 恢复且不移动
-	if len(app2.ctxLines) != 0 || app2.cursor != 1 {
-		t.Fatalf("移动键应恢复且光标回锚, lines=%d cursor=%d", len(app2.ctxLines), app2.cursor)
-	}
-}
-
-// 回归:混入态禁折叠——stGroups 是 filteredView 坐标,混入视图按快照索引查表会错位,
-// 曾把快照行误渲染成 (N lines) 占位并吞行;混入态必须逐行显示原始快照。
+// 回归:混入态禁折叠——stGroups 是 filteredView 坐标,混入视图按混合列表索引查表会错位,
+// 曾把快照行误渲染成 (N lines) 占位并吞行;混入态必须逐行显示。
+// 插入式语义下混合列表=完整过滤列表(含窗口外命中行 Qux),无未命中行落在窗口内 → 4 行全 dim=false。
 func TestCtxViewMixedNoFold(t *testing.T) {
 	app := newTestApp()
 	app.buffer.Clear()
@@ -151,8 +179,13 @@ func TestCtxViewMixedNoFold(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.ctxLines) != 3 { // buffer[0..2]:组首+Bar+Baz,+5 clamp 到头
-		t.Fatalf("+5 应混入 3 行, got %d", len(app.ctxLines))
+	if len(app.ctxLines) != 4 { // 窗口 [0,2] 内全是命中行,列表 4 行原样保留(含窗口外 Qux)
+		t.Fatalf("+5 应保留完整过滤列表 4 行, got %d", len(app.ctxLines))
+	}
+	for i, e := range app.ctxLines {
+		if e.dim {
+			t.Fatalf("窗口内全命中,不应有插入行, ctxLines[%d].dim=%v", i, e.dim)
+		}
 	}
 	if app.foldedGroup(1) != nil {
 		t.Fatal("混入态应禁折叠查表")
@@ -161,13 +194,14 @@ func TestCtxViewMixedNoFold(t *testing.T) {
 	if strings.Contains(view, "lines) [e") {
 		t.Fatal("混入态渲染不得出现折叠占位 (N lines)")
 	}
-	// 快照 3 行(组首/Bar/Baz)逐行可见;Qux 不在快照内
-	for _, want := range []string{"boom", "Bar.run", "Baz.call"} {
+	// 4 行过滤行逐行可见(含窗口外的 Qux——插入式:过滤列表完整保留)
+	for _, want := range []string{"boom", "Bar.run", "Baz.call", "Qux.work"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("混入快照行 %q 应逐行可见", want)
+			t.Fatalf("过滤列表行 %q 应逐行可见", want)
 		}
 	}
-	if strings.Contains(view, "Qux.work") {
-		t.Fatal("快照外的行不应出现")
+	// INFO 行未命中过滤且不在上侧窗口,不得出现
+	if strings.Contains(view, "nothing here") {
+		t.Fatal("窗口外未命中行不应出现")
 	}
 }
