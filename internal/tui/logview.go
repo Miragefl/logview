@@ -203,9 +203,10 @@ func (a *App) buildWrapLines(vl int) []string {
 			text = a.renderLineTextWithBg(a.viewLines()[i], VisualBgColor, VisualFgColor)
 		} else {
 			text = a.renderLineText(a.viewLines()[i])
-			// 混入态插入行整体暗色(与 renderLine 非 wrap 路径一致);非混入态 ctxDim 恒 false,路径不变
+			// 混入态插入行:剥内层列色统一暗色(内层 SGR 会覆盖外层 dim)+ ┆ 行首标记
+			// (wrap 文本生成前加,行号前缀照现有顺序);非混入态 ctxDim 恒 false,路径不变
 			if a.ctxDim(i) {
-				text = DetailDimStyle.Render(text)
+				text = DetailDimStyle.Render("┆ " + model.StripANSI(text))
 			}
 		}
 		wrapped := wrapAnsiText(text, w)
@@ -523,9 +524,9 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 		numStr := fmt.Sprintf("%*d │ ", w, lineIdx+1)
 		text = lineNumStyle.Render(numStr) + text
 	}
-	// 混入态非 anchor 行整体暗色(不做级别着色/选中高亮);非混入态 ctxDim 恒 false,路径不变
+	// 混入态插入行:剥内层列色统一暗色(内层 SGR 会覆盖外层 dim)+ ┆ 行首标记;非混入态 ctxDim 恒 false 路径不变
 	if a.ctxDim(lineIdx) {
-		return DetailDimStyle.Render(text)
+		return DetailDimStyle.Render("┆ " + model.StripANSI(text))
 	}
 	inVisualRange := a.visualMode && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
 	cw := a.contentWidth()

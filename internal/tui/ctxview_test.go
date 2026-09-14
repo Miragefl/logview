@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 // ctxSetup:12 行 buffer(L01..L12,奇数行 ERROR/偶数行 INFO),真实过滤(levelFilter=ERROR)
 // 得过滤视图 6 行(L01/L03/.../L11),cursor 落 L05(过滤视图 idx=2,buffer idx=4)。
 // 用真实过滤而非手动视图:插入式混入靠 filterHit 判命中,setup 必须让 filterHit 语义真实。
+// 方向语义(二修换向后):+ 往后(下侧窗口 (idx, idx+n]),- 往前(上侧窗口 [idx-n, idx))。
 func ctxSetup(t *testing.T) *App {
 	t.Helper()
 	app := newTestApp()
@@ -41,16 +43,85 @@ func ctxSetup(t *testing.T) *App {
 	return app
 }
 
-// +3:过滤列表 6 行保留,触发行(L05)上方插入 buffer[L02,L04](未命中行,L03 命中不插)。
+// +3(往后):下方插入 (4,7] 未命中行 L06,L08 在 L07/L09 之间。
+func TestCtxViewPlusAfter(t *testing.T) {
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	var got []string
+	for _, e := range app.ctxLines {
+		m := e.pl.Message
+		if e.dim {
+			m += "d"
+		}
+		got = append(got, m)
+	}
+	want := []string{"L01", "L03", "L05", "L06d", "L07", "L08d", "L09", "L11"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("+3(往后)顺序 = %v, want %v", got, want)
+	}
+	if app.cursor != 2 { // anchor L05 位置不变(上方无插入)
+		t.Fatalf("anchor 光标应仍在 idx2, got %d", app.cursor)
+	}
+}
+
+// -3(往前):上方插入 [1,4) 未命中行 L02,L04。
+func TestCtxViewMinusBefore(t *testing.T) {
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	var got []string
+	for _, e := range app.ctxLines {
+		m := e.pl.Message
+		if e.dim {
+			m += "d"
+		}
+		got = append(got, m)
+	}
+	want := []string{"L01", "L02d", "L03", "L04d", "L05", "L07", "L09", "L11"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("-3(往前)顺序 = %v, want %v", got, want)
+	}
+	if app.cursor != 4 { // anchor L05 因上方插入后移到 idx4
+		t.Fatalf("anchor 光标应落 idx4, got %d", app.cursor)
+	}
+}
+
+// +2(往后):触发行(L05)下方插入 (idx, idx+2] = L06;L07 命中(奇数)不插 → 只插 L06。
 func TestCtxViewInsertPlus(t *testing.T) {
 	app := ctxSetup(t)
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(app.ctxLines) != 7 { // 6 + L06
+		t.Fatalf("+2 混合列表应 7 行, got %d", len(app.ctxLines))
+	}
+	// 顺序:L01,L03,L05(anchor),L06(dim),L07,L09,L11
+	if !app.ctxLines[3].dim || app.ctxLines[3].pl != app.buffer.Get(5) {
+		t.Fatal("idx3 应为插入行 L06(dim)")
+	}
+	// View 级:插入行与列表远端行同时可见
+	out := app.View()
+	for _, probe := range []string{"L06", "L01", "L11"} {
+		if !strings.Contains(out, probe) {
+			t.Fatalf("View 应含 %s(插入行+列表远端行共存)", probe)
+		}
+	}
+}
+
+// -3(往前):过滤列表 6 行保留,触发行(L05)上方插入 buffer[L02,L04](未命中行,L03 命中不插)。
+func TestCtxViewInsertMinus(t *testing.T) {
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	vl := app.viewLines()
 	if len(vl) != 8 { // 6 过滤行 + 2 插入行(L02/L04)
-		t.Fatalf("+3 混合列表应 8 行(6+2), got %d", len(vl))
+		t.Fatalf("-3 混合列表应 8 行(6+2), got %d", len(vl))
 	}
 	// 顺序:L01,L02(dim),L03,L04(dim),L05(anchor),L07,L09,L11
 	wantDim := []bool{false, true, false, true, false, false, false, false}
@@ -59,7 +130,7 @@ func TestCtxViewInsertPlus(t *testing.T) {
 			t.Fatalf("ctxLines[%d].dim=%v, want %v", i, e.dim, wantDim[i])
 		}
 	}
-	if app.cursor != 4 { // anchor(L05)在混合列表的新位置
+	if app.cursor != 4 { // anchor(L05)在混合列表的新位置(上方插入后移)
 		t.Fatalf("anchor 光标应落 idx4, got %d", app.cursor)
 	}
 	// View 级:插入行与列表远端行同时可见(替换式回归网——曾整视图被换成小快照)
@@ -76,34 +147,11 @@ func TestCtxViewInsertPlus(t *testing.T) {
 	}
 }
 
-// -2:触发行(L05)下方插入 (idx, idx+2] = L06,L07;L07 命中(奇数)不插 → 只插 L06。
-func TestCtxViewInsertMinus(t *testing.T) {
+// 回归(换向适配,+ 现在是下侧):+x 窗口尾部未命中行必须按时间序插入
+// (首个越过窗口的命中行之前),不得甩到混合列表末尾(曾把 L08 追加到 L11 之后)。
+func TestCtxViewPlusTailOrder(t *testing.T) {
 	app := ctxSetup(t)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-
-	if len(app.ctxLines) != 7 { // 6 + L06
-		t.Fatalf("-2 混合列表应 7 行, got %d", len(app.ctxLines))
-	}
-	// 顺序:L01,L03,L05(anchor),L06(dim),L07,L09,L11
-	if !app.ctxLines[3].dim || app.ctxLines[3].pl != app.buffer.Get(5) {
-		t.Fatal("idx3 应为插入行 L06(dim)")
-	}
-	// View 级:插入行与列表远端行同时可见
-	out := app.View()
-	for _, probe := range []string{"L06", "L01", "L11"} {
-		if !strings.Contains(out, probe) {
-			t.Fatalf("View 应含 %s(插入行+列表远端行共存)", probe)
-		}
-	}
-}
-
-// 回归:-x 窗口尾部未命中行必须按时间序插入(首个越过窗口的命中行之前),
-// 不得甩到混合列表末尾(-3 曾把 L08 追加到 L11 之后)。
-func TestCtxViewMinusTailOrder(t *testing.T) {
-	app := ctxSetup(t)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	// 窗口 (4,7]:L06/L08 未命中插入 dim;L08 必须落在 L07 与 L09 之间
@@ -117,17 +165,17 @@ func TestCtxViewMinusTailOrder(t *testing.T) {
 		got = append(got, m)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("-3 混合顺序 = %v, want %v", got, want)
+		t.Fatalf("+3 混合顺序 = %v, want %v", got, want)
 	}
 }
 
-// 回归:默认 - (n=5) 窗口 (4,9] 内未命中 L06/L08/L10 全部按时间序插入
+// 回归(换向适配,+ 现在是下侧):默认 + (n=5) 窗口 (4,9] 内未命中 L06/L08/L10 全部按时间序插入
 // (L10 落在 L09 与 L11 之间,曾甩尾到 L11 之后)。
 // 注:终审 brief 给的 want 漏了 L10d——手工推演 buffer idx9=L10 属窗口内 INFO,
 // 按 spec((idx, idx+n] 全量未命中行)应插入 dim,want 已修正为含 L10d。
-func TestCtxViewMinusDefaultOrder(t *testing.T) {
+func TestCtxViewPlusDefaultOrder(t *testing.T) {
 	app := ctxSetup(t)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	want := []string{"L01", "L03", "L05", "L06d", "L07", "L08d", "L09", "L10d", "L11"}
 	var got []string
@@ -139,7 +187,7 @@ func TestCtxViewMinusDefaultOrder(t *testing.T) {
 		got = append(got, m)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("- 默认混合顺序 = %v, want %v", got, want)
+		t.Fatalf("+ 默认混合顺序 = %v, want %v", got, want)
 	}
 }
 
@@ -158,7 +206,7 @@ func TestCtxViewWrapDim(t *testing.T) {
 
 	app := ctxSetup(t)
 	app.wrapMode = true
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	var dimRow string
@@ -180,14 +228,72 @@ func TestCtxViewWrapDim(t *testing.T) {
 	}
 }
 
-// 边界 clamp:cursor 在列表首行(L01,buffer idx0)+默认5 → 上侧无行可插,视图=纯列表。
+// 回归:插入行视觉强化——整行剥内层列色(时间/级别/来源 SGR 不残留),行首 ┆ 标记。
+// 探针策略(参照 wrap-dim 测试):临时把全局 DetailDimStyle 换成独占色(用毕还原),
+// TrueColor profile 强制开启(无 TTY 测试环境会剥色);渲染行由 FrameStyle 的
+// "│ "/" │" 边框包裹(app.go renderLogs),故断言:插入行 SGR 集合 ⊆ {DetailDim,
+// FrameStyle, reset}——任何内层列色残留即红;┆ 须为边框后日志内容的第一位。
+// 判别力:若移除 stripANSI 实现,内层列色(级别 61/来源色等)不在白名单 → 红;
+// 若丢 ┆ 前缀则找不到插入行 → 红;DetailDim 探针 SGR 必现则排除 TrueColor 空转。
+func TestCtxViewDimStripped(t *testing.T) {
+	prevProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(prevProfile)
+	prevStyle := DetailDimStyle
+	DetailDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ABCDEF"))
+	defer func() { DetailDimStyle = prevStyle }()
+
+	app := ctxSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.wrapMode = false
+	out := app.View()
+
+	var dimRow string
+	for _, row := range strings.Split(out, "\n") {
+		s := stripANSI(row)
+		if strings.Contains(s, "┆") && strings.Contains(s, "L06") {
+			dimRow = row
+			break
+		}
+	}
+	if dimRow == "" {
+		t.Fatal("非 wrap 模式插入行 L06 应渲染且带 ┆ 标记")
+	}
+	if plain := stripANSI(dimRow); !strings.HasPrefix(plain, "│ ┆") {
+		t.Fatalf("插入行 ┆ 应为边框后日志内容的第一位, row=%q", plain)
+	}
+	dimSeq := strings.Split(DetailDimStyle.Render("PROBE"), "PROBE")[0]
+	if dimSeq == "" {
+		t.Fatal("前置:TrueColor 下 DetailDimStyle 应产生 SGR 序列")
+	}
+	if !strings.Contains(dimRow, dimSeq) {
+		t.Fatalf("前置:插入行应带 DetailDimStyle SGR %q(排除 TrueColor 空转), row=%q", dimSeq, dimRow)
+	}
+	// 整行仅允许 DetailDim 与边框(FrameStyle)的 SGR
+	sgrRe := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	allowed := map[string]bool{"\x1b[0m": true}
+	for _, probe := range []string{DetailDimStyle.Render("PROBE"), FrameStyle.Render("│ ")} {
+		for _, seq := range sgrRe.FindAllString(probe, -1) {
+			allowed[seq] = true
+		}
+	}
+	for _, seq := range sgrRe.FindAllString(dimRow, -1) {
+		if !allowed[seq] {
+			t.Fatalf("插入行不得残留内层列色 SGR(应 stripANSI 统一暗色), 非法 SGR %q, row=%q", seq, dimRow)
+		}
+	}
+}
+
+// 边界 clamp(换向后 - 是上侧):cursor 在列表首行(L01,buffer idx0)+默认5 →
+// 上侧无行可插,视图=纯列表。
 func TestCtxViewInsertClampTop(t *testing.T) {
 	app := ctxSetup(t)
 	app.cursor = 0 // L01
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(app.ctxLines) != 6 {
-		t.Fatalf("顶部 +默认应无插入行, got %d", len(app.ctxLines))
+		t.Fatalf("顶部 -默认应无插入行, got %d", len(app.ctxLines))
 	}
 	for i, e := range app.ctxLines {
 		if e.dim {
@@ -234,6 +340,7 @@ func TestCtxViewInputCancel(t *testing.T) {
 // 回归:混入态禁折叠——stGroups 是 filteredView 坐标,混入视图按混合列表索引查表会错位,
 // 曾把快照行误渲染成 (N lines) 占位并吞行;混入态必须逐行显示。
 // 插入式语义下混合列表=完整过滤列表(含窗口外命中行 Qux),无未命中行落在窗口内 → 4 行全 dim=false。
+// 换向后上侧窗口由 - 触发(cursor=2,窗口 [0,2) 全命中)。
 func TestCtxViewMixedNoFold(t *testing.T) {
 	app := newTestApp()
 	app.buffer.Clear()
@@ -260,11 +367,11 @@ func TestCtxViewMixedNoFold(t *testing.T) {
 	}
 
 	app.cursor = 2 // filteredView[2] = at com.foo.Baz(buffer idx 2)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(app.ctxLines) != 4 { // 窗口 [0,2] 内全是命中行,列表 4 行原样保留(含窗口外 Qux)
-		t.Fatalf("+5 应保留完整过滤列表 4 行, got %d", len(app.ctxLines))
+	if len(app.ctxLines) != 4 { // 窗口 [0,2) 内全是命中行,列表 4 行原样保留(含窗口外 Qux)
+		t.Fatalf("-5 应保留完整过滤列表 4 行, got %d", len(app.ctxLines))
 	}
 	for i, e := range app.ctxLines {
 		if e.dim {

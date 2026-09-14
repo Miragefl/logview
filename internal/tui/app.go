@@ -843,8 +843,8 @@ func (a *App) buildCtxLines(before bool, n int) {
 			insertUpto(bi) // 该命中行之前的窗口未命中行先插入
 		} else if bi > hi && emitted <= hi {
 			// 首个越过窗口上界的命中行之前,先补齐窗口尾部未命中行(时间序,不得甩到列表末尾);
-			// 补齐后 emitted>hi,本分支与收尾 insertUpto 均自然失效。+x 路径 hi=anchorIdx,
-			// anchor 处理完 emitted 已=hi+1,此分支不触发,行为不变。
+			// 补齐后 emitted>hi,本分支与收尾 insertUpto 均自然失效。上侧窗口路径(before=true)
+			// hi=anchorIdx,anchor 处理完 emitted 已=hi+1,此分支不触发,行为不变。
 			insertUpto(hi + 1)
 		}
 		lines = append(lines, ctxEntry{pl: pl, dim: false})
@@ -907,7 +907,7 @@ func (a *App) handleCtxInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				n = 1000 // 上限防呆
 			}
 		}
-		before := a.ctxInput[0] == '+'
+		before := a.ctxInput[0] == '-' // 二修换向:- 往前(上侧),+ 往后(下侧)
 		a.ctxInput = ""
 		a.yankMsg = ""
 		a.buildCtxLines(before, n)
