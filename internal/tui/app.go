@@ -106,10 +106,13 @@ type App struct {
 
 	ctxInput  string     // +x/-x 上下文输入态("+"/"-" 前缀 + 累积数字;空=未激活)
 	ctxLines  []ctxEntry // 上下文混入快照(nil=纯过滤视图;不随 follow 刷新)
+	ctxN      int        // 混入锚数(状态栏指示;0=未混入)
+	// ctxAnchors 混入锚集合:每个命中行独立窗口(参数=该行最后一次按键,重复按键覆盖),
+	// 多锚累积互不清除,仅 --/++/Esc 全局清空;buildCtxLines 按锚集合全量重建。
+	ctxAnchors map[*model.ParsedLine]ctxAnchorParam
 	// ctxViewCache 是 ctxLines 的物化视图(viewLines 渲染行集),buildCtxLines 构建、
 	// exitCtxView 置空——免 viewLines 每帧重建切片(混入态每行渲染调用一次)。
 	ctxViewCache []*model.ParsedLine
-	ctxAnchor    int // 触发行在 filteredView 的索引(恢复回位)
 
 	sshPwMode   bool   // SSH 密码输入框展开（密码认证重连）
 	sshPwInput  string // 密码（内存暂存，不落盘不进历史）
@@ -330,6 +333,10 @@ func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
 func (a *App) resetViewState() {
 	a.buffer.Clear()
 	a.filteredView = nil
+	a.ctxLines = nil // 换源重置即清混入(快照行属旧源,失效)
+	a.ctxViewCache = nil
+	a.ctxAnchors = nil // 锚集合随视图失效全清(spec:不做部分保留)
+	a.ctxN = 0          // 状态栏指示同步清零(否则残留幽灵指示)
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
 	a.levelCounts = make(map[string]int)
@@ -502,8 +509,12 @@ func (a *App) processBatch(lines []model.RawLine) {
 	for _, raw := range lines {
 		a.processLine(raw)
 	}
-	if a.cursor >= len(a.filteredView) {
-		a.cursor = max(0, len(a.filteredView)-1)
+	// 混入态光标是 ctxLines 坐标(快照定长,follow 不增长),不能用 filteredView 长度
+	// 钳制——follow 批次增长 fv 会把光标错钳到 dim 插入行跳行(C1);
+	// 非混入态 viewLines() 恒等 filteredView,行为不变
+	vl := a.viewLines()
+	if a.cursor >= len(vl) {
+		a.cursor = max(0, len(vl)-1)
 	}
 	a.stGroups = stacktrace.Detect(a.filteredView)
 }
@@ -590,6 +601,9 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 }
 
 func (a *App) recomputeView() {
+	if len(a.ctxLines) > 0 {
+		a.exitCtxView() // 过滤条件变化:混入快照锚点失效,自动退出(spec 语义性退出)
+	}
 	// 预分配:省 append 扩容与 GC(10 万行下每键路径的最大头)
 	view := make([]*model.ParsedLine, 0, a.buffer.Len())
 	hiddenByHides := 0
@@ -685,11 +699,16 @@ func (a *App) jumpBookmark() {
 		return
 	}
 	// find next bookmark after cursor
-	idx := sort.Search(len(positions), func(i int) bool { return positions[i] > a.cursor })
+	// 混入态光标是 ctxLines 坐标,起点先换算回 filteredView 再比较
+	start := a.cursor
+	if len(a.ctxLines) > 0 {
+		start = a.ctxToFv(a.cursor)
+	}
+	idx := sort.Search(len(positions), func(i int) bool { return positions[i] > start })
 	if idx >= len(positions) {
 		idx = 0
 	}
-	a.cursor = positions[idx]
+	a.jumpToFv(positions[idx]) // 混入态落点换算;目标不在快照(follow 追加行)则退出后直接落
 	a.autoscroll = false
 }
 
@@ -776,6 +795,12 @@ type ctxEntry struct {
 	dim bool
 }
 
+// ctxAnchorParam 单锚窗口参数:before=true 前向 [bi-n, bi),false 后向 (bi, bi+n]。
+type ctxAnchorParam struct {
+	before bool
+	n      int
+}
+
 // viewLines 渲染用行集:混入态返回快照物化缓存(buildCtxLines 构建,与 ctxLines 同生共死),否则过滤视图。
 func (a *App) viewLines() []*model.ParsedLine {
 	if a.ctxViewCache != nil {
@@ -792,73 +817,130 @@ func (a *App) ctxDim(idx int) bool {
 	return a.ctxLines[idx].dim
 }
 
+// ctxToFv 混入态光标索引换算为 filteredView 索引;插入行(dim)取其后最近命中行。
+func (a *App) ctxToFv(cx int) int {
+	for i := cx; i < len(a.ctxLines); i++ {
+		if a.ctxLines[i].dim {
+			continue
+		}
+		for j, l := range a.filteredView {
+			if l == a.ctxLines[i].pl {
+				return j
+			}
+		}
+	}
+	return min(cx, max(0, len(a.filteredView)-1)) // 理论不可达兜底
+}
+
+// fvToCtx filteredView 索引换算为 ctxLines 索引;行不在快照内(follow 增量追加的命中行,
+// "过滤列表全保留"不变量被增量路径打破)返回 -1,调用方须退出混入后直接用 fv 索引落点。
+func (a *App) fvToCtx(fv int) int {
+	if fv < 0 || fv >= len(a.filteredView) {
+		return -1 // 越界防御(当前调用方均传合法索引,顺手设防)
+	}
+	pl := a.filteredView[fv]
+	for i, e := range a.ctxLines {
+		if !e.dim && e.pl == pl {
+			return i
+		}
+	}
+	return -1 // 快照外
+}
+
+// jumpToFv 跳到 filteredView 索引 m 处:混入态先换算回混入坐标;目标行不在快照内
+// (follow 追加的命中行)则先退出混入再直接用 fv 索引——用户要看的行不在快照,
+// 就得退出快照去看(与"锚点失效必须退"的 spec 精神一致,不静默停错行)。
+func (a *App) jumpToFv(m int) {
+	if len(a.ctxLines) == 0 {
+		a.cursor = m
+		return
+	}
+	if cx := a.fvToCtx(m); cx >= 0 {
+		a.cursor = cx
+		return
+	}
+	a.exitCtxView()
+	a.cursor = m
+}
+
 // hasActiveFilter 是否有过滤(无过滤时全量视图即原始流,+/- 无意义)。
 func (a *App) hasActiveFilter() bool {
 	return a.searchInput != "" || a.levelFilter != "" || len(a.hides) > 0
 }
 
-// buildCtxLines 构建插入式混合视图:过滤列表完整保留,触发行旁插入原始流窗口内
-// 未命中过滤的行(before=true 上侧 [idx-n, idx),否则下侧 (idx, idx+n];命中行不重复插入)。
+// buildCtxLines 构建插入式混合视图:过滤列表完整保留,锚集合中每行的窗口内
+// 未命中过滤的行按流序混排插入(dim);同行重复按键参数覆盖为最后一次。
 func (a *App) buildCtxLines(before bool, n int) {
-	if !a.hasActiveFilter() || len(a.filteredView) == 0 || a.cursor < 0 || a.cursor >= len(a.filteredView) {
+	// 校验先行、换算后置(M4):若先 nearestFvCursor 换算成 fv 坐标再 early-return,
+	// 会留下"fv 坐标光标 + 旧混入快照仍在渲染"的错位窗口
+	if !a.hasActiveFilter() || len(a.filteredView) == 0 {
 		return
 	}
-	// 一次扫描:buffer 行 → bufferIdx 映射 + 触发行定位
+	if len(a.ctxLines) > 0 {
+		a.cursor = a.nearestFvCursor() // 混入坐标:先回最近过滤行做锚行
+	}
+	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
+		return
+	}
+	anchorPl := a.filteredView[a.cursor]
+	// 一次扫描:buffer 行 → bufferIdx 映射
 	idxOf := make(map[*model.ParsedLine]int, a.buffer.Len())
 	for i := 0; i < a.buffer.Len(); i++ {
 		idxOf[a.buffer.Get(i)] = i
 	}
-	anchor := a.filteredView[a.cursor]
-	anchorIdx, ok := idxOf[anchor]
-	if !ok {
-		return
+	if _, ok := idxOf[anchorPl]; !ok {
+		return // 锚不在 buffer(ring 淘汰防御):不加锚不重建
 	}
-	lo, hi := anchorIdx, anchorIdx
-	if before {
-		lo = max(0, anchorIdx-n)
-	} else {
-		hi = min(a.buffer.Len()-1, anchorIdx+n)
+	if a.ctxAnchors == nil {
+		a.ctxAnchors = make(map[*model.ParsedLine]ctxAnchorParam)
 	}
-	a.ctxAnchor = a.cursor
-
+	a.ctxAnchors[anchorPl] = ctxAnchorParam{before: before, n: n}
+	// 锚窗口合并:窗口内 buffer 行标记(交叠自然去重)
+	inWindow := make([]bool, a.buffer.Len())
+	for pl, p := range a.ctxAnchors {
+		bi, ok := idxOf[pl]
+		if !ok {
+			continue
+		}
+		lo, hi := bi, bi
+		if p.before {
+			lo = max(0, bi-p.n)
+		} else {
+			hi = min(a.buffer.Len()-1, bi+p.n)
+		}
+		for i := lo; i <= hi; i++ {
+			inWindow[i] = true
+		}
+	}
 	var lines []ctxEntry
 	newAnchor := -1
-	// emitted=窗口内已输出到的 bufferIdx:逐命中行推进,既保证未命中行按流序插到位,又防重复插入
-	emitted := lo
+	// emitted=已混排到的 buffer 位:逐命中行推进,窗口未命中行按流序插位
+	emitted := 0
 	insertUpto := func(upto int) { // 输出 [emitted, upto) 内的窗口未命中行(dim)
-		for i := emitted; i < upto && i <= hi; i++ {
-			pl := a.buffer.Get(i)
-			if filterHit(a, pl) {
-				continue
+		for i := emitted; i < upto; i++ {
+			if inWindow[i] && !filterHit(a, a.buffer.Get(i)) {
+				lines = append(lines, ctxEntry{pl: a.buffer.Get(i), dim: true})
 			}
-			lines = append(lines, ctxEntry{pl: pl, dim: true})
 		}
 		if upto > emitted {
 			emitted = upto
 		}
 	}
 	for _, pl := range a.filteredView {
-		bi := idxOf[pl]
-		if bi >= lo && bi <= hi {
-			insertUpto(bi) // 该命中行之前的窗口未命中行先插入
-		} else if bi > hi && emitted <= hi {
-			// 首个越过窗口上界的命中行之前,先补齐窗口尾部未命中行(时间序,不得甩到列表末尾);
-			// 补齐后 emitted>hi,本分支与收尾 insertUpto 均自然失效。上侧窗口路径(before=true)
-			// hi=anchorIdx,anchor 处理完 emitted 已=hi+1,此分支不触发,行为不变。
-			insertUpto(hi + 1)
-		}
+		insertUpto(idxOf[pl])
 		lines = append(lines, ctxEntry{pl: pl, dim: false})
-		if pl == anchor {
+		if pl == anchorPl {
 			newAnchor = len(lines) - 1
 		}
 	}
-	insertUpto(hi + 1) // 兜底:窗口之后无命中行时,尾部未命中行补在列表末(即时间序原位)
+	insertUpto(a.buffer.Len()) // 兜底:末个命中行之后的窗口行按流序补尾
 	a.autoscroll = false
 	a.ctxLines = lines
 	a.ctxViewCache = make([]*model.ParsedLine, len(lines))
 	for i, e := range lines {
 		a.ctxViewCache[i] = e.pl
 	}
+	a.ctxN = len(a.ctxAnchors)
 	if newAnchor >= 0 {
 		a.cursor = newAnchor
 	}
@@ -878,16 +960,48 @@ func filterHit(a *App, line *model.ParsedLine) bool {
 	return true
 }
 
-// exitCtxView 恢复纯过滤视图(光标回触发行)。
+// nearestFvCursor 混入态光标换算为“距当前行最近过滤行(前后取近,相等取前)”的
+// filteredView 索引;理论不可达时兜底回锚。
+func (a *App) nearestFvCursor() int {
+	best := -1
+	for d := 0; a.cursor-d >= 0 || a.cursor+d < len(a.ctxLines); d++ {
+		if a.cursor-d >= 0 && !a.ctxLines[a.cursor-d].dim {
+			best = a.cursor - d
+			break
+		}
+		if a.cursor+d < len(a.ctxLines) && !a.ctxLines[a.cursor+d].dim {
+			best = a.cursor + d
+			break
+		}
+	}
+	var keep *model.ParsedLine
+	if best >= 0 {
+		keep = a.ctxLines[best].pl
+	}
+	if keep != nil {
+		for i, l := range a.filteredView {
+			if l == keep {
+				return i
+			}
+		}
+	}
+	// 理论不可达兜底(keep 未命中 filteredView):钳到合法 fv 索引,不裸返混入坐标
+	return min(a.cursor, max(0, len(a.filteredView)-1))
+}
+
+// exitCtxView 退出混入:清空全部锚,光标回距当前行最近的过滤行(前后取近,相等取前)。
 func (a *App) exitCtxView() {
 	if len(a.ctxLines) == 0 {
+		// 防御:ctxLines 已被外部清空但指示残留时,退出键仍要消除指示
+		a.ctxN = 0
+		a.ctxAnchors = nil
 		return
 	}
+	a.cursor = a.nearestFvCursor()
 	a.ctxLines = nil
 	a.ctxViewCache = nil
-	if a.ctxAnchor < len(a.filteredView) {
-		a.cursor = a.ctxAnchor
-	}
+	a.ctxN = 0
+	a.ctxAnchors = nil
 }
 
 // handleCtxInputKeys +x/-x 数字输入态:数字累积,Enter 生效(空=5),Esc 取消,其余忽略。
@@ -913,6 +1027,13 @@ func (a *App) handleCtxInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.buildCtxLines(before, n)
 	case tea.KeyRunes:
 		for _, r := range msg.Runes {
+			if r == '+' || r == '-' {
+				// 第二个符号:混入态即关闭(--/++ 任一符号),纯输入态等价取消
+				a.ctxInput = ""
+				a.yankMsg = ""
+				a.exitCtxView()
+				return a, nil
+			}
 			if r >= '0' && r <= '9' {
 				a.ctxInput += string(r)
 			}
@@ -935,17 +1056,6 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if a.ctxInput != "" {
 		return a.handleCtxInputKeys(msg)
 	}
-	if len(a.ctxLines) > 0 {
-		// 混入态:导航键族与 Esc 恢复(不继续移动),其余键先恢复再按原语义处理
-		switch msg.String() {
-		case "up", "ctrl+k", "down", "ctrl+j", "pgup", "pgdown", "g", "G",
-			"H", "M", "L", "ctrl+u", "ctrl+d", "ctrl+b", "ctrl+f", "esc", "z":
-			a.exitCtxView()
-			return a, nil
-		default:
-			a.exitCtxView()
-		}
-	}
 	if a.visualMode {
 		return a.handleVisualKeys(msg)
 	}
@@ -961,10 +1071,18 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "C":
 		a.clearScreen()
 	case "esc":
+		if len(a.ctxLines) > 0 {
+			a.exitCtxView()
+			return a, nil
+		}
 		a.escapeToNormal()
 	case "/", "f":
 		a.openSearch()
 	case "v", "V":
+		if len(a.ctxLines) > 0 {
+			a.yankMsg = "混入态不可视选择(--/++ 或 Esc 退出后再用)"
+			return a, nil
+		}
 		a.beginVisual()
 	case "y":
 		a.yankLines(a.cursor, a.cursor)
@@ -1004,6 +1122,10 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "'":
 		a.jumpBookmark()
 	case "e":
+		if len(a.ctxLines) > 0 {
+			a.yankMsg = "混入态不可折叠"
+			return a, nil
+		}
 		a.toggleFold()
 	case "z":
 		a.pendingKey = "z"
@@ -1019,7 +1141,8 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleLevelFilter("")
 	case "g", "G", "H", "M", "L",
 		"ctrl+d", "ctrl+f", "ctrl+u", "ctrl+b",
-		"up", "ctrl+k", "down", "ctrl+j", "pgup", "pgdown":
+		"up", "k", "down", "j", "pgup", "pgdown":
+		// 迭代 3:主日志界面移动键改 vim 风格 j/k(方向键保留),C-j/C-k 在主界面无绑定
 		a.moveCursor(msg.String())
 	case "+", "-":
 		if a.hasActiveFilter() && len(a.filteredView) > 0 {
@@ -1055,6 +1178,10 @@ func (a *App) handlePendingKey(msg tea.KeyMsg) bool {
 func (a *App) clearScreen() {
 	a.buffer.Clear()
 	a.filteredView = nil
+	a.ctxLines = nil // 清屏即清混入(快照行已随 buffer 失效)
+	a.ctxViewCache = nil
+	a.ctxAnchors = nil // 锚集合随视图失效全清(spec:不做部分保留)
+	a.ctxN = 0          // 状态栏指示同步清零(否则残留幽灵指示)
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
 	a.levelCounts = make(map[string]int)
@@ -1125,8 +1252,9 @@ func (a *App) openUnifiedPopup(tab int) {
 }
 
 func (a *App) toggleBookmark() {
-	if len(a.filteredView) > 0 && a.cursor >= 0 && a.cursor < len(a.filteredView) {
-		seq := a.filteredView[a.cursor].Raw.Seq
+	vl := a.viewLines()
+	if len(vl) > 0 && a.cursor >= 0 && a.cursor < len(vl) {
+		seq := vl[a.cursor].Raw.Seq
 		if a.bookmarks[seq] {
 			delete(a.bookmarks, seq)
 		} else {
@@ -1148,7 +1276,7 @@ func (a *App) toggleFold() {
 
 // moveCursor 统一处理光标移动键族（gg/G/H/M/L/半页/整页/上下/pgup/pgdown）。
 func (a *App) moveCursor(key string) {
-	last := len(a.filteredView) - 1
+	last := len(a.viewLines()) - 1
 	switch key {
 	case "g":
 		a.cursor = 0
@@ -1204,13 +1332,13 @@ func (a *App) moveCursor(key string) {
 		}
 		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
-	case "up", "ctrl+k":
+	case "up", "k": // vim 风格 k 上移(原 C-k,迭代 3 改)
 		if a.cursor > 0 {
 			a.cursor--
 			a.cursor = a.skipFolded(a.cursor, -1)
 			a.autoscroll = false
 		}
-	case "down", "ctrl+j":
+	case "down", "j": // vim 风格 j 下移(原 C-j,迭代 3 改)
 		if a.cursor < last {
 			a.cursor++
 			a.cursor = a.skipFolded(a.cursor, 1)
@@ -1234,6 +1362,9 @@ func (a *App) moveCursor(key string) {
 		a.cursor = a.skipFolded(a.cursor, 1)
 		a.autoscroll = (a.cursor == last)
 	}
+	if len(a.ctxLines) > 0 {
+		a.autoscroll = false // 混入态冻结跟随:follow 新行不进快照,滚动无意义
+	}
 }
 
 func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1242,11 +1373,11 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.yankLines(a.visualStart, a.cursor)
 	case "esc":
 		a.visualMode = false
-	case "up", "ctrl+k":
+	case "up", "k": // 可视模式同主界面 vim 风格 j/k(迭代 3 改,C-j/C-k 无绑定)
 		if a.cursor > 0 {
 			a.cursor--
 		}
-	case "down", "ctrl+j":
+	case "down", "j":
 		if a.cursor < len(a.filteredView)-1 {
 			a.cursor++
 		}
@@ -1368,8 +1499,9 @@ func (a *App) levelBadge() string {
 }
 
 // scrollPercent 返回光标位置百分比（" ─ 62%"），无内容时为空。
+// 混入态分母用 viewLines()(快照行数)——fv 长度会让 ctx 坐标光标算出超 100%(M1)。
 func (a *App) scrollPercent() string {
-	n := len(a.filteredView)
+	n := len(a.viewLines())
 	if n == 0 {
 		return ""
 	}
@@ -1496,8 +1628,9 @@ func (a *App) yankLines(start, end int) {
 		start, end = end, start
 	}
 	var buf strings.Builder
-	for i := start; i <= end && i < len(a.filteredView); i++ {
-		buf.WriteString(a.filteredView[i].Raw.Text)
+	vl := a.viewLines()
+	for i := start; i <= end && i < len(vl); i++ {
+		buf.WriteString(vl[i].Raw.Text)
 		buf.WriteByte('\n')
 	}
 	if err := copyToClipboard(buf.String()); err != nil {

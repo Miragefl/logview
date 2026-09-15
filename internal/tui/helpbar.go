@@ -56,7 +56,7 @@ func (a *App) shortcutItems() []helpItem {
 		}
 	case a.visualMode:
 		return []helpItem{
-			{"C-j/C-k", "上下移动"},
+			{"j/k", "上下移动"},
 			{"g/G", "顶/底"},
 			{"y", "复制选中"},
 			{"Esc", "退出选择"},
@@ -107,6 +107,9 @@ func (a *App) statusItems() []helpItem {
 	}
 	if a.yankMsg != "" {
 		items = append(items, helpItem{"", NewLogStyle.Render(a.yankMsg)})
+	}
+	if a.ctxN > 0 {
+		items = append(items, helpItem{"", NewLogStyle.Render(fmt.Sprintf("混入 ×%d(Esc/-- 关闭)", a.ctxN))})
 	}
 	return items
 }

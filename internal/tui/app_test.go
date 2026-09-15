@@ -411,15 +411,19 @@ func TestDetailPanel(t *testing.T) {
 	}
 }
 
-// 导航统一 C-j/C-k:主视图裸 j/k 退役,光标不再滚动。
-func TestMainViewBareJKRetired(t *testing.T) {
+// 迭代 3:主日志界面移动键改 vim 风格——裸 j/k 移动,C-j/C-k 无绑定不再移动。
+func TestMainViewVimJKMove(t *testing.T) {
 	app := newTestApp()
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-	if app.cursor != 0 {
-		t.Fatalf("裸 j 应不再滚动, cursor=%d", app.cursor)
+	if app.cursor != 1 {
+		t.Fatalf("裸 j 应下移光标, cursor=%d", app.cursor)
 	}
 	app.Update(fakeKey("ctrl+j"))
-	if app.cursor == 0 {
-		t.Fatal("C-j 应下移光标")
+	if app.cursor != 1 {
+		t.Fatalf("C-j 在主日志界面应不再移动光标, cursor=%d", app.cursor)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if app.cursor != 0 {
+		t.Fatalf("裸 k 应上移光标, cursor=%d", app.cursor)
 	}
 }

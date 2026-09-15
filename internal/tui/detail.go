@@ -16,7 +16,8 @@ func (a *App) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "enter", "q", "d":
 		a.detailMode = false
 	case "ctrl+j", "down":
-		if a.cursor < len(a.filteredView)-1 {
+		// 边界取 viewLines:非混入态等价 filteredView(零行为变化);混入态详情内导航可达尾部混入行
+		if a.cursor < len(a.viewLines())-1 {
 			a.cursor++
 			a.detailClampOffset()
 		}
@@ -45,11 +46,13 @@ func (a *App) detailClampOffset() {
 }
 
 // buildDetailPanel d 键详情面板：完整字段 + 消息全文（wrap，JSON 自动美化）+ 原始行。
+// 行源取 viewLines:混入态光标可落插入行,详情须显示该行本体(filteredView 坐标会取错行)。
 func (a *App) buildDetailPanel(vl int) []string {
-	if len(a.filteredView) == 0 || a.cursor < 0 || a.cursor >= len(a.filteredView) {
+	lines := a.viewLines()
+	if len(lines) == 0 || a.cursor < 0 || a.cursor >= len(lines) {
 		return a.buildLogLines(vl)
 	}
-	line := a.filteredView[a.cursor]
+	line := lines[a.cursor]
 
 	boxW := min(60, a.width-4)
 	inner := boxW - 8 // padding/边框/缩进预留

@@ -44,12 +44,18 @@ func (a *App) updateSearchStats() {
 		return
 	}
 	q := a.currentQuery()
+	// 混入态光标是 ctxLines 坐标,先换算回 filteredView 再比较——
+	// 否则 dim 行偏移使"第 m/N"序号失真(末尾段恒计满)(M2)
+	cur := a.cursor
+	if len(a.ctxLines) > 0 {
+		cur = a.ctxToFv(a.cursor)
+	}
 	count := 0
 	idx := 0
 	for i, line := range a.filteredView {
 		if q.MatchLine(line) {
 			count++
-			if i <= a.cursor {
+			if i <= cur {
 				idx = count
 			}
 		}
@@ -124,20 +130,24 @@ func (a *App) jumpSearchMatch(dir int) {
 	if len(matches) == 0 {
 		return
 	}
+	// 混入态光标是 ctxLines 坐标,起点先换算回 filteredView 再比较
 	cur := a.cursor
+	if len(a.ctxLines) > 0 {
+		cur = a.ctxToFv(a.cursor)
+	}
 	idx := sort.Search(len(matches), func(i int) bool { return matches[i] >= cur })
 	if dir > 0 {
 		next := idx + 1
 		if next >= len(matches) {
 			next = 0
 		}
-		a.cursor = matches[next]
+		a.jumpToFv(matches[next]) // 混入态落点换算;目标不在快照(follow 追加行)则退出后直接落
 	} else {
 		prev := idx - 1
 		if prev < 0 {
 			prev = len(matches) - 1
 		}
-		a.cursor = matches[prev]
+		a.jumpToFv(matches[prev])
 	}
 	a.autoscroll = false
 	a.updateSearchStats()
@@ -408,11 +418,13 @@ func (a *App) confirmSearchTab() {
 }
 
 func (a *App) populateSearchFields() {
-	if a.cursor < 0 || a.cursor >= len(a.filteredView) {
+	// 行源用 viewLines():混入态光标是 ctxLines 坐标,直接查 filteredView 会取错行(M3)
+	vl := a.viewLines()
+	if a.cursor < 0 || a.cursor >= len(vl) {
 		a.starFields = nil
 		return
 	}
-	line := a.filteredView[a.cursor]
+	line := vl[a.cursor]
 	var fields []starField
 	fields = append(fields, starField{Name: "", Value: ""})
 	for _, f := range model.AllFields {

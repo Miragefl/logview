@@ -15,8 +15,8 @@ type helpSection struct {
 func helpSections() []helpSection {
 	return []helpSection{
 		{"导航", []helpItem{
-			{"C-k/↑", "上移"},
-			{"C-j/↓", "下移"},
+			{"k/↑", "上移"},
+			{"j/↓", "下移"},
 			{"g", "顶部"},
 			{"G", "底部"},
 			{"C-u/C-d", "上/下半页"},
