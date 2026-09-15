@@ -7,7 +7,7 @@ LogView 是 Go 编写的终端日志查看器(TUI):支持本地文件 / 管道 /
 ## 知识库归属
 
 - 项目:logview(`~/Obsidian/10-Projects/logview/`,个人开源项目,无 DB/接口交付物豁免)
-- 分支映射:main → keybind-unify(导航键统一 C-j/C-k,已完成,v0.17.2 发布);main → search-input-perf(搜索输入性能优化,已完成,v0.17.2 发布);main → gzip-log-support(gzip 日志支持,已完成,v0.17.0 发布);main → keyword-history-freq(关键词历史频次+拆词统计+源 scope 隔离,已完成,v0.17.0 发布,含 2026-09-08 历史追加修正 v0.17.1 发布);main → source-picker-env(源选择器环境过滤,已完成,v0.16.0 发布);main → time-range-search(时间范围搜索 time: 语法,已完成,v0.16.0 发布);main → tui-overhaul(TUI 界面翻新,已完成)。历史需求(initial-build/multi-k8s-resource/search-syntax-enhancement/search-history-popup/frp-stcp-source/source-picker-v2/code-refactor/builtin-themes)已归档 vault,开工前先 ls 需求目录
+- 分支映射:main → grep-context(grep 上下文混入+管道 DSL,已完成,v0.17.4 发布,含 2026-09-14~15 验收迭代:sticky 多锚混入/主界面 j/k);main → keybind-unify(导航键统一 C-j/C-k,已完成,v0.17.2 发布,主日志界面已于 v0.17.4 改回 j/k,弹窗类界面仍 C-j/C-k);main → search-input-perf(搜索输入性能优化,已完成,v0.17.2 发布);main → gzip-log-support(gzip 日志支持,已完成,v0.17.0 发布);main → keyword-history-freq(关键词历史频次+拆词统计+源 scope 隔离,已完成,v0.17.0 发布,含 2026-09-08 历史追加修正 v0.17.1 发布);main → source-picker-env(源选择器环境过滤,已完成,v0.16.0 发布);main → time-range-search(时间范围搜索 time: 语法,已完成,v0.16.0 发布);main → tui-overhaul(TUI 界面翻新,已完成)。历史需求(initial-build/multi-k8s-resource/search-syntax-enhancement/search-history-popup/frp-stcp-source/source-picker-v2/code-refactor/builtin-themes)已归档 vault,开工前先 ls 需求目录
 
 ## 常用命令
 
