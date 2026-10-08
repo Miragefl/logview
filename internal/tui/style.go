@@ -85,15 +85,20 @@ var (
 		lipgloss.Color("217"), // pink
 	}
 
+	// HighlightColors 高亮词前景色轮换板(ApplyTheme 前兜底,暗底亮字版)。
+	// 彩色粗体+下划线,与搜索命中(HighlightStyle 黄底黑字块)形式区分;
+	// 10 个独立色不与日志字段色撞,与级别徽章的邻近色靠下划线兜底。
 	HighlightColors = []lipgloss.Color{
-		lipgloss.Color("227"), // yellow
-		lipgloss.Color("123"), // cyan
-		lipgloss.Color("201"), // magenta
-		lipgloss.Color("82"),  // green
-		lipgloss.Color("214"), // orange
-		lipgloss.Color("69"),  // blue
-		lipgloss.Color("183"), // purple
-		lipgloss.Color("196"), // red
+		lipgloss.Color("213"), // 品红 #FF87FF
+		lipgloss.Color("77"),  // 亮绿 #5FD75F
+		lipgloss.Color("117"), // 淡天蓝 #87D7FF
+		lipgloss.Color("207"), // 玫红 #FF5FD7
+		lipgloss.Color("156"), // 浅黄绿 #AFFF87
+		lipgloss.Color("189"), // 淡紫白 #D7D7FF
+		lipgloss.Color("209"), // 珊瑚橙 #FF875F
+		lipgloss.Color("75"),  // 中蓝 #5FAFFF
+		lipgloss.Color("228"), // 柠檬黄 #FFFF5F
+		lipgloss.Color("50"),  // 玉青 #00FFD7
 	}
 )
 

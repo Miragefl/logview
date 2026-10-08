@@ -417,7 +417,8 @@ func (a *App) applyHighlights(text string) string {
 			continue
 		}
 		colorIdx := i % len(HighlightColors)
-		style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
+		// 高亮词=彩色粗体+下划线前景,无底色;字段色不带下划线,形式上彻底区分
+		style := lipgloss.NewStyle().Foreground(HighlightColors[colorIdx]).Bold(true).Underline(true)
 		text = highlightTextWithStyle(text, kw, style)
 	}
 	return text

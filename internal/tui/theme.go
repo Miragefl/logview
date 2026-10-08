@@ -142,15 +142,39 @@ func ApplyTheme(cfg ThemeConfig) {
 	PopupTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.Dim))
 	HideMarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(cfg.LevelError)).Bold(true)
 
-	HighlightColors = []lipgloss.Color{
-		lipgloss.Color(cfg.Highlight),
-		lipgloss.Color(cfg.TraceID),
-		lipgloss.Color("#FF87FF"),
-		lipgloss.Color("#5FD75F"),
-		lipgloss.Color(cfg.LevelWarn),
-		lipgloss.Color("#5F87D7"),
-		lipgloss.Color(cfg.Source),
-		lipgloss.Color(cfg.LevelError),
+	// 高亮词前景色轮换板:彩色粗体+下划线,与搜索命中(HighlightStyle 底色块)形式区分。
+	// 10 个独立色,不引用任何字段色(曾用 TraceID 青/Source 紫,与日志对应列撞色);
+	// 色相环均布拉开间隔,个别与 WARN/ERROR 徽章的邻近色靠下划线兜底区分;
+	// 按主题明暗分两版保证前景对比度。
+	hlPalette := []string{ // 暗底亮字版
+		"#FF87FF", // 品红
+		"#5FD75F", // 亮绿
+		"#87D7FF", // 淡天蓝
+		"#FF5FD7", // 玫红
+		"#AFFF87", // 浅黄绿
+		"#D7D7FF", // 淡紫白
+		"#FF875F", // 珊瑚橙
+		"#5FAFFF", // 中蓝
+		"#FFFF5F", // 柠檬黄
+		"#00FFD7", // 玉青
+	}
+	if cfg.IsLightTheme() {
+		hlPalette = []string{ // 亮底暗字版
+			"#AF00AF", // 品红
+			"#008700", // 绿
+			"#005FAF", // 蓝
+			"#D70087", // 玫红
+			"#5F8700", // 黄绿
+			"#875FAF", // 淡紫
+			"#D75F00", // 橙
+			"#0087AF", // 玉青蓝
+			"#878700", // 暗黄
+			"#00AFAF", // 青
+		}
+	}
+	HighlightColors = nil
+	for _, c := range hlPalette {
+		HighlightColors = append(HighlightColors, lipgloss.Color(c))
 	}
 
 	AppBgColor = lipgloss.Color(cfg.Bg)

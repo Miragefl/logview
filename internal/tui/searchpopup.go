@@ -129,8 +129,9 @@ func (a *App) renderHighlightSection(content *strings.Builder) {
 		content.WriteString(DetailDimStyle.Render("当前高亮:") + "\n")
 		for i, kw := range a.highlights {
 			colorIdx := i % len(HighlightColors)
-			style := lipgloss.NewStyle().Background(HighlightColors[colorIdx]).Foreground(lipgloss.Color("0"))
-			content.WriteString(fmt.Sprintf("  %s\n", style.Render(" "+kw+" ")))
+			// 与主界面同款:彩色粗体+下划线,无底色块(与搜索命中的底色块区分)
+			style := lipgloss.NewStyle().Foreground(HighlightColors[colorIdx]).Bold(true).Underline(true)
+			content.WriteString(fmt.Sprintf("  %s\n", style.Render(kw)))
 		}
 		content.WriteString("\n")
 	}
