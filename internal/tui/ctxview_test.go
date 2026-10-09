@@ -869,3 +869,59 @@ func TestCtxViewRebuildValidateBeforeConvert(t *testing.T) {
 		t.Fatal("旧混入快照应原样保留(光标仍指 L06 dim)")
 	}
 }
+
+// 合并输入回归(2026-10-09 用户报告:"+5 生效后另一行连按 +10 无反应"):
+// bubbletea 把一个 read chunk 内的连续字符报成单条 KeyRunes(detectOneMsg
+// 取最长 rune 序列),快速连按 "+10" 时首符号 '+' 无法经 case "+"/"-" 入口
+// 进入 ctx 输入态,整条消息被静默丢弃。入口须按首符号分流,余下 runes 交
+// handleCtxInputKeys 累积("++" 类第二符号关闭语义随之恢复)。
+func TestCtxViewMergedRunesEntry(t *testing.T) {
+	app := ctxSetup(t)
+	// 第一次 +5(逐键,用户按键慢):L05 窗口 (4,9] 插 L06/L08/L10
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// 移到 L07 再连按 +10(合并成单条 KeyRunes)→ Enter 应加第二锚
+	app.Update(fakeKey("j"))
+	app.Update(fakeKey("j"))
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+', '1', '0'}})
+	if app.ctxInput != "+10" {
+		t.Fatalf("合并输入应进入 ctx 输入态, ctxInput=%q", app.ctxInput)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.ctxN != 2 {
+		t.Fatalf("连按 +10 应叠加第二锚, ctxN=%d", app.ctxN)
+	}
+	// L05(+5) 窗口 (4,9] ∪ L07(+10) 窗口 (6,16]→clamp(6,11]:dim = L06/L08/L10/L12
+	dims := map[string]bool{}
+	for _, e := range app.ctxLines {
+		if e.dim {
+			dims[e.pl.Message()] = true
+		}
+	}
+	for _, want := range []string{"L06", "L08", "L10", "L12"} {
+		if !dims[want] {
+			t.Fatalf("合并窗口缺插入行 %s, got %v", want, dims)
+		}
+	}
+	// 合并 "-3":前向窗口,L07 锚参数覆盖为前向([3,6) 插 L04)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-', '3'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.ctxN != 2 {
+		t.Fatalf("同行覆盖锚数不变, ctxN=%d", app.ctxN)
+	}
+	foundL04 := false
+	for _, e := range app.ctxLines {
+		if e.dim && e.pl.Message() == "L04" {
+			foundL04 = true
+		}
+	}
+	if !foundL04 {
+		t.Fatal("合并 \"-3\" 应生效前向窗口插入 L04")
+	}
+	// 合并 "++":连按关闭混入也应经分流恢复
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+', '+'}})
+	if len(app.ctxLines) != 0 || app.ctxN != 0 || len(app.ctxAnchors) != 0 {
+		t.Fatal("合并 \"++\" 应关闭混入")
+	}
+}

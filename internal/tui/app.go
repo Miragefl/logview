@@ -1418,6 +1418,19 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a.handleVisualKeys(msg)
 	}
 
+	// 合并输入分流:终端快速连按时 bubbletea 把一个 read chunk 内的连续字符
+	// 报成单条 KeyRunes("+10"/"++"),单字符 case 匹配不到会静默丢弃——
+	// 用户实测"+5 生效后另一行连按 +10 无反应"即此路径。首符号作 ctx 输入
+	// 入口,余下 runes 交输入态统一处理(数字累积/第二符号关闭)。
+	if msg.Type == tea.KeyRunes && !msg.Alt && len(msg.Runes) > 1 &&
+		(msg.Runes[0] == '+' || msg.Runes[0] == '-') {
+		if a.hasActiveFilter() && len(a.filteredView) > 0 {
+			a.ctxInput = string(msg.Runes[0])
+			a.handleCtxInputKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: msg.Runes[1:]})
+		}
+		return a, nil
+	}
+
 	switch msg.String() {
 	case "q":
 		// 日志页按 q：打开源选择器（再按 q 退出）
