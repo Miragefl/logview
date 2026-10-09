@@ -16,14 +16,14 @@ func TestJSONParser(t *testing.T) {
 	if result == nil {
 		t.Fatal("Parse() returned nil")
 	}
-	if result.Level != "INFO" {
-		t.Errorf("Level = %q, want INFO", result.Level)
+	if result.Level() != "INFO" {
+		t.Errorf("Level = %q, want INFO", result.Level())
 	}
-	if result.Message != "hello world" {
-		t.Errorf("Message = %q, want 'hello world'", result.Message)
+	if result.Message() != "hello world" {
+		t.Errorf("Message = %q, want 'hello world'", result.Message())
 	}
-	if result.TraceID != "abc123" {
-		t.Errorf("TraceID = %q, want 'abc123'", result.TraceID)
+	if result.TraceID() != "abc123" {
+		t.Errorf("TraceID = %q, want 'abc123'", result.TraceID())
 	}
 }
 

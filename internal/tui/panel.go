@@ -32,7 +32,7 @@ func (a *App) buildStatsPanel(vl int) []string {
 		"DEBUG": 0, "INFO": 0, "WARN": 0, "ERROR": 0, "OTHER": 0,
 	}
 	for _, line := range a.filteredView {
-		lv := strings.ToUpper(line.Level)
+		lv := strings.ToUpper(line.Level())
 		switch {
 		case lv == "DEBUG" || lv == "DBG":
 			counts["DEBUG"]++

@@ -20,20 +20,20 @@ func TestRegexParserJavaLogback(t *testing.T) {
 	if result == nil {
 		t.Fatal("Parse() returned nil")
 	}
-	if result.Level != "INFO" {
-		t.Errorf("Level = %q, want %q", result.Level, "INFO")
+	if result.Level() != "INFO" {
+		t.Errorf("Level = %q, want %q", result.Level(), "INFO")
 	}
-	if result.Thread != "MQTT Call: sit-mqtt-client-984169" {
-		t.Errorf("Thread = %q, want %q", result.Thread, "MQTT Call: sit-mqtt-client-984169")
+	if result.Thread() != "MQTT Call: sit-mqtt-client-984169" {
+		t.Errorf("Thread = %q, want %q", result.Thread(), "MQTT Call: sit-mqtt-client-984169")
 	}
-	if result.TraceID != "NA" {
-		t.Errorf("TraceID = %q, want %q", result.TraceID, "NA")
+	if result.TraceID() != "NA" {
+		t.Errorf("TraceID = %q, want %q", result.TraceID(), "NA")
 	}
-	if result.Message != "==========deliveryComplete=true==========" {
-		t.Errorf("Message = %q, want %q", result.Message, "==========deliveryComplete=true==========")
+	if result.Message() != "==========deliveryComplete=true==========" {
+		t.Errorf("Message = %q, want %q", result.Message(), "==========deliveryComplete=true==========")
 	}
-	if result.Logger != "com.ydcloud.smart.parking.mqtt.DefaultMqttCallback" {
-		t.Errorf("Logger = %q, want %q", result.Logger, "com.ydcloud.smart.parking.mqtt.DefaultMqttCallback")
+	if result.Logger() != "com.ydcloud.smart.parking.mqtt.DefaultMqttCallback" {
+		t.Errorf("Logger = %q, want %q", result.Logger(), "com.ydcloud.smart.parking.mqtt.DefaultMqttCallback")
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sync"
 	"sort"
 	"strings"
 	"time"
@@ -32,11 +33,34 @@ type App struct {
 	fieldAlias map[string]string // custom field -> standard field mapping
 
 	cancelFunc context.CancelFunc
-	streamCh   <-chan model.RawLine
+	streamCh   <-chan []model.RawLine
 
 	filteredView []*model.ParsedLine
 	stGroups     []stacktrace.Group
 	expanded     map[int]bool
+
+	// 加载/内存观测(状态栏徽章):首行到达起算,流结束(EOF)定格;
+	// follow 类源无 streamEnd,以"最近一行"间隔区分加载中/实时
+	firstLineAt time.Time
+	lastLineAt  time.Time
+	loadDur     time.Duration
+	memBytes    uint64
+	tickN       int
+
+	// 搜索查询解析缓存:同一 searchInput 的全量刷新(10 万~数百万行)只 parse 一次,
+	// 旧实现每行 currentQuery() 重复解析是 flush 卡顿主热点之一
+	queryCache      *SearchQuery
+	queryCacheInput string
+
+	// 大视图分帧刷新状态机:搜索 flush 拆片执行,片间让出事件循环(打字/渲染不冻结);
+	// 新输入/换源/清屏自增 chunkTok 作废在途分片
+	chunkTok          int
+	chunkNext         int
+	chunkTotal        int
+	chunkActive       bool
+	chunkHidden       int
+	chunkLevels       map[string]int
+	chunkCollectLvl   bool
 
 	width        int
 	height       int
@@ -244,23 +268,27 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 
 type batchMsg struct{ lines []model.RawLine }
 type tickMsg struct{}
+type streamEndMsg struct{} // 流结束(file/gz 读完 EOF 关闭 channel;follow 类源不触发)
 
-func waitForStream(ch <-chan model.RawLine) tea.Cmd {
+// waitForStream 攒批消费:阻塞取首行后非阻塞攒满上限即发。
+// 批上限 2 万:大文件加载(数百万行)时渲染事件数 = View() 构建次数随之 1/20,
+// 实测数据链 12.7s vs 全链 51s 的差额主要是逐批渲染的构建开销;
+// follow 低速场景 channel 立即空、行为不变(仍是小批快发)。
+func waitForStream(ch <-chan []model.RawLine) tea.Cmd {
 	return func() tea.Msg {
-		var lines []model.RawLine
-		line, ok := <-ch
+		first, ok := <-ch
 		if !ok {
-			return nil
+			return streamEndMsg{}
 		}
-		lines = append(lines, line)
+		lines := append([]model.RawLine(nil), first...) // 防御拷贝:批缓冲属发送方复用
 	loop:
-		for len(lines) < 1000 {
+		for len(lines) < 20000 {
 			select {
-			case l, ok := <-ch:
+			case b, ok := <-ch:
 				if !ok {
 					break loop
 				}
-				lines = append(lines, l)
+				lines = append(lines, b...)
 			default:
 				break loop
 			}
@@ -346,6 +374,13 @@ func (a *App) resetViewState() {
 	a.cursor = 0
 	a.offset = 0
 	a.autoscroll = true
+	// 加载/内存观测随源重置(旧源的计时对_new源无意义)
+	a.firstLineAt = time.Time{}
+	a.lastLineAt = time.Time{}
+	a.loadDur = 0
+	// 作废在途分帧刷新(其查询条件与行集均已失效)
+	a.chunkTok++
+	a.chunkActive = false
 }
 
 // restartCurrentStream 当前源带新参数重启（frp 密码重连；不 Cleanup 旧源，保留隧道）。
@@ -404,14 +439,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case batchMsg:
 		a.processBatch(msg.lines)
 		return a, waitForStream(a.streamCh)
+	case streamEndMsg:
+		// 流结束定格加载总时长(file/gz 读完);follow 类源永不触发,状态栏退化显示接收跨度
+		if !a.firstLineAt.IsZero() {
+			a.loadDur = time.Since(a.firstLineAt)
+		}
+		return a, nil
 	case tickMsg:
+		a.tickN++
+		if a.tickN%60 == 1 { // ~2s 采样一次进程内存(ReadMemStats 微秒级 STW,无感)
+			var ms runtime.MemStats
+			runtime.ReadMemStats(&ms)
+			a.memBytes = ms.Sys
+		}
 		return a, tickEvery()
 	case searchDebounceMsg:
 		// 防抖到期:令牌仍有效且弹窗开着且确有未应用输入才生效
 		//(旧令牌/已关闭/已切分区一律丢弃)
 		if a.searchMode && a.searchPending && msg.tok == a.searchDebounceTok {
-			a.flushSearch()
+			return a, a.flushSearch()
 		}
+	case recomputeChunkMsg:
+		return a, a.handleRecomputeChunk(msg)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return a, a.shutdown()
@@ -516,10 +565,57 @@ func (a *App) processBatch(lines []model.RawLine) {
 	if a.cursor >= len(vl) {
 		a.cursor = max(0, len(vl)-1)
 	}
-	a.stGroups = stacktrace.Detect(a.filteredView)
+	// 堆栈组增量维护:重扫尾部区间+跨区/未终结组回退重扫,单批 O(重扫区+批);
+	// 全量 Detect 在滑窗 10 万行 × 数千批下是 O(n²/批),大文件加载直接拖死。
+	// 22000 > waitForStream 单批上限 20000(DetectAppend 契约:overlap 必须大于单批行数)
+	a.stGroups = stacktrace.DetectAppend(a.filteredView, a.stGroups, 22000)
+}
+
+// evictViewHead 视图滑窗淘汰头部一行的联动状态迁移:
+// 非混入态光标/偏移跟随行内容前移(混入态光标是 ctxLines 快照坐标,不动;
+// autoscroll 时光标由渲染层钉尾,也不动);堆栈组索引整体减位,整组滑出则丢弃;
+// expanded 键随组 Start 同步迁移。searchMatchIdx 为展示型统计,滑窗语义模糊,
+// 留待下一次搜索交互/重算自愈。
+func (a *App) evictViewHead() {
+	if len(a.ctxLines) == 0 {
+		if !a.autoscroll && a.cursor > 0 {
+			a.cursor--
+		}
+		if a.offset > 0 {
+			a.offset--
+		}
+	}
+	w := 0
+	for _, g := range a.stGroups {
+		g.Start--
+		g.End--
+		if g.End < 0 {
+			continue // 整组滑出窗口,丢弃
+		}
+		if g.Start < 0 {
+			g.Start = 0
+		}
+		a.stGroups[w] = g
+		w++
+	}
+	a.stGroups = a.stGroups[:w]
+	if len(a.expanded) > 0 {
+		migrated := make(map[int]bool, len(a.expanded))
+		for k, v := range a.expanded {
+			if k > 0 {
+				migrated[k-1] = v
+			}
+		}
+		a.expanded = migrated
+	}
 }
 
 func (a *App) processLine(raw model.RawLine) {
+	now := time.Now()
+	if a.firstLineAt.IsZero() {
+		a.firstLineAt = now // 加载计时起点(首行到达)
+	}
+	a.lastLineAt = now
 	raw.Text = model.StripANSI(raw.Text)
 	var pl *model.ParsedLine
 	if a.parsers != nil {
@@ -530,11 +626,11 @@ func (a *App) processLine(raw model.RawLine) {
 		}
 	}
 	if pl == nil {
-		pl = &model.ParsedLine{
-			Raw:     raw,
-			Message: raw.Text,
-			Fields:  map[model.Field]string{model.FieldMessage: raw.Text},
-		}
+		// 兜底行:Message span 覆盖整个 base(=Raw.Text),零额外驻留;
+		// "未解析行"以 Message()==Raw.Text 标识(reparsePending 据此回灌重解析)
+		pl = &model.ParsedLine{Raw: raw}
+		pl.InitBase(raw.Text)
+		pl.SetStdSpan(model.FieldMessage, 0, len(raw.Text))
 	}
 	a.applyFieldAlias(pl)
 	a.buffer.Push(pl)
@@ -553,6 +649,12 @@ func (a *App) processLine(raw model.RawLine) {
 	}
 	if a.matchLineForFilter(pl) {
 		a.filteredView = append(a.filteredView, pl)
+		// 视图滑窗:与 ring buffer 同容量边界——否则无过滤时全量行被视图切片引用,
+		// ring 覆盖旧行也无法回收,滚动窗口内存边界被击穿(1G 文件 RSS 1.8G 的根因)
+		for len(a.filteredView) > a.bufSize {
+			a.filteredView = a.filteredView[1:]
+			a.evictViewHead()
+		}
 	}
 	if !a.autoscroll {
 		a.newLogs++
@@ -570,7 +672,9 @@ func (a *App) reparsePending(p parser.Parser) {
 	}
 	for i := 0; i < a.buffer.Len(); i++ {
 		line := a.buffer.Get(i)
-		if line == nil || line.Fields != nil && line.Fields[model.FieldMessage] == line.Raw.Text {
+		// 未解析行特征:Message==Raw.Text(兜底构造;解析行的 Message 是严格子串)。
+		// 注:仅含 message 组的 pattern (?P<message>.*) 理论上会误判重解析,此类规则无实际意义
+		if line == nil || line.Message() == line.Raw.Text {
 			pl := p.Parse(line.Raw)
 			if pl != nil {
 				a.buffer.Set(i, pl)
@@ -581,9 +685,25 @@ func (a *App) reparsePending(p parser.Parser) {
 	a.statsDirty = true
 }
 
+// matchQuery 带解析缓存的查询匹配(searchInput 未变时复用 query 树,
+// 供流式单行与全量刷新共用;并行分片前须先 ensureQueryCache 预热避免并发解析)。
+func (a *App) matchQuery(line *model.ParsedLine) bool {
+	a.ensureQueryCache()
+	return a.queryCache.MatchLine(line)
+}
+
+// ensureQueryCache 主 goroutine 预热解析缓存(并发 worker 只读 queryCache 前必须调用)。
+func (a *App) ensureQueryCache() {
+	if a.queryCache == nil || a.queryCacheInput != a.searchInput {
+		q := a.currentQuery()
+		a.queryCache = &q
+		a.queryCacheInput = a.searchInput
+	}
+}
+
 func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 	if a.searchInput != "" {
-		if !a.currentQuery().MatchLine(line) {
+		if !a.matchQuery(line) {
 			return false
 		}
 	}
@@ -600,34 +720,85 @@ func (a *App) matchLineForFilter(line *model.ParsedLine) bool {
 	return true
 }
 
-func (a *App) recomputeView() {
+// recomputeParallelMin 大于此行数的全量重算走并行分片(小视图串行省调度开销)。
+const recomputeParallelMin = 100000
+
+// 分帧刷新参数:片大小与启用阈值。片内同步执行(~ms 级),片间让出事件循环——
+// 大视图搜索刷新期间打字/渲染不冻结(治"停顿后按键卡住":同步 flush 冻结事件循环)。
+const (
+	recomputeChunkSize = 50000
+	recomputeChunkMin  = 100000
+)
+
+// recomputeChunkMsg 分帧刷新的一片(tok 为发起令牌,start 为本片起始行)。
+type recomputeChunkMsg struct {
+	tok   int
+	start int
+}
+
+// startChunkedRecompute 大视图分帧刷新入口:小视图同步 recomputeView(调用方
+// 后续逻辑依赖即时结果);大视图清空视图后逐片渐进重建(渲染立即可见新命中)。
+// 清空必须同步作废全部旧视图坐标结构(混入快照/堆栈组/展开态/游标)——
+// 片间会发生渲染帧,旧坐标(664 万级)索引空视图直接越界 panic。
+func (a *App) startChunkedRecompute() tea.Cmd {
+	n := a.buffer.Len()
+	if n < recomputeChunkMin {
+		a.recomputeView()
+		return nil
+	}
 	if len(a.ctxLines) > 0 {
-		a.exitCtxView() // 过滤条件变化:混入快照锚点失效,自动退出(spec 语义性退出)
+		a.exitCtxView() // 过滤条件变化:混入快照锚点失效(与 recomputeView 同语义)
 	}
-	// 预分配:省 append 扩容与 GC(10 万行下每键路径的最大头)
-	view := make([]*model.ParsedLine, 0, a.buffer.Len())
-	hiddenByHides := 0
-	// levelCounts 仅在 ring 淘汰后失真(statsDirty),无淘汰时流式精确可跳过全量重算
-	var levelCounts map[string]int
-	if a.statsDirty {
-		levelCounts = make(map[string]int)
+	a.ensureQueryCache()
+	a.chunkTok++
+	a.chunkNext = 0
+	a.chunkTotal = n
+	a.chunkActive = true
+	a.chunkHidden = 0
+	a.chunkCollectLvl = a.statsDirty
+	a.chunkLevels = nil
+	if a.chunkCollectLvl {
+		a.chunkLevels = make(map[string]int)
 	}
-	for i := 0; i < a.buffer.Len(); i++ {
+	// 渐进重建:清空后逐片 append(新命中立即可见);游标归零(auto 不滚时由
+	// 用户在部分视图上重新定位,完成帧统一钳制)
+	a.filteredView = make([]*model.ParsedLine, 0, min(n, 1<<20))
+	a.stGroups = nil
+	a.expanded = make(map[int]bool)
+	a.cursor = 0
+	a.offset = 0
+	return a.stepChunk(0)
+}
+
+func (a *App) stepChunk(start int) tea.Cmd {
+	tok := a.chunkTok
+	return func() tea.Msg { return recomputeChunkMsg{tok: tok, start: start} }
+}
+
+// handleRecomputeChunk 执行单片并渐进合并;完成时收尾(游标钳制/统计/堆栈组)。
+// 堆栈组在完成帧全量 Detect 一次(单帧 ~百 ms,可接受;逐片 DetectAppend 的
+// 重扫开销会让总时长翻倍)。
+func (a *App) handleRecomputeChunk(msg recomputeChunkMsg) tea.Cmd {
+	if !a.chunkActive || msg.tok != a.chunkTok || msg.start != a.chunkNext {
+		return nil // 在途分片已作废(新输入/换源/清屏)
+	}
+	end := min(msg.start+recomputeChunkSize, a.chunkTotal)
+	for i := msg.start; i < end; i++ {
 		line := a.buffer.Get(i)
 		if line == nil {
 			continue
 		}
-		if levelCounts != nil {
+		if a.chunkLevels != nil {
 			if lv := line.Get(model.FieldLevel); lv != "" {
-				levelCounts[lv]++
+				a.chunkLevels[lv]++
 			}
 		}
 		if len(a.hides) > 0 && a.matchHides(line) {
-			hiddenByHides++
+			a.chunkHidden++
 			continue
 		}
 		if a.searchInput != "" {
-			if !a.currentQuery().MatchLine(line) {
+			if !a.queryCache.MatchLine(line) {
 				continue
 			}
 		}
@@ -636,7 +807,157 @@ func (a *App) recomputeView() {
 				continue
 			}
 		}
-		view = append(view, line)
+		a.filteredView = append(a.filteredView, line)
+	}
+	a.chunkNext = end
+	if end < a.chunkTotal {
+		return a.stepChunk(end)
+	}
+	// 完成收尾
+	a.chunkActive = false
+	a.hiddenByHides = a.chunkHidden
+	if a.chunkLevels != nil {
+		a.levelCounts = a.chunkLevels
+		a.statsDirty = false
+	}
+	a.chunkLevels = nil
+	if a.cursor >= len(a.filteredView) {
+		a.cursor = max(0, len(a.filteredView)-1)
+	}
+	a.stGroups = stacktrace.Detect(a.filteredView)
+	if a.searchInput == "" {
+		a.searchMatchCount = 0
+		a.searchMatchIdx = 0
+	} else {
+		a.searchMatchCount = len(a.filteredView)
+		a.searchMatchIdx = max(0, min(a.cursor+1, len(a.filteredView)))
+	}
+	return nil
+}
+
+// recomputeShards 并行分片重算:大视图(--all 数百万行)全量过滤的专属加速。
+// worker 只读 App 状态(queryCache 已由调用方预热),局部收集后主 goroutine 按序合并;
+// 与 recomputeView 串行路径语义一致(levelCounts 仅 statsDirty 时统计)。
+func (a *App) recomputeShards(n int) ([]*model.ParsedLine, int, map[string]int) {
+	workers := min(runtime.NumCPU(), 8)
+	if workers < 2 {
+		workers = 2
+	}
+	chunk := (n + workers - 1) / workers
+	collectLevels := a.statsDirty
+	type shard struct {
+		view   []*model.ParsedLine
+		hidden int
+		levels map[string]int
+	}
+	shards := make([]shard, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		lo, hi := w*chunk, min((w+1)*chunk, n)
+		if lo >= hi {
+			break
+		}
+		wg.Add(1)
+		go func(w, lo, hi int) {
+			defer wg.Done()
+			s := shard{view: make([]*model.ParsedLine, 0, hi-lo)}
+			if collectLevels {
+				s.levels = make(map[string]int, 4)
+			}
+			for i := lo; i < hi; i++ {
+				line := a.buffer.Get(i)
+				if line == nil {
+					continue
+				}
+				if s.levels != nil {
+					if lv := line.Get(model.FieldLevel); lv != "" {
+						s.levels[lv]++
+					}
+				}
+				if len(a.hides) > 0 && a.matchHides(line) {
+					s.hidden++
+					continue
+				}
+				if a.searchInput != "" {
+					if !a.queryCache.MatchLine(line) {
+						continue
+					}
+				}
+				if a.levelFilter != "" {
+					if !a.matchLevelFilter(line) {
+						continue
+					}
+				}
+				s.view = append(s.view, line)
+			}
+			shards[w] = s
+		}(w, lo, hi)
+	}
+	wg.Wait()
+	total, hidden := 0, 0
+	for _, s := range shards {
+		total += len(s.view)
+		hidden += s.hidden
+	}
+	view := make([]*model.ParsedLine, 0, total)
+	for _, s := range shards {
+		view = append(view, s.view...)
+	}
+	var levels map[string]int
+	if collectLevels {
+		levels = make(map[string]int, 8)
+		for _, s := range shards {
+			for k, v := range s.levels {
+				levels[k] += v
+			}
+		}
+	}
+	return view, hidden, levels
+}
+
+func (a *App) recomputeView() {
+	if len(a.ctxLines) > 0 {
+		a.exitCtxView() // 过滤条件变化:混入快照锚点失效,自动退出(spec 语义性退出)
+	}
+	a.ensureQueryCache() // 预热解析缓存:串行/并行 worker 共享同一 query 树
+	n := a.buffer.Len()
+	// 预分配:省 append 扩容与 GC(10 万行下每键路径的最大头)
+	view := make([]*model.ParsedLine, 0, n)
+	hiddenByHides := 0
+	// levelCounts 仅在 ring 淘汰后失真(statsDirty),无淘汰时流式精确可跳过全量重算
+	var levelCounts map[string]int
+	if a.statsDirty {
+		levelCounts = make(map[string]int)
+	}
+	if n >= recomputeParallelMin {
+		view, hiddenByHides, levelCounts = a.recomputeShards(n)
+	} else {
+		for i := 0; i < n; i++ {
+			line := a.buffer.Get(i)
+			if line == nil {
+				continue
+			}
+			if levelCounts != nil {
+				if lv := line.Get(model.FieldLevel); lv != "" {
+					levelCounts[lv]++
+				}
+			}
+			if len(a.hides) > 0 && a.matchHides(line) {
+				hiddenByHides++
+				continue
+			}
+			if a.searchInput != "" {
+				if !a.queryCache.MatchLine(line) {
+					continue
+				}
+			}
+			if a.levelFilter != "" {
+				if !a.matchLevelFilter(line) {
+					continue
+				}
+			}
+			view = append(view, line)
+		}
 	}
 	a.hiddenByHides = hiddenByHides
 	if levelCounts != nil {
@@ -720,13 +1041,56 @@ func (a *App) streamLabel() string {
 	return "跟踪中"
 }
 
+// containsIgnoreCase 子串忽略大小写包含判断。
+// ASCII 走零分配字节比较(日志场景压倒性路径,替代每行两次 ToLower 的全行分配);
+// 含非 ASCII 字节回落 Unicode 语义(strings.ToLower 折叠),行为与原实现一致。
 func containsIgnoreCase(s, sub string) bool {
-	ls, lsub := strings.ToLower(s), strings.ToLower(sub)
-	return len(ls) >= len(lsub) && strings.Contains(ls, lsub)
+	if len(sub) == 0 {
+		return true
+	}
+	if len(s) < len(sub) {
+		return false
+	}
+	if hasNonASCII(s) || hasNonASCII(sub) {
+		return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
+	}
+	n := len(s) - len(sub)
+	f0 := lowerByte(sub[0])
+	for i := 0; i <= n; i++ {
+		if lowerByte(s[i]) != f0 {
+			continue // 首字节折叠不匹配,滑窗剪枝
+		}
+		j := 1
+		for ; j < len(sub); j++ {
+			if lowerByte(s[i+j]) != lowerByte(sub[j]) {
+				break
+			}
+		}
+		if j == len(sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNonASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
+}
+
+func lowerByte(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 func (a *App) matchLevelFilter(line *model.ParsedLine) bool {
-	lv := strings.ToUpper(line.Level)
+	lv := strings.ToUpper(line.Level())
 	switch a.levelFilter {
 	case "ERROR":
 		return lv == "ERROR" || lv == "ERR" || lv == "FATAL"
@@ -740,8 +1104,9 @@ func (a *App) matchLevelFilter(line *model.ParsedLine) bool {
 	return true
 }
 
-// applyFieldAlias maps custom field names to standard struct fields.
-// e.g. if config has "th" maps_to "thread", sets pl.Thread from Fields["th"].
+// applyFieldAlias maps custom field names to standard fields.
+// e.g. if config has "th" maps_to "thread", thread 取值改用 Fields["th"].
+// 列存后标准字段以 Fields map 覆盖写入(stdOrMap/Get 均优先查 map),span 不动。
 func (a *App) applyFieldAlias(pl *model.ParsedLine) {
 	if a.fieldAlias == nil || pl.Fields == nil {
 		return
@@ -751,21 +1116,14 @@ func (a *App) applyFieldAlias(pl *model.ParsedLine) {
 		if !ok || v == "" {
 			continue
 		}
-		switch model.Field(standard) {
+		switch f := model.Field(standard); f {
 		case model.FieldTime:
 			if t, err := time.Parse("2006-01-02 15:04:05.000", v); err == nil {
-				pl.Time = t
+				pl.SetUnixMs(t.UnixMilli())
 			}
-		case model.FieldLevel:
-			pl.Level = v
-		case model.FieldThread:
-			pl.Thread = v
-		case model.FieldTraceID:
-			pl.TraceID = v
-		case model.FieldLogger:
-			pl.Logger = v
-		case model.FieldMessage:
-			pl.Message = v
+			pl.Fields[f] = v
+		case model.FieldLevel, model.FieldThread, model.FieldTraceID, model.FieldLogger, model.FieldMessage:
+			pl.Fields[f] = v
 		}
 	}
 }
@@ -1208,6 +1566,7 @@ func (a *App) escapeToNormal() {
 			curLine = a.filteredView[a.cursor]
 		}
 		a.searchInput = ""
+		a.chunkTok++ // 作废在途分帧刷新(其查询条件已清空)
 		a.recomputeView()
 		if curLine != nil {
 			for i, l := range a.filteredView {

@@ -8,14 +8,17 @@ import (
 func TestParsedLineGet(t *testing.T) {
 	now := time.Date(2026, 5, 15, 9, 27, 1, 130000000, time.UTC)
 	p := ParsedLine{
-		Raw:     RawLine{Text: "raw", Source: "pod-1"},
-		Time:    now,
-		Level:   "INFO",
-		Thread:  "main",
-		TraceID: "abc123",
-		Logger:  "com.example.App",
-		Message: "hello world",
+		Raw: RawLine{Text: "raw", Source: "pod-1"},
+		Fields: map[Field]string{
+			FieldTime:    "09:27:01.130",
+			FieldLevel:   "INFO",
+			FieldThread:  "main",
+			FieldTraceID: "abc123",
+			FieldLogger:  "com.example.App",
+			FieldMessage: "hello world",
+		},
 	}
+	p.SetUnixMs(now.UnixMilli())
 
 	tests := []struct {
 		field Field

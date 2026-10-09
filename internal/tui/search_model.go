@@ -21,12 +21,14 @@ type searchDebounceMsg struct{ tok int }
 
 // flushSearch 应用未生效的搜索输入(幂等):pending 时全量重算。
 // Enter/Esc/关闭弹窗/历史选词等立即路径调用。
-func (a *App) flushSearch() {
+// 大视图走分帧异步(返回续跑 cmd,打字/渲染不冻结);小视图同步完成返回 nil。
+func (a *App) flushSearch() tea.Cmd {
 	if a.searchPending {
 		a.searchPending = false
 		a.searchDebounceTok++
-		a.recomputeView()
+		return a.startChunkedRecompute()
 	}
+	return nil
 }
 
 // scheduleSearchDebounce 返回携带当前令牌的防抖 tick(输入变更时调用)。
@@ -163,9 +165,9 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	input := a.activeSearchInput()
 	switch msg.Type {
 	case tea.KeyEscape:
-		a.closeSearchPopup()
+		return a, a.closeSearchPopup()
 	case tea.KeyEnter:
-		a.confirmSearchTab()
+		return a, a.confirmSearchTab()
 	case tea.KeyTab:
 		a.searchTab = (a.searchTab + 1) % 3
 		a.activeSearchInput().clamp()
@@ -178,11 +180,12 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.searchDebounceTok++
 	default:
 		if _, changed := input.handleEditKeys(msg); changed && a.searchTab == 0 {
+			a.chunkTok++ // 输入已变,作废在途分帧刷新(其查询条件已过期)
 			if msg.String() == " " {
 				// 词边界立即过滤(用户敲完一个词),并作废在途防抖
 				a.searchDebounceTok++
 				a.searchPending = false
-				a.recomputeView()
+				return a, a.startChunkedRecompute()
 			} else {
 				// 连续输入防抖:不立即全量扫描,停手 searchDebounce 后兜底
 				a.searchDebounceTok++
@@ -337,11 +340,12 @@ func (a *App) activeSearchInput() inputRef {
 	}
 }
 
-func (a *App) closeSearchPopup() {
-	a.flushSearch() // 关闭前应用未生效的输入(与防抖前语义一致,不丢最后一次输入)
+func (a *App) closeSearchPopup() tea.Cmd {
+	cmd := a.flushSearch() // 关闭前应用未生效的输入(与防抖前语义一致,不丢最后一次输入)
 	a.searchMode = false
 	a.starFields = nil
 	a.starCursor = 0
+	return cmd
 }
 
 // splitKeywords parses a comma-separated keyword string into a clean slice.
@@ -385,14 +389,15 @@ func (a *App) confirmHides() {
 }
 
 // confirmSearchTab handles Enter based on the current search tab.
-func (a *App) confirmSearchTab() {
+// 返回续跑 cmd(大视图分帧刷新链透传给 tea)。
+func (a *App) confirmSearchTab() tea.Cmd {
 	switch a.searchTab {
 	case 1:
 		a.confirmHighlights()
-		a.closeSearchPopup()
+		return a.closeSearchPopup()
 	case 2:
 		a.confirmHides()
-		a.closeSearchPopup()
+		return a.closeSearchPopup()
 	default:
 		if len(a.starFields) > 0 && a.starCursor < len(a.starFields) {
 			sf := a.starFields[a.starCursor]
@@ -408,12 +413,12 @@ func (a *App) confirmSearchTab() {
 					insert = insert + " "
 				}
 				inputRef{&a.searchInput, &a.searchCursor}.insert(insert)
-				return
+				return nil
 			}
 		}
 		a.addSearchHistory(a.searchInput)
 		a.recomputeView()
-		a.closeSearchPopup()
+		return a.closeSearchPopup()
 	}
 }
 

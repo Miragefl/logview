@@ -43,11 +43,11 @@ func ToFile(lines []*model.ParsedLine, path string, format Format) (int, error) 
 		case FormatJSON:
 			entry := exportEntry{
 				Time:    line.Get(model.FieldTime),
-				Level:   line.Level,
-				Thread:  line.Thread,
-				TraceID: line.TraceID,
-				Logger:  line.Logger,
-				Message: line.Message,
+				Level:   line.Level(),
+				Thread:  line.Thread(),
+				TraceID: line.TraceID(),
+				Logger:  line.Logger(),
+				Message: line.Message(),
 				Source:  line.Raw.Source,
 			}
 			data, _ := json.Marshal(entry)

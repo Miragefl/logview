@@ -38,12 +38,12 @@ func ParseK8sResource(s string) (K8sResource, error) {
 }
 
 type K8sSource struct {
-	resource   K8sResource
-	namespace  string
-	podNames   []string
-	tailLines  int
-	kubeCtx    string // kubectl --context（空=当前 context）
-	seq        atomic.Uint64
+	resource  K8sResource
+	namespace string
+	podNames  []string
+	tailLines int
+	kubeCtx   string // kubectl --context（空=当前 context）
+	seq       atomic.Uint64
 }
 
 func NewK8sSource(resource, namespace string, podNames []string, tailLines int) *K8sSource {
@@ -61,7 +61,7 @@ func (k *K8sSource) Label() string {
 // Scope 词频隔离域=统一 "k8s"(集群内资源共享词频历史)。
 func (k *K8sSource) Scope() string { return "k8s" }
 
-func (k *K8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
+func (k *K8sSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
 	pods := k.podNames
 	var err error
 
@@ -78,21 +78,21 @@ func (k *K8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 		return nil, fmt.Errorf("no pods found for %s", k.resource.Name)
 	}
 
-	ch := make(chan model.RawLine, 256)
+	b := NewBatcher(ctx)
 	go func() {
-		defer close(ch)
+		defer b.Close()
 		var wg sync.WaitGroup
 		for _, pod := range pods {
 			wg.Add(1)
 			go func(podName string) {
 				defer wg.Done()
-				k.streamPod(ctx, ch, podName)
+				k.streamPod(ctx, b, podName)
 			}(pod)
 		}
 		wg.Wait()
 	}()
 
-	return ch, nil
+	return b.Out(), nil
 }
 
 // kubectlArgs 组装 kubectl 参数（带 --context，若有）。
@@ -139,7 +139,7 @@ func (k *K8sSource) discoverPods(ctx context.Context) ([]string, error) {
 	return strings.Fields(raw), nil
 }
 
-func (k *K8sSource) streamPod(ctx context.Context, ch chan<- model.RawLine, podName string) {
+func (k *K8sSource) streamPod(ctx context.Context, b *Batcher, podName string) {
 	args := k.kubectlArgs("logs", "-f", podName, "-n", k.namespace)
 	if k.tailLines > 0 {
 		args = append(args, "--tail", fmt.Sprintf("%d", k.tailLines))
@@ -158,14 +158,7 @@ func (k *K8sSource) streamPod(ctx context.Context, ch chan<- model.RawLine, podN
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := model.RawLine{
-			Text:   scanner.Text(),
-			Source: podName,
-			Seq:    k.seq.Add(1),
-		}
-		select {
-		case ch <- line:
-		case <-ctx.Done():
+		if !b.Send(scanner.Text(), podName) {
 			return
 		}
 	}
@@ -200,10 +193,10 @@ func (m *MultiK8sSource) Label() string {
 // Scope 词频隔离域=统一 "k8s"(与单 k8s 源同域聚合)。
 func (m *MultiK8sSource) Scope() string { return "k8s" }
 
-func (m *MultiK8sSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
-	out := make(chan model.RawLine, 512)
+func (m *MultiK8sSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
+	out := make(chan []model.RawLine, 512)
 
-	var channels []<-chan model.RawLine
+	var channels []<-chan []model.RawLine
 	for _, src := range m.sources {
 		ch, err := src.Start(ctx)
 		if err != nil {
@@ -217,11 +210,11 @@ func (m *MultiK8sSource) Start(ctx context.Context) (<-chan model.RawLine, error
 		var wg sync.WaitGroup
 		for _, ch := range channels {
 			wg.Add(1)
-			go func(c <-chan model.RawLine) {
+			go func(c <-chan []model.RawLine) {
 				defer wg.Done()
-				for line := range c {
+				for batch := range c {
 					select {
-					case out <- line:
+					case out <- batch:
 					case <-ctx.Done():
 						return
 					}

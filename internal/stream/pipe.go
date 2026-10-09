@@ -23,10 +23,10 @@ func (p *PipeSource) Label() string { return "pipe" }
 // Scope 管道属全局域(词频与全局历史共享)。
 func (p *PipeSource) Scope() string { return "" }
 
-func (p *PipeSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
-	ch := make(chan model.RawLine, 256)
+func (p *PipeSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
+	b := NewBatcher(ctx)
 	go func() {
-		defer close(ch)
+		defer b.Close()
 		scanner := bufio.NewScanner(p.reader)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
@@ -35,19 +35,12 @@ func (p *PipeSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
 				return
 			default:
 			}
-			line := model.RawLine{
-				Text:   scanner.Text(),
-				Source: "pipe",
-				Seq:    p.seq.Add(1),
-			}
-			select {
-			case ch <- line:
-			case <-ctx.Done():
+			if !b.Send(scanner.Text(), "pipe") {
 				return
 			}
 		}
 	}()
-	return ch, nil
+	return b.Out(), nil
 }
 
 func (p *PipeSource) Cleanup() error { return nil }

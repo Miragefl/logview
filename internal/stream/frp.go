@@ -36,7 +36,7 @@ func (s *FRPSource) Scope() string { return s.name }
 // SetBufferLines 转发 gz 归档传回行数上限(装配处传 ring 容量,与 SSH 直连同语义)。
 func (s *FRPSource) SetBufferLines(n int) { s.inner.SetBufferLines(n) }
 
-func (s *FRPSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
+func (s *FRPSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
 	return s.inner.Start(ctx)
 }
 

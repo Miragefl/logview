@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -289,8 +292,11 @@ var tailCmd = &cobra.Command{
 		readOnly, _ := cmd.Flags().GetBool("read-only")
 		tailLines, _ := cmd.Flags().GetInt("tail")
 		resume, _ := cmd.Flags().GetBool("resume")
+		if err := applyAllFlag(args, cmd); err != nil {
+			return err
+		}
 		if readOnly {
-			return runTUI(stream.NewFileSource(args), resume, cfg, false)
+			return runTUI(stream.NewFileSource(args).WithTailLines(bufferSize), resume, cfg, false)
 		}
 		followLines := 0
 		if followMode {
@@ -300,7 +306,7 @@ var tailCmd = &cobra.Command{
 				followLines = cfg.history
 			}
 		}
-		return runTUI(stream.NewTailSource(args, followLines), resume, cfg, false)
+		return runTUI(stream.NewTailSource(args, followLines).WithTailLines(bufferSize), resume, cfg, false)
 	},
 }
 
@@ -326,8 +332,36 @@ var fileCmd = &cobra.Command{
 			return err
 		}
 		resume, _ := cmd.Flags().GetBool("resume")
-		return runTUI(stream.NewFileSource(args), resume, cfg, false)
+		if err := applyAllFlag(args, cmd); err != nil {
+			return err
+		}
+		return runTUI(stream.NewFileSource(args).WithTailLines(bufferSize), resume, cfg, false)
 	},
+}
+
+// applyAllFlag --all 生效:统计文件总行数并抬升全局 bufferSize——
+// bufferSize ≥ 总行数时尾读数不够换行自动回落从头全量读,滑窗也永不触发,
+// 即全量驻留(内存随文件大小线性增长,大文件慎用);gz 不支持,直接报错。
+func applyAllFlag(paths []string, cmd *cobra.Command) error {
+	all, err := cmd.Flags().GetBool("all")
+	if err != nil || !all {
+		return nil
+	}
+	var total int64
+	for _, p := range paths {
+		n, err := stream.CountLines(p)
+		if err != nil {
+			return fmt.Errorf("--all: %w", err)
+		}
+		total += n
+	}
+	if total > int64(bufferSize) {
+		bufferSize = int(total)
+		// 全量驻留是长活对象场景,压低 GC 目标水位换内存峰值(GOGC 100→30):
+		// 1G/664 万行实测 RSS 6.0G→4.3G,加载耗时仅 +6%
+		debug.SetGCPercent(30)
+	}
+	return nil
 }
 
 // appConfig 承载 rules.yaml 的加载结果，供各子命令装配 TUI。
@@ -341,6 +375,10 @@ type appConfig struct {
 
 // runTUI 以统一路径装配并启动 TUI（各子命令共用）；openPicker 为 true 时启动即打开源选择器。
 func runTUI(src stream.LogStream, resume bool, cfg appConfig, openPicker bool) error {
+	// 性能诊断开关:LOGVIEW_PPROF=:6060 时开 pprof 端口(go tool pprof)
+	if addr := os.Getenv("LOGVIEW_PPROF"); addr != "" {
+		go func() { _ = http.ListenAndServe(addr, nil) }()
+	}
 	app := tui.NewApp(src, cfg.parsers, bufferSize, cfg.defaultHides)
 	app.SetRulesPath(cfg.rulesPath)
 	if openPicker {
@@ -371,7 +409,9 @@ func init() {
 	tailCmd.Flags().IntP("tail", "n", 0, "number of trailing lines in follow mode (default: config history)")
 	tailCmd.Flags().BoolP("read-only", "r", false, "read-only mode: load file without following")
 	tailCmd.Flags().BoolP("resume", "R", false, "restore last session state")
+	tailCmd.Flags().Bool("all", false, "load all lines into buffer (heavy: ~0.7KB RAM per line)")
 	fileCmd.Flags().BoolP("resume", "R", false, "restore last session state")
+	fileCmd.Flags().Bool("all", false, "load all lines into buffer (heavy: ~0.7KB RAM per line)")
 	rootCmd.AddCommand(k8sCmd)
 	rootCmd.AddCommand(tailCmd)
 	rootCmd.AddCommand(fileCmd)

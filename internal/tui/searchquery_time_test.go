@@ -353,7 +353,7 @@ func TestTimeFileModeMultiDay(t *testing.T) {
 		t.Fatalf("缓冲行数 = %d, 期望 %d", app.buffer.Len(), len(timeMultiDayFixture))
 	}
 	for i := 0; i < app.buffer.Len(); i++ {
-		if app.buffer.Get(i).Time.IsZero() {
+		if app.buffer.Get(i).Time().IsZero() {
 			t.Fatalf("第 %d 行未解析出时间: %q", i, app.buffer.Get(i).Raw.Text)
 		}
 	}
@@ -386,7 +386,7 @@ func TestTimeFileModeMultiDay(t *testing.T) {
 			for _, want := range c.wantMsgs {
 				found := false
 				for _, line := range app.filteredView {
-					if strings.Contains(line.Message, want) {
+					if strings.Contains(line.Message(), want) {
 						found = true
 						break
 					}
@@ -401,16 +401,18 @@ func TestTimeFileModeMultiDay(t *testing.T) {
 
 // --- 无日期时间戳（HH:mm:ss.SSS 日志）的时分窗口退化 ---
 func TestTimeNoDateTimestamps(t *testing.T) {
-	anchor := time.Date(2026, 9, 3, 22, 33, 0, 0, time.UTC)
-	// parser 对无日期时间戳产出 0000-01-01（Year()<=0）
+	anchor := time.Date(2026, 9, 3, 22, 33, 0, 0, time.Local) // 锚点/行/查询同 Local 视角(对齐生产挂载)
+	// parser 对无日期时间戳产出 0000-01-01（Year()<=0）。
+	// 构造须用 Local 挂载对齐生产(parser ParseInLocation(time.Local)):
+	// 列存后 Time() 经 unixMs 往返统一还原为 Local 挂载,UTC 构造会使时分字面漂移
 	noDate := func(h, m, s int) *model.ParsedLine {
-		return parsedLineWithTime("INFO", "", "", "", "x", time.Date(0, 1, 1, h, m, s, 0, time.UTC))
+		return parsedLineWithTime("INFO", "", "", "", "x", time.Date(0, 1, 1, h, m, s, 0, time.Local))
 	}
 	run := func(query string, line *model.ParsedLine, want bool) {
 		t.Helper()
 		q := parseSearchQueryAt(query, anchor)
 		if got := q.MatchLine(line); got != want {
-			t.Errorf("%q 对 %s = %v, want %v", query, line.Time.Format("15:04:05"), got, want)
+			t.Errorf("%q 对 %s = %v, want %v", query, line.Time().Format("15:04:05"), got, want)
 		}
 	}
 	run("time:>09:00", noDate(22, 31, 49), true)  // 用户实测场景
@@ -422,9 +424,9 @@ func TestTimeNoDateTimestamps(t *testing.T) {
 	run("time:22:00..22:30", noDate(22, 31, 49), false)
 	// 相对时间退化:锚点取本地视角时分(行按 anchor 本地时刻 ± 偏移构造,时区无关)
 	noDateFromLocal := func(anchor time.Time, d time.Duration) *model.ParsedLine {
-		loc := anchor.Add(d)
+		loc := anchor.Add(d).In(time.Local)
 		return parsedLineWithTime("INFO", "", "", "", "x",
-			time.Date(0, 1, 1, loc.Hour(), loc.Minute(), loc.Second(), 0, time.UTC))
+			time.Date(0, 1, 1, loc.Hour(), loc.Minute(), loc.Second(), 0, time.Local))
 	}
 	run("time:>-10m", noDateFromLocal(anchor, 2*time.Minute), true)   // 本地 now+2m 必在窗口内
 	run("time:>-10m", noDateFromLocal(anchor, -20*time.Minute), false) // 本地 now-20m 必在窗口外

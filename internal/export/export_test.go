@@ -11,8 +11,8 @@ import (
 
 func TestExportRaw(t *testing.T) {
 	lines := []*model.ParsedLine{
-		{Raw: model.RawLine{Text: "line1"}, Message: "line1"},
-		{Raw: model.RawLine{Text: "line2"}, Message: "line2"},
+		{Raw: model.RawLine{Text: "line1"}, Fields: map[model.Field]string{model.FieldMessage: "line1"}},
+		{Raw: model.RawLine{Text: "line2"}, Fields: map[model.Field]string{model.FieldMessage: "line2"}},
 	}
 
 	dir := t.TempDir()
@@ -34,7 +34,7 @@ func TestExportRaw(t *testing.T) {
 
 func TestExportJSON(t *testing.T) {
 	lines := []*model.ParsedLine{
-		{Level: "INFO", Message: "hello"},
+		{Fields: map[model.Field]string{model.FieldLevel: "INFO", model.FieldMessage: "hello"}},
 	}
 
 	dir := t.TempDir()

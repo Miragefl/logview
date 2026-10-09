@@ -503,7 +503,7 @@ func TestTimeBooleanCompositionRegression(t *testing.T) {
 		for _, r := range rows {
 			pl := parsedLine(r.level, "", "", "", r.msg)
 			if !r.t.IsZero() {
-				pl.Time = r.t
+				pl.SetUnixMs(r.t.UnixMilli())
 			}
 			if got := q.MatchLine(pl); got != r.want {
 				t.Errorf("[%s] %q vs (level=%s msg=%q time=%v) = %v, want %v",

@@ -39,7 +39,7 @@ type termNode struct {
 func (n *termNode) match(line *model.ParsedLine) bool {
 	switch n.typ {
 	case keywordTerm:
-		return containsIgnoreCase(line.Message, n.value)
+		return containsIgnoreCase(line.Message(), n.value)
 	case fieldTerm:
 		val := line.Get(model.Field(n.field))
 		if val == "" {
@@ -50,13 +50,13 @@ func (n *termNode) match(line *model.ParsedLine) bool {
 		}
 		return containsIgnoreCase(val, n.value)
 	case timeTerm:
-		if line.Time.IsZero() || n.time == nil {
+		if line.Time().IsZero() || n.time == nil {
 			return false // 无时间字段的行不参与任何 time 条件（NULL 语义）
 		}
-		if line.Time.Year() <= 0 {
-			return n.matchHMS(line.Time) // 无日期时间戳（如 HH:mm:ss.SSS 日志）：按当日时分窗口退化
+		if line.Time().Year() <= 0 {
+			return n.matchHMS(line.Time()) // 无日期时间戳（如 HH:mm:ss.SSS 日志）：按当日时分窗口退化
 		}
-		lt := line.Time
+		lt := line.Time()
 		if n.time2 != nil { // 闭区间
 			return !lt.Before(*n.time) && !lt.After(*n.time2)
 		}
@@ -170,7 +170,7 @@ func (n *notNode) match(line *model.ParsedLine) bool {
 	// NULL 传播：无时间字段行不参与任何 time 条件（含 NOT 包裹，取反不得复活）。
 	// 深层子树同样传播：NOT NOT time:x / NOT (time:x OR ...) 不得把无时间行翻回来。
 	// 取舍：不做严格三值逻辑（NOT (time:x AND f) 对无时间且 f=false 的行按"未知→排除"处理）。
-	if line.Time.IsZero() && containsTimeTerm(n.child) {
+	if line.Time().IsZero() && containsTimeTerm(n.child) {
 		return false
 	}
 	if tn, ok := n.child.(*termNode); ok && tn.typ == errorTerm {

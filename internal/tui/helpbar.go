@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/justfun/logview/internal/model"
 	"github.com/mattn/go-runewidth"
@@ -111,7 +112,49 @@ func (a *App) statusItems() []helpItem {
 	if a.ctxN > 0 {
 		items = append(items, helpItem{"", NewLogStyle.Render(fmt.Sprintf("混入 ×%d(Esc/-- 关闭)", a.ctxN))})
 	}
+	if a.memBytes > 0 {
+		items = append(items, helpItem{"", HelpStyle.Render("[内存: " + humanBytes(a.memBytes) + "]")})
+	}
+	if lb := a.loadBadge(); lb != "" {
+		items = append(items, helpItem{"", HelpStyle.Render(lb)})
+	}
 	return items
+}
+
+// loadBadge 加载时长徽章:流结束(EOF)后定格总时长;未结束时按最近一行间隔区分——
+// 3s 内有新行为"加载中"(活跃接收),否则为"实时"(follow 类源存量读毕后的静默态)。
+func (a *App) loadBadge() string {
+	if a.firstLineAt.IsZero() {
+		return "" // 首行未到,无从计起
+	}
+	if a.loadDur > 0 {
+		return "[加载: " + fmtDur(a.loadDur) + "]"
+	}
+	span := a.lastLineAt.Sub(a.firstLineAt)
+	if span <= 0 {
+		return ""
+	}
+	if time.Since(a.lastLineAt) < 3*time.Second {
+		return "[加载中: " + fmtDur(span) + "]"
+	}
+	return "[实时: " + fmtDur(span) + "]"
+}
+
+// fmtDur 时长展示:1 分钟内保留 1 位小数,超时切换 m/s 形式。
+func fmtDur(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// humanBytes 字节数自适应展示(MB/GB)。
+func humanBytes(b uint64) string {
+	const mb = 1 << 20
+	if b < 1<<30 {
+		return fmt.Sprintf("%dMB", b/mb)
+	}
+	return fmt.Sprintf("%.1fGB", float64(b)/(1<<30))
 }
 
 // renderFooter 渲染底部：状态栏常驻 + 快捷键栏（showKeyHints 控制显隐）。

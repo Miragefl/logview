@@ -21,10 +21,12 @@ func TestPipeSourceReadsLines(t *testing.T) {
 	}
 
 	var lines []string
-	for i := 0; i < 3; i++ {
+	for len(lines) < 3 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for line")
 		}

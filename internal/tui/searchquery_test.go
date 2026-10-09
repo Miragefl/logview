@@ -10,18 +10,20 @@ import (
 
 func parsedLine(level, traceID, thread, logger, message string) *model.ParsedLine {
 	return &model.ParsedLine{
-		Level:   level,
-		TraceID: traceID,
-		Thread:  thread,
-		Logger:  logger,
-		Message: message,
-		Raw:     model.RawLine{Text: level + " " + traceID + " " + thread + " " + logger + " " + message},
+		Raw: model.RawLine{Text: level + " " + traceID + " " + thread + " " + logger + " " + message},
+		Fields: map[model.Field]string{
+			model.FieldLevel:   level,
+			model.FieldTraceID: traceID,
+			model.FieldThread:  thread,
+			model.FieldLogger:  logger,
+			model.FieldMessage: message,
+		},
 	}
 }
 
 func parsedLineWithTime(level, traceID, thread, logger, message string, t time.Time) *model.ParsedLine {
 	pl := parsedLine(level, traceID, thread, logger, message)
-	pl.Time = t
+	pl.SetUnixMs(t.UnixMilli())
 	return pl
 }
 
@@ -500,7 +502,7 @@ func TestNestedParens(t *testing.T) {
 
 func TestCurrentQueryPartialStripsOperator(t *testing.T) {
 	a := &App{}
-	line := &model.ParsedLine{Message: "hello world", Raw: model.RawLine{Text: "hello world"}}
+	line := &model.ParsedLine{Raw: model.RawLine{Text: "hello world"}, Fields: map[model.Field]string{model.FieldMessage: "hello world"}}
 	// 纯操作符中间态：剥离为空 → 显示全部
 	for _, in := range []string{"not", "NOT", "and", "or"} {
 		a.searchInput = in

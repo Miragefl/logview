@@ -153,7 +153,7 @@ func firstSegmentSource(tokens []string, history int) (stream.LogStream, error) 
 type pipeCmdSource struct {
 	first stream.LogStream
 	cmd   string
-	ch    chan model.RawLine
+	b     *stream.Batcher
 	seq   atomic.Uint64
 }
 
@@ -167,7 +167,7 @@ func (p *pipeCmdSource) Label() string { return p.first.Label() + " | " + p.cmd 
 // Scope 词频隔离域沿用 pipe 语义(全局)。
 func (p *pipeCmdSource) Scope() string { return "" }
 
-func (p *pipeCmdSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
+func (p *pipeCmdSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
 	// pty 桥:命令 stdout/stderr 接伪终端 slave → grep/sed/awk 判定 stdout 为 TTY,
 	// 自动行缓冲,follow 模式下新行实时流出(管道 stdout 是 4-64KB 全缓冲,行会滞留)。
 	// stdin 仍走管道:pty 无法向子进程传 stdin EOF(关 master 等于 SIGHUP 整条管道,
@@ -201,7 +201,7 @@ func (p *pipeCmdSource) Start(ctx context.Context) (<-chan model.RawLine, error)
 		return nil, err
 	}
 	tty.Close() // 父进程弃用自己的 slave 副本:子进程退出、slave 全关后 master 读端即见 EOF/EIO
-	p.ch = make(chan model.RawLine, 256)
+	p.b = stream.NewBatcher(ctx)
 
 	// 桥:首段源行 → 命令 stdin(首段通道关闭即管道 EOF,下游命令自然收尾)
 	firstCh, err := p.first.Start(ctx)
@@ -211,9 +211,11 @@ func (p *pipeCmdSource) Start(ctx context.Context) (<-chan model.RawLine, error)
 	}
 	go func() {
 		defer stdin.Close()
-		for raw := range firstCh {
-			if _, err := fmt.Fprintln(stdin, raw.Text); err != nil {
-				return
+		for batch := range firstCh {
+			for _, raw := range batch {
+				if _, err := fmt.Fprintln(stdin, raw.Text); err != nil {
+					return
+				}
 			}
 		}
 	}()
@@ -230,16 +232,13 @@ func (p *pipeCmdSource) Start(ctx context.Context) (<-chan model.RawLine, error)
 		if err := cmd.Wait(); err != nil {
 			p.send(ctx, fmt.Sprintf("[logview] 管道命令退出: %v", err))
 		}
-		close(p.ch)
+		p.b.Close()
 	}()
-	return p.ch, nil
+	return p.b.Out(), nil
 }
 
 func (p *pipeCmdSource) send(ctx context.Context, text string) {
-	select {
-	case p.ch <- model.RawLine{Text: text, Source: "pipe", Seq: p.seq.Add(1)}:
-	case <-ctx.Done():
-	}
+	p.b.Send(text, "pipe")
 }
 
 func (p *pipeCmdSource) Cleanup() error { return p.first.Cleanup() }

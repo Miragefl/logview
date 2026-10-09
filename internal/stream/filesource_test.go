@@ -30,11 +30,13 @@ func TestFileSourceReadsAllLines(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			lines = append(lines, raw.Text)
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d lines", len(lines))
 		}
@@ -68,11 +70,13 @@ func TestFileSourceLastLineWithoutNewline(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			lines = append(lines, raw.Text)
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d lines", len(lines))
 		}
@@ -103,11 +107,13 @@ func TestFileSourceOpenErrorReportsLine(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			lines = append(lines, raw.Text)
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d lines", len(lines))
 		}
@@ -138,12 +144,12 @@ func TestFileSourceChannelCloses(t *testing.T) {
 	}
 
 	// read one line
-	raw, ok := <-ch
-	if !ok {
+	batch, ok := <-ch
+	if !ok || len(batch) == 0 {
 		t.Fatal("expected one line, channel was closed")
 	}
-	if raw.Text != "only" {
-		t.Errorf("text = %q, want %q", raw.Text, "only")
+	if batch[0].Text != "only" {
+		t.Errorf("text = %q, want %q", batch[0].Text, "only")
 	}
 
 	// channel should close
@@ -180,11 +186,13 @@ func TestFileSourceMultiFile(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			lines = append(lines, raw.Text)
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d lines", len(lines))
 		}
@@ -222,8 +230,10 @@ func TestFileSourceReadsGzip(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 4 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d/4 lines: %v", len(lines), lines)
 		}
@@ -253,11 +263,13 @@ func TestFileSourceCorruptGzip(t *testing.T) {
 collect:
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				break collect
 			}
-			lines = append(lines, raw.Text)
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			break collect
 		}

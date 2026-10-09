@@ -38,9 +38,19 @@ func TestPipeToBuffer(t *testing.T) {
 	ad := parser.NewAutoDetect(parsers)
 	buf := buffer.NewRingBuffer(100)
 
-	for i := 0; i < len(lines); i++ {
+	// 批通道:展平后逐条消费(保持原逐行语义)
+	var flat []model.RawLine
+	for len(flat) < len(lines) {
 		select {
-		case raw := <-ch:
+		case batch := <-ch:
+			flat = append(flat, batch...)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out, got %d/%d lines", len(flat), len(lines))
+		}
+	}
+	for i := 0; i < len(lines); i++ {
+		raw := flat[i]
+		if true {
 			if p := ad.Detect(raw); p != nil {
 				pl := p.Parse(raw)
 				if pl == nil {
@@ -50,15 +60,10 @@ func TestPipeToBuffer(t *testing.T) {
 					if idx := strings.Index(raw.Text, " at "); idx >= 0 {
 						msg = " " + raw.Text[idx+1:] // preserve leading space for stack frame detection
 					}
-					pl = &model.ParsedLine{
-						Raw:     raw,
-						Message: msg,
-					}
+					pl = &model.ParsedLine{Raw: raw, Fields: map[model.Field]string{model.FieldMessage: msg}}
 				}
 				buf.Push(pl)
 			}
-		case <-time.After(2 * time.Second):
-			t.Fatalf("timed out at line %d", i)
 		}
 	}
 
@@ -67,11 +72,11 @@ func TestPipeToBuffer(t *testing.T) {
 	}
 
 	first := buf.Get(0)
-	if first.Level != "INFO" {
-		t.Errorf("first line level = %q, want INFO", first.Level)
+	if first.Level() != "INFO" {
+		t.Errorf("first line level = %q, want INFO", first.Level())
 	}
-	if first.TraceID != "abc123" {
-		t.Errorf("first line traceId = %q, want abc123", first.TraceID)
+	if first.TraceID() != "abc123" {
+		t.Errorf("first line traceId = %q, want abc123", first.TraceID())
 	}
 
 	var parsed []*model.ParsedLine

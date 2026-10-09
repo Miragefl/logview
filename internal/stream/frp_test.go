@@ -34,9 +34,9 @@ func TestFRPSourceStreamsAndCleansTunnel(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case l, ok := <-ch:
-		if !ok || l.Text != "frp tail line" {
-			t.Fatalf("应流出 frp tail line: %+v", l)
+	case batch, ok := <-ch:
+		if !ok || len(batch) == 0 || batch[0].Text != "frp tail line" {
+			t.Fatalf("应流出 frp tail line: %+v", batch)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout")

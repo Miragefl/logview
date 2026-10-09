@@ -110,11 +110,13 @@ func TestPipeCmdSource(t *testing.T) {
 	timeout := time.After(5 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			texts = append(texts, raw.Text)
+			for _, raw := range batch {
+				texts = append(texts, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("超时, got %v", texts)
 		}
@@ -137,11 +139,13 @@ func TestPipeCmdSourceExitLine(t *testing.T) {
 	timeout := time.After(5 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			texts = append(texts, raw.Text)
+			for _, raw := range batch {
+				texts = append(texts, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("超时, got %v", texts)
 		}
@@ -186,12 +190,14 @@ func TestPipeCmdSourceLiveStream(t *testing.T) {
 	deadline := time.After(3 * time.Second)
 	for {
 		select {
-		case raw, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				t.Fatal("通道提前关闭:tail -f 不 EOF,grep 应持续运行(全缓冲未流出即 EOF 退出也是病态)")
 			}
-			if raw.Text == "match-live" {
-				return // 追加行实时到达,通过
+			for _, raw := range batch {
+				if raw.Text == "match-live" {
+					return // 追加行实时到达,通过
+				}
 			}
 		case <-deadline:
 			t.Fatal("3s 内未见 match-live:grep stdout 疑似全缓冲,pty 桥未生效")

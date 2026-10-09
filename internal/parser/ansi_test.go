@@ -28,20 +28,20 @@ func TestANSILogParsing(t *testing.T) {
 		t.Fatal("解析返回nil")
 	}
 
-	if result.Level != "INFO" {
-		t.Errorf("Level = %q, want INFO", result.Level)
+	if result.Level() != "INFO" {
+		t.Errorf("Level = %q, want INFO", result.Level())
 	}
-	if result.Thread != "http-nio-80-exec-10" {
-		t.Errorf("Thread = %q, want 'http-nio-80-exec-10'", result.Thread)
+	if result.Thread() != "http-nio-80-exec-10" {
+		t.Errorf("Thread = %q, want 'http-nio-80-exec-10'", result.Thread())
 	}
-	if result.TraceID != "f502fb023dc44603" {
-		t.Errorf("TraceID = %q, want 'f502fb023dc44603'", result.TraceID)
+	if result.TraceID() != "f502fb023dc44603" {
+		t.Errorf("TraceID = %q, want 'f502fb023dc44603'", result.TraceID())
 	}
-	if result.Logger != "com.ydcloud.smart.parking.calc.service.CappingService" {
-		t.Errorf("Logger = %q, want 'com.ydcloud.smart.parking.calc.service.CappingService'", result.Logger)
+	if result.Logger() != "com.ydcloud.smart.parking.calc.service.CappingService" {
+		t.Errorf("Logger = %q, want 'com.ydcloud.smart.parking.calc.service.CappingService'", result.Logger())
 	}
-	if result.Message != "[自然日封顶] 分组结果: 分组数=1" {
-		t.Errorf("Message = %q, want '[自然日封顶] 分组结果: 分组数=1'", result.Message)
+	if result.Message() != "[自然日封顶] 分组结果: 分组数=1" {
+		t.Errorf("Message = %q, want '[自然日封顶] 分组结果: 分组数=1'", result.Message())
 	}
 }
 
@@ -66,10 +66,10 @@ func TestCleanLogParsing(t *testing.T) {
 	if result == nil {
 		t.Fatal("解析返回nil")
 	}
-	if result.Level != "INFO" {
-		t.Errorf("Level = %q, want INFO", result.Level)
+	if result.Level() != "INFO" {
+		t.Errorf("Level = %q, want INFO", result.Level())
 	}
-	if result.TraceID != "f502fb023dc44603" {
-		t.Errorf("TraceID = %q, want 'f502fb023dc44603'", result.TraceID)
+	if result.TraceID() != "f502fb023dc44603" {
+		t.Errorf("TraceID = %q, want 'f502fb023dc44603'", result.TraceID())
 	}
 }

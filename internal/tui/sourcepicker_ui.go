@@ -959,7 +959,7 @@ func (a *App) confirmSourcePicker() tea.Cmd {
 			return nil
 		}
 		path = expandHome(path)
-		return a.ReplaceStream(stream.NewFileSource([]string{path}))
+		return a.ReplaceStream(stream.NewFileSource([]string{path}).WithTailLines(a.bufSize))
 	case 2: // SSH
 		host := strings.TrimSpace(hostInput)
 		if host == "" {

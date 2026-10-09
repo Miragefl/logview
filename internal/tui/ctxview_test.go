@@ -33,9 +33,8 @@ func ctxSetup(t *testing.T) *App {
 			lv = "ERROR" // 奇数行命中
 		}
 		app.buffer.Push(&model.ParsedLine{
-			Raw:     model.RawLine{Text: "2026-09-14 10:00:00.000 [t] " + lv + "  c.x.Svc - " + msg, Source: "ctx.log", Seq: uint64(i)},
-			Level:   lv,
-			Message: msg,
+			Raw:    model.RawLine{Text: "2026-09-14 10:00:00.000 [t] " + lv + "  c.x.Svc - " + msg, Source: "ctx.log", Seq: uint64(i)},
+			Fields: map[model.Field]string{model.FieldLevel: lv, model.FieldMessage: msg},
 		})
 	}
 	app.levelFilter = "ERROR"
@@ -52,7 +51,7 @@ func TestCtxViewPlusAfter(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	var got []string
 	for _, e := range app.ctxLines {
-		m := e.pl.Message
+		m := e.pl.Message()
 		if e.dim {
 			m += "d"
 		}
@@ -75,7 +74,7 @@ func TestCtxViewMinusBefore(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	var got []string
 	for _, e := range app.ctxLines {
-		m := e.pl.Message
+		m := e.pl.Message()
 		if e.dim {
 			m += "d"
 		}
@@ -159,7 +158,7 @@ func TestCtxViewPlusTailOrder(t *testing.T) {
 	want := []string{"L01", "L03", "L05", "L06d", "L07", "L08d", "L09", "L11"}
 	var got []string
 	for _, e := range app.ctxLines {
-		m := e.pl.Message
+		m := e.pl.Message()
 		if e.dim {
 			m += "d"
 		}
@@ -181,7 +180,7 @@ func TestCtxViewPlusDefaultOrder(t *testing.T) {
 	want := []string{"L01", "L03", "L05", "L06d", "L07", "L08d", "L09", "L10d", "L11"}
 	var got []string
 	for _, e := range app.ctxLines {
-		m := e.pl.Message
+		m := e.pl.Message()
 		if e.dim {
 			m += "d"
 		}
@@ -545,7 +544,7 @@ func TestCtxViewJumpSearchSticky(t *testing.T) {
 	}
 	// +3 后 ctxLines = L01 L03 L05 L06(dim) L07 L08(dim) L09 L11,L11 在 idx7;
 	// 旧代码把 cursor 设为 filteredView 索引 5(指向 L08),新代码应设 7。
-	if got := app.ctxLines[app.cursor].pl.Message; got != "L11" {
+	if got := app.ctxLines[app.cursor].pl.Message(); got != "L11" {
 		t.Fatalf("n 应跳到 L11 的 ctxLines 位置(idx7), cursor=%d msg=%s", app.cursor, got)
 	}
 }
@@ -688,7 +687,7 @@ func TestCtxViewMultiAnchor(t *testing.T) {
 	msgs := map[string]bool{}
 	for _, e := range app.ctxLines {
 		if e.dim {
-			msgs[e.pl.Message] = true
+			msgs[e.pl.Message()] = true
 		}
 	}
 	// 合并窗口 {3..7}:dim = L04(L07 前向)、L06/L08(L05 窗口);L02 不在任何窗口
@@ -718,15 +717,15 @@ func TestCtxViewFollowBatchNoJump(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	app.cursor = len(app.viewLines()) - 1 // 末行 L11(ctx idx7;G 被混入守卫压掉,直接设)
-	if app.viewLines()[app.cursor].Message != "L11" {
-		t.Fatalf("前置:光标应在末行 L11, got %s", app.viewLines()[app.cursor].Message)
+	if app.viewLines()[app.cursor].Message() != "L11" {
+		t.Fatalf("前置:光标应在末行 L11, got %s", app.viewLines()[app.cursor].Message())
 	}
 	// follow 批次:新行 INFO 未命中过滤,filteredView 仍 6 行,clamp 无条件执行
 	app.processBatch([]model.RawLine{{Text: "2026-09-14 10:01:00.000 [t] INFO  c.x.Svc - L13", Source: "ctx.log", Seq: 13}})
 	if app.cursor != 7 {
 		t.Fatalf("follow 批次不得移动混入态光标(sticky), cursor=%d", app.cursor)
 	}
-	if msg := app.viewLines()[app.cursor].Message; msg != "L11" {
+	if msg := app.viewLines()[app.cursor].Message(); msg != "L11" {
 		t.Fatalf("光标应仍在 L11, got %s", msg)
 	}
 	if len(app.ctxLines) != 8 {
@@ -740,9 +739,8 @@ func TestCtxViewFollowBatchNoJump(t *testing.T) {
 // 不重跑 recomputeView(语义性退出只由过滤变化触发)。
 func followFollowLine(app *App) {
 	pl := &model.ParsedLine{
-		Raw:     model.RawLine{Text: "2026-09-14 10:01:00.000 [t] ERROR  c.x.Svc - L13", Source: "ctx.log", Seq: 13},
-		Level:   "ERROR",
-		Message: "L13",
+		Raw:    model.RawLine{Text: "2026-09-14 10:01:00.000 [t] ERROR  c.x.Svc - L13", Source: "ctx.log", Seq: 13},
+		Fields: map[model.Field]string{model.FieldLevel: "ERROR", model.FieldMessage: "L13"},
 	}
 	app.buffer.Push(pl)
 	app.filteredView = append(app.filteredView, pl) // idx6,不在 8 行混入快照内
@@ -765,7 +763,7 @@ func TestCtxViewJumpToFollowLineExits(t *testing.T) {
 	if len(app.ctxLines) != 0 {
 		t.Fatal("目标行不在快照,n 应先退出混入再落点(语义诚实:要看的行不在快照就得退出看)")
 	}
-	if msg := app.filteredView[app.cursor].Message; msg != "L13" {
+	if msg := app.filteredView[app.cursor].Message(); msg != "L13" {
 		t.Fatalf("n 应落在 follow 追加行 L13 上, got %s(cursor=%d)", msg, app.cursor)
 	}
 }
@@ -784,7 +782,7 @@ func TestCtxViewJumpBookmarkFollowLineExits(t *testing.T) {
 	if len(app.ctxLines) != 0 {
 		t.Fatal("书签目标行不在快照,jumpBookmark 应先退出混入再落点")
 	}
-	if msg := app.filteredView[app.cursor].Message; msg != "L13" {
+	if msg := app.filteredView[app.cursor].Message(); msg != "L13" {
 		t.Fatalf("书签跳转应落在 follow 追加行 L13 上, got %s(cursor=%d)", msg, app.cursor)
 	}
 }

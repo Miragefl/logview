@@ -13,8 +13,8 @@ import (
 // mockStream implements stream.LogStream for testing
 type mockStream struct{}
 
-func (m *mockStream) Start(_ context.Context) (<-chan model.RawLine, error) {
-	ch := make(chan model.RawLine)
+func (m *mockStream) Start(_ context.Context) (<-chan []model.RawLine, error) {
+	ch := make(chan []model.RawLine)
 	close(ch)
 	return ch, nil
 }

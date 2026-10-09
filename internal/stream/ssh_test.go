@@ -37,11 +37,13 @@ func TestSSHSourceStreamsLines(t *testing.T) {
 	timeout := time.After(3 * time.Second)
 	for len(lines) < 3 {
 		select {
-		case l, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
 				goto done
 			}
-			lines = append(lines, l)
+			for _, l := range batch {
+				lines = append(lines, l)
+			}
 		case <-timeout:
 			t.Fatalf("timeout, got %d lines", len(lines))
 		}
@@ -97,9 +99,9 @@ func TestSSHSourceWithPortStreamsLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	line, ok := <-ch
-	if !ok || line.Text != "frp line one" {
-		t.Fatalf("带端口应正常出流: %+v", line)
+	batch, ok := <-ch
+	if !ok || len(batch) == 0 || batch[0].Text != "frp line one" {
+		t.Fatalf("带端口应正常出流: %+v", batch)
 	}
 }
 

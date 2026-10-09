@@ -122,13 +122,13 @@ func (s *SSHSource) Label() string {
 // Scope 词频隔离域=SSH 主机(同主机的多个路径共享词频历史)。
 func (s *SSHSource) Scope() string { return s.host }
 
-func (s *SSHSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
-	ch := make(chan model.RawLine, 256)
+func (s *SSHSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
+	b := NewBatcher(ctx)
 	go func() {
-		defer close(ch)
-		s.stream(ctx, ch)
+		defer b.Close()
+		s.stream(ctx, b)
 	}()
-	return ch, nil
+	return b.Out(), nil
 }
 
 // remoteTailCommand 远端读取命令:gz 归档走解压管道(归档不追加,无 -F;
@@ -150,14 +150,14 @@ func (s *SSHSource) remoteTailCommand() string {
 	return fmt.Sprintf("tail -F %s", shellQuote(s.path))
 }
 
-func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
+func (s *SSHSource) stream(ctx context.Context, b *Batcher) {
 	args := sshCommandPrefix(s.host, s.port)
 	args = append(args, s.remoteTailCommand())
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cleanup, err := applySSHAuth(cmd, s.password)
 	if err != nil {
-		s.emitErr(ctx, ch, fmt.Sprintf("askpass: %v", err))
+		s.emitErr(ctx, b, fmt.Sprintf("askpass: %v", err))
 		return
 	}
 	if cleanup != nil {
@@ -165,17 +165,17 @@ func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		s.emitErr(ctx, ch, fmt.Sprintf("ssh pipe error: %v", err))
+		s.emitErr(ctx, b, fmt.Sprintf("ssh pipe error: %v", err))
 		return
 	}
 	// 本地 ssh 错误（DNS/认证/超时）走 stderr，单独接管为错误行
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		s.emitErr(ctx, ch, fmt.Sprintf("ssh stderr pipe error: %v", err))
+		s.emitErr(ctx, b, fmt.Sprintf("ssh stderr pipe error: %v", err))
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		s.emitErr(ctx, ch, fmt.Sprintf("ssh %s failed to start: %v", s.host, err))
+		s.emitErr(ctx, b, fmt.Sprintf("ssh %s failed to start: %v", s.host, err))
 		return
 	}
 	defer cmd.Wait()
@@ -189,7 +189,7 @@ func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
 			if isSSHBannerNoise(text) {
 				continue
 			}
-			s.emitErr(ctx, ch, text)
+			s.emitErr(ctx, b, text)
 		}
 	}()
 
@@ -197,32 +197,21 @@ func (s *SSHSource) stream(ctx context.Context, ch chan<- model.RawLine) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		text := scanner.Text()
-		line := model.RawLine{
-			Text:   text,
-			Source: s.host,
-			Seq:    s.seq.Add(1),
-		}
 		// surface common ssh failures as ERROR-flavored lines for visibility
 		if isSSHErrorLine(text) {
-			line.Text = fmt.Sprintf("ERROR %s", text)
+			text = fmt.Sprintf("ERROR %s", text)
 		}
-		select {
-		case ch <- line:
-		case <-ctx.Done():
+		if !b.Send(text, s.host) {
 			return
 		}
 	}
 	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		s.emitErr(ctx, ch, fmt.Sprintf("ssh %s stream error: %v", s.host, err))
+		s.emitErr(ctx, b, fmt.Sprintf("ssh %s stream error: %v", s.host, err))
 	}
 }
 
-func (s *SSHSource) emitErr(ctx context.Context, ch chan<- model.RawLine, msg string) {
-	line := model.RawLine{Text: "ERROR " + msg, Source: s.host, Seq: s.seq.Add(1)}
-	select {
-	case ch <- line:
-	case <-ctx.Done():
-	}
+func (s *SSHSource) emitErr(ctx context.Context, b *Batcher, msg string) {
+	b.Send("ERROR "+msg, s.host)
 }
 
 // isSSHBannerNoise 过滤 ssh 客户端的已知警告横幅（post-quantum 提示等），不算错误。

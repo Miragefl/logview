@@ -87,6 +87,11 @@ logview file /var/log/app.log               # 只读模式
 logview file app1.log app2.log              # 多文件只读
 logview tail /var/log/app.log.gz            # gzip 归档直接打开:自动解压读满(-f 对归档无效,读到 EOF 即止)
 
+# 大文件(秒开)
+logview file big.log                        # 尾读:默认只载入末尾 10 万行,1G 日志秒开
+logview file big.log --buffer-size 500000   # 载入末尾 50 万行(内存随行数增长)
+logview file big.log --all                  # 全量驻留,可翻阅全部行(heavy: ~0.4KB 内存/行)
+
 # 恢复会话
 logview tail -R -f /var/log/app.log         # 恢复搜索、过滤、光标位置
 

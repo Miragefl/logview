@@ -18,6 +18,7 @@ import (
 type TailSource struct {
 	paths       []string
 	followLines int
+	tailLines   int
 	seq         atomic.Uint64
 }
 
@@ -25,43 +26,41 @@ func NewTailSource(paths []string, followLines int) *TailSource {
 	return &TailSource{paths: paths, followLines: followLines}
 }
 
+// WithTailLines 设置非 follow 模式(followLines<=0)下的尾读行数;返回自身支持链式装配。
+// 大文件全量读完后中间行终被 ring buffer 淘汰,尾读只搬最终会留下来的行。
+func (t *TailSource) WithTailLines(n int) *TailSource {
+	t.tailLines = n
+	return t
+}
+
 func (t *TailSource) Label() string { return "tail" }
 
 // Scope 本地 tail 属全局域(词频与全局历史共享)。
 func (t *TailSource) Scope() string { return "" }
 
-func (t *TailSource) Start(ctx context.Context) (<-chan model.RawLine, error) {
-	ch := make(chan model.RawLine, 256)
+func (t *TailSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
+	b := NewBatcher(ctx)
 	go func() {
-		defer close(ch)
+		defer b.Close()
 		var wg sync.WaitGroup
 		for _, p := range t.paths {
 			wg.Add(1)
 			go func(path string) {
 				defer wg.Done()
-				t.tailFile(ctx, ch, path)
+				t.tailFile(ctx, b, path)
 			}(p)
 		}
 		wg.Wait()
 	}()
-	return ch, nil
+	return b.Out(), nil
 }
 
-func (t *TailSource) sendLine(ctx context.Context, ch chan<- model.RawLine, text, source string) bool {
-	raw := model.RawLine{
-		Text:   text,
-		Source: source,
-		Seq:    t.seq.Add(1),
-	}
-	select {
-	case ch <- raw:
-		return true
-	case <-ctx.Done():
-		return false
-	}
+// sendLine 批量通道发送的兼容薄层(保持既有调用点形态;seq 由 Batcher 维护)。
+func (t *TailSource) sendLine(ctx context.Context, b *Batcher, text, source string) bool {
+	return b.Send(text, source)
 }
 
-func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path string) {
+func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -110,6 +109,18 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 	if t.followLines <= 0 {
 		// read all existing content
 		reader := br
+		// 尾读(与 FileSource 同策略):大文件定位尾部起点后从起点顺序读;
+		// start==0(行数不足)保持 br 从头读(头数据可能仍在 br 预读缓冲,不能重建)
+		if t.tailLines > 0 {
+			if start := seekTailLines(f, t.tailLines); start > 0 {
+				if _, err := f.Seek(start, io.SeekStart); err == nil {
+					if st, statErr := f.Stat(); statErr == nil {
+						t.sendLine(ctx, ch, tailNoticeLine(t.tailLines, st.Size()), source)
+					}
+					reader = bufio.NewReader(f)
+				}
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -134,10 +145,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch chan<- model.RawLine, path
 		// follow mode: read last N lines from end, then follow
 		info, statErr := f.Stat()
 		if statErr == nil && info.Size() > 0 {
-			seekBack := int64(t.followLines) * 1024
-			if seekBack > info.Size() {
-				seekBack = info.Size()
-			}
+			seekBack := min(int64(t.followLines)*1024, info.Size())
 			start := info.Size() - seekBack
 			f.Seek(start, 0)
 

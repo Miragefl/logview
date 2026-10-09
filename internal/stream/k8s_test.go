@@ -33,6 +33,7 @@ func TestParseK8sResource(t *testing.T) {
 		}
 	}
 }
+
 // SetContext 后 kubectl 参数带 --context。
 func TestK8sSourceContextArgs(t *testing.T) {
 	k := NewK8sSource("deploy/x", "default", nil, 10)

@@ -30,8 +30,10 @@ func TestTailSourceReadsFile(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 3 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d/3 lines", len(lines))
 		}
@@ -68,8 +70,10 @@ func TestTailSourceLastLineWithoutNewline(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 3 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d/3 lines: %v", len(lines), lines)
 		}
@@ -121,8 +125,10 @@ func TestTailSourceTailsNewLines(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 3 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d/3 lines", len(lines))
 		}
@@ -168,8 +174,10 @@ func TestTailSourceFollowSkipsExisting(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 1 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d/1 lines: %v", len(lines), lines)
 		}
@@ -204,8 +212,10 @@ func TestTailSourceFollowLastNLines(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 3 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out, got %d/3 lines: %v", len(lines), lines)
 		}
@@ -243,8 +253,10 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 2 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out reading initial, got %d/2 lines", len(lines))
 		}
@@ -264,8 +276,10 @@ func TestTailSourceFollowThenAppend(t *testing.T) {
 	var appended []string
 	for len(appended) < 2 {
 		select {
-		case raw := <-ch:
-			appended = append(appended, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				appended = append(appended, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("timed out reading appended, got %d/2 lines", len(appended))
 		}
@@ -294,8 +308,10 @@ func TestTailSourceGzipFullContent(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 5 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("gz 应解压读满 5 行, got %d: %v", len(lines), lines)
 		}
@@ -332,8 +348,10 @@ func TestTailSourcePlainUnchanged(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	for len(lines) < 2 {
 		select {
-		case raw := <-ch:
-			lines = append(lines, raw.Text)
+		case batch := <-ch:
+			for _, raw := range batch {
+				lines = append(lines, raw.Text)
+			}
 		case <-timeout:
 			t.Fatalf("普通文件尾部 2 行超时, got %v", lines)
 		}

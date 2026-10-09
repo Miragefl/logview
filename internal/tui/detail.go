@@ -66,23 +66,23 @@ func (a *App) buildDetailPanel(vl int) []string {
 			DetailLabelStyle.Render(fmt.Sprintf("%-7s", label)),
 			DetailValueStyle.Render(val)))
 	}
-	if !line.Time.IsZero() {
-		row("time", line.Time.Format("2006-01-02 15:04:05.000"))
+	if !line.Time().IsZero() {
+		row("time", line.Time().Format("2006-01-02 15:04:05.000"))
 	}
-	if line.Level != "" {
-		row("level", line.Level)
+	if line.Level() != "" {
+		row("level", line.Level())
 	}
 	if line.Raw.Source != "" {
 		row("source", line.Raw.Source)
 	}
-	if line.Thread != "" {
-		row("thread", line.Thread)
+	if line.Thread() != "" {
+		row("thread", line.Thread())
 	}
-	if line.TraceID != "" {
-		row("traceId", line.TraceID)
+	if line.TraceID() != "" {
+		row("traceId", line.TraceID())
 	}
-	if line.Logger != "" {
-		row("logger", line.Logger)
+	if line.Logger() != "" {
+		row("logger", line.Logger())
 	}
 
 	msg := lineMsg(line)
@@ -104,8 +104,8 @@ func (a *App) buildDetailPanel(vl int) []string {
 
 // lineMsg 行正文：解析出的 message，无则回退原始行。
 func lineMsg(line *model.ParsedLine) string {
-	if line.Message != "" {
-		return line.Message
+	if line.Message() != "" {
+		return line.Message()
 	}
 	return line.Raw.Text
 }
