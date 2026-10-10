@@ -195,7 +195,6 @@ func ExtractBinary(archivePath, dstDir string) (string, error) {
 }
 
 // ReplaceSelf atomically replaces the current executable with the binary at newPath.
-// Returns the path of the old binary backup if rename-back is needed.
 func ReplaceSelf(newPath string) error {
 	self, err := os.Executable()
 	if err != nil {
@@ -212,7 +211,45 @@ func ReplaceSelf(newPath string) error {
 	}
 
 	if err := os.Rename(newPath, self); err != nil {
-		return fmt.Errorf("failed to replace %s: %w (try: sudo logview upgrade)", self, err)
+		// rename 跨文件系统报 EXDEV(Linux /tmp 常为独立 tmpfs,与 /usr/local/bin
+		// 不同设备);兜底先复制到目标同目录临时文件(必然同设备)再原子 rename
+		if err := copyThenRename(newPath, self); err != nil {
+			return fmt.Errorf("failed to replace %s: %w (try: sudo logview upgrade)", self, err)
+		}
 	}
 	return nil
+}
+
+// copyThenRename 跨设备兜底:src 复制到 dst 同目录临时文件,chmod 后原子 rename 覆盖 dst。
+func copyThenRename(src, dst string) error {
+	tmp := filepath.Join(filepath.Dir(dst), fmt.Sprintf(".%s.new-%d", filepath.Base(dst), os.Getpid()))
+	if err := copyFile(tmp, src); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func copyFile(dst, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

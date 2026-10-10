@@ -3,6 +3,8 @@ package upgrade
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -85,5 +87,45 @@ func TestLatest(t *testing.T) {
 	// override is not possible without refactor; just verify error paths
 	if _, err := Latest("invalid"); err == nil {
 		t.Error("expected error for unknown mirror")
+	}
+}
+
+// 跨设备兜底回归(2026-10-10 用户报告:Linux /tmp 为独立 tmpfs,自升级 rename
+// /tmp→/usr/local/bin 报 EXDEV 且 sudo 无济于事):copyThenRename 复制到目标同
+// 目录临时文件再原子 rename,须内容一致、权限 0755、无临时文件残留。
+func TestCopyThenRename(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir() // 与 srcDir 不同目录,模拟"另一文件系统"场景
+	src := filepath.Join(srcDir, "logview")
+	dst := filepath.Join(dstDir, "logview")
+	if err := os.WriteFile(src, []byte("new binary bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old binary bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyThenRename(src, dst); err != nil {
+		t.Fatalf("copyThenRename: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new binary bytes" {
+		t.Fatalf("dst content = %q, want new binary", got)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("dst perm = %v, want 0755", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dstDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 { // 仅 dst 本体,临时文件须已被 rename 消化
+		t.Fatalf("dstDir has %d entries, want 1 (no temp residue)", len(entries))
 	}
 }
