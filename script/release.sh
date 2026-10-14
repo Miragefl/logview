@@ -60,6 +60,13 @@ git push origin "v$NEXT"
 echo "==> goreleaser release"
 GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
 
+# gitee mirror assets verify & repair (mirror release sync is unreliable,
+# v0.18.2 stalled at 2/7 assets; failure warns but does not block the release)
+echo "==> verifying gitee mirror assets"
+if ! ./script/gitee_sync.sh "v$NEXT" dist; then
+    echo "    WARNING: gitee mirror incomplete — repair manually: ./script/gitee_sync.sh v$NEXT"
+fi
+
 # upgrade local brew (proxy if direct GitHub access is unavailable)
 echo "==> upgrading local brew"
 if [[ -n "${RELEASE_PROXY:-}" ]] || nc -z -w1 127.0.0.1 7890 2>/dev/null; then
