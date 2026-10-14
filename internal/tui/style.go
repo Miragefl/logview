@@ -86,7 +86,7 @@ var (
 	}
 
 	// HighlightColors 高亮词前景色轮换板(ApplyTheme 前兜底,暗底亮字版)。
-	// 彩色粗体+下划线,与搜索命中(HighlightStyle 黄底黑字块)形式区分;
+	// 亮色系:彩色粗体+下划线,与搜索命中(SearchColors 暗色系粗体)按明暗双域区分;
 	// 10 个独立色不与日志字段色撞,与级别徽章的邻近色靠下划线兜底。
 	HighlightColors = []lipgloss.Color{
 		lipgloss.Color("213"), // 品红 #FF87FF
@@ -99,6 +99,21 @@ var (
 		lipgloss.Color("75"),  // 中蓝 #5FAFFF
 		lipgloss.Color("228"), // 柠檬黄 #FFFF5F
 		lipgloss.Color("50"),  // 玉青 #00FFD7
+	}
+
+	// SearchColors 搜索命中前景色轮换板(暗色系,ApplyTheme 前兜底)。
+	// 2026-10-12 用户需求:搜索命中弃用底色块(识别效果过强,与高亮词视觉冲突),
+	// 改多彩轮换——暗色系低饱和中亮度,无底无下划线仅粗体;与高亮词(亮色系+
+	// 粗体+下划线)形成明暗双域,并排共存时一眼分清两类。
+	SearchColors = []lipgloss.Color{
+		lipgloss.Color("#A0780E"), // 暗琥珀
+		lipgloss.Color("#6E8B3D"), // 暗橄榄
+		lipgloss.Color("#3E8B74"), // 暗青绿
+		lipgloss.Color("#4A7FA8"), // 暗钢蓝
+		lipgloss.Color("#8B6FA8"), // 暗紫
+		lipgloss.Color("#A86464"), // 暗玫红
+		lipgloss.Color("#8B7D5A"), // 暗卡其
+		lipgloss.Color("#5E8B8B"), // 暗灰青
 	}
 )
 

@@ -177,6 +177,35 @@ func ApplyTheme(cfg ThemeConfig) {
 		HighlightColors = append(HighlightColors, lipgloss.Color(c))
 	}
 
+	// 搜索命中色轮换板:暗色系(亮色系归高亮词,明暗双域区分,见 SearchColors 兜底注释);
+	// 亮底主题换深字版保证对比度。cfg.Highlight(旧底色块配置)自搜索改色后闲置,保留向后兼容。
+	searchPalette := []string{ // 暗底版
+		"#A0780E", // 暗琥珀
+		"#6E8B3D", // 暗橄榄
+		"#3E8B74", // 暗青绿
+		"#4A7FA8", // 暗钢蓝
+		"#8B6FA8", // 暗紫
+		"#A86464", // 暗玫红
+		"#8B7D5A", // 暗卡其
+		"#5E8B8B", // 暗灰青
+	}
+	if cfg.IsLightTheme() {
+		searchPalette = []string{ // 亮底深字版
+			"#7A5A0A", // 深琥珀
+			"#4F6A28", // 深橄榄
+			"#2A6B54", // 深青绿
+			"#345F85", // 深钢蓝
+			"#6B4F85", // 深紫
+			"#854A4A", // 深玫红
+			"#6B5E3F", // 深卡其
+			"#426969", // 深灰青
+		}
+	}
+	SearchColors = nil
+	for _, c := range searchPalette {
+		SearchColors = append(SearchColors, lipgloss.Color(c))
+	}
+
 	AppBgColor = lipgloss.Color(cfg.Bg)
 	AppFgColor = lipgloss.Color(cfg.Fg)
 	AppBgSeq = SetTerminalBg(cfg.Bg)

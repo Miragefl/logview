@@ -405,11 +405,15 @@ func (a *App) renderLineWrapped(line *model.ParsedLine, lineIdx int) []string {
 }
 
 // applyHighlights 叠加搜索命中高亮与用户自定义高亮词。
+// 两类命中按明暗双域区分(2026-10-12 用户需求,弃用搜索底色块):
+// 搜索=暗色系前景+粗体(同查询多词按索引轮换);高亮词=亮色系+粗体+下划线。
 func (a *App) applyHighlights(text string) string {
 	if a.searchInput != "" {
 		q := a.currentQuery()
-		for _, kw := range q.HighlightKeywords() {
-			text = highlightText(text, kw)
+		for i, kw := range q.HighlightKeywords() {
+			colorIdx := i % len(SearchColors)
+			style := lipgloss.NewStyle().Foreground(SearchColors[colorIdx]).Bold(true)
+			text = highlightTextWithStyle(text, kw, style)
 		}
 	}
 	for i, kw := range a.highlights {
@@ -417,7 +421,7 @@ func (a *App) applyHighlights(text string) string {
 			continue
 		}
 		colorIdx := i % len(HighlightColors)
-		// 高亮词=彩色粗体+下划线前景,无底色;字段色不带下划线,形式上彻底区分
+		// 高亮词=亮色系粗体+下划线前景,无底色;与搜索命中(暗色无下划线)双维度区分
 		style := lipgloss.NewStyle().Foreground(HighlightColors[colorIdx]).Bold(true).Underline(true)
 		text = highlightTextWithStyle(text, kw, style)
 	}
@@ -540,10 +544,6 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 		return VisualStyle.Width(cw).Render(truncated)
 	}
 	return text
-}
-
-func highlightText(text, query string) string {
-	return highlightTextWithStyle(text, query, HighlightStyle)
 }
 
 func highlightTextWithStyle(text, query string, style lipgloss.Style) string {
