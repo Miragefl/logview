@@ -106,9 +106,12 @@ func (f *FileSource) readFromTail(ctx context.Context, b *Batcher, path string) 
 				return false
 			}
 			b.Send(tailNoticeLine(f.tailLines, st.Size()), source)
+			return f.sendChunkedLines(ctx, file, b, source)
 		}
+		// start==0:行数不足即全量读——大文件升 mmap 零拷贝(--all 场景,
+		// 数据本体出堆只剩索引驻留),小文件回落块式
 	}
-	return f.sendChunkedLines(ctx, file, b, source)
+	return f.sendMmapOrChunked(ctx, file, b, source)
 }
 
 // readPlainChunked 非 gz 普通文件的块式全量读;返回 false(打开失败/gz)回落 openMaybeGzip 路径。
@@ -121,7 +124,7 @@ func (f *FileSource) readPlainChunked(ctx context.Context, b *Batcher, path stri
 	if isGzipFile(file) {
 		return false
 	}
-	return f.sendChunkedLines(ctx, file, b, filepath.Base(path))
+	return f.sendMmapOrChunked(ctx, file, b, filepath.Base(path))
 }
 
 // sendChunkedLines 块式读取并按行发送:每 1MB 块一次 string 拷贝,

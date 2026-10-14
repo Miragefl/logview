@@ -82,13 +82,26 @@ type ParsedLine struct {
 	Fields map[Field]string // 自定义字段(json 行的标准字段也走此 map——json 值不在原文中,无法引用)
 }
 
-// SetStd 记录标准字段区间(parser 构造用)。base 由 InitBase 先行设置。
-func (p *ParsedLine) InitBase(base string) { p.base = base }
+// InitBase 记录清洗后的展示串;base 与 Raw.Text 同串时不驻留(无 ANSI 行
+// StripANSI 零拷贝返回原串,每行省 16B header),取值经 baseText 回落。
+func (p *ParsedLine) InitBase(base string) {
+	if base != p.Raw.Text {
+		p.base = base
+	}
+}
+
+// baseText 有效展示串:非空 base(ANSI 清洗串)优先,否则回落 Raw.Text。
+func (p *ParsedLine) baseText() string {
+	if p.base != "" {
+		return p.base
+	}
+	return p.Raw.Text
+}
 
 // SetStdSpan 记录标准字段在 base 中的字节区间。
 func (p *ParsedLine) SetStdSpan(f Field, off, ln int) {
 	i := stdFieldIdx(f)
-	if i < 0 || off < 0 || ln < 0 || off+ln > len(p.base) {
+	if i < 0 || off < 0 || ln < 0 || off+ln > len(p.baseText()) {
 		return
 	}
 	p.f[i] = span{uint32(off), uint32(ln)}
@@ -97,13 +110,14 @@ func (p *ParsedLine) SetStdSpan(f Field, off, ln int) {
 // SetUnixMs 记录解析出的绝对时刻(毫秒)。
 func (p *ParsedLine) SetUnixMs(ms int64) { p.unixMs = ms }
 
-// std 取标准字段值(零拷贝切片)
+// std 取标准字段值(零拷贝切片;base 未驻留时经 Raw.Text 回落)
 func (p *ParsedLine) std(i int) string {
 	s := p.f[i]
 	if s.ln == 0 {
 		return ""
 	}
-	return p.base[s.off : s.off+s.ln]
+	b := p.baseText()
+	return b[s.off : s.off+s.ln]
 }
 
 // stdOrMap 标准字段取值统一入口:Fields map 优先(json 行/测试构造),

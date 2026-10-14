@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sort"
 	"strings"
@@ -444,13 +445,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !a.firstLineAt.IsZero() {
 			a.loadDur = time.Since(a.firstLineAt)
 		}
+		// 存量读毕:加载期峰值水位(arena 临时块/批缓冲)已死,强制归还 OS——
+		// RSS 立减且与内存徽章(Sys-HeapReleased 口径)联动下降;STW 毫秒级无感
+		debug.FreeOSMemory()
 		return a, nil
 	case tickMsg:
 		a.tickN++
 		if a.tickN%60 == 1 { // ~2s 采样一次进程内存(ReadMemStats 微秒级 STW,无感)
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
-			a.memBytes = ms.Sys
+			// Sys 是累计申请量(含已 scavenger 归还区,虚高);扣减后贴近真实占用
+			a.memBytes = ms.Sys - ms.HeapReleased
 		}
 		return a, tickEvery()
 	case searchDebounceMsg:
@@ -555,8 +560,63 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) processBatch(lines []model.RawLine) {
-	for _, raw := range lines {
-		a.processLine(raw)
+	// 2026-10-12 解析并行化:大文件加载(--all 数百万行)的 CPU 大头是逐行正则
+	// 解析(profile:regexp 内部 IndexByte 占 50%),原先在 tea 单线程串行——
+	// 5G/3325 万行仅解析就 90s+。批内三段:StripANSI+Detect 串行(探测状态机
+	// 须按行序,且 Detect 轻量),Parse 8 worker 子段并行(纯函数,worker 只读
+	// 共享 parser 实例),收尾统计串行(buffer/levelCounts/fv 按行序)。
+	// 探测升级回灌由批内最后一个非 nil parser 触发一次(原逐行触发幂等,等价)。
+	if len(lines) >= 512 && a.parsers != nil {
+		now := time.Now()
+		if a.firstLineAt.IsZero() {
+			a.firstLineAt = now // 加载计时起点(首行到达)
+		}
+		a.lastLineAt = now
+		type job struct {
+			raw model.RawLine
+			p   parser.Parser
+		}
+		jobs := make([]job, len(lines))
+		var last parser.Parser
+		for i, raw := range lines {
+			raw.Text = model.StripANSI(raw.Text)
+			p := a.parsers.Detect(raw)
+			if p != nil {
+				a.parserName = p.Name()
+				last = p
+			}
+			jobs[i] = job{raw: raw, p: p}
+		}
+		if last != nil {
+			a.reparsePending(last)
+		}
+		pls := make([]*model.ParsedLine, len(lines))
+		workers := min(runtime.NumCPU(), 8)
+		sub := (len(lines) + workers - 1) / workers
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			lo, hi := w*sub, min((w+1)*sub, len(lines))
+			if lo >= hi {
+				break
+			}
+			wg.Add(1)
+			go func(lo, hi int) {
+				defer wg.Done()
+				for i := lo; i < hi; i++ {
+					if jobs[i].p != nil {
+						pls[i] = jobs[i].p.Parse(jobs[i].raw)
+					}
+				}
+			}(lo, hi)
+		}
+		wg.Wait()
+		for i := range jobs {
+			a.ingestLine(jobs[i].raw, pls[i])
+		}
+	} else {
+		for _, raw := range lines {
+			a.processLine(raw)
+		}
 	}
 	// 混入态光标是 ctxLines 坐标(快照定长,follow 不增长),不能用 filteredView 长度
 	// 钳制——follow 批次增长 fv 会把光标错钳到 dim 插入行跳行(C1);
@@ -625,6 +685,12 @@ func (a *App) processLine(raw model.RawLine) {
 			a.reparsePending(p)
 		}
 	}
+	a.ingestLine(raw, pl)
+}
+
+// ingestLine 行入库收尾(单行与小批路径的公共段):兜底构造、统计、淘汰标记、
+// 视图追加与 SSH 认证失败探测;大批路径(processBatch 并行段)Parse 完成后逐行调用。
+func (a *App) ingestLine(raw model.RawLine, pl *model.ParsedLine) {
 	if pl == nil {
 		// 兜底行:Message span 覆盖整个 base(=Raw.Text),零额外驻留;
 		// "未解析行"以 Message()==Raw.Text 标识(reparsePending 据此回灌重解析)
@@ -778,36 +844,78 @@ func (a *App) stepChunk(start int) tea.Cmd {
 // handleRecomputeChunk 执行单片并渐进合并;完成时收尾(游标钳制/统计/堆栈组)。
 // 堆栈组在完成帧全量 Detect 一次(单帧 ~百 ms,可接受;逐片 DetectAppend 的
 // 重扫开销会让总时长翻倍)。
+// 2026-10-12 片内并行化:原先单线程逐行,大视图(--all 664 万行)单次全扫 25s+、
+// 5G 两分钟,事件循环虽片间让出但总时长不可用;现片内按 worker 分子段并行
+// (纯只读共享,与 recomputeShards 同安全模型),单片 8ms→~1.5ms,打字期间
+// 输入即作废在途分片(search_model 输入分支 chunkTok++),输入延迟恒为单片级。
 func (a *App) handleRecomputeChunk(msg recomputeChunkMsg) tea.Cmd {
 	if !a.chunkActive || msg.tok != a.chunkTok || msg.start != a.chunkNext {
 		return nil // 在途分片已作废(新输入/换源/清屏)
 	}
 	end := min(msg.start+recomputeChunkSize, a.chunkTotal)
-	for i := msg.start; i < end; i++ {
-		line := a.buffer.Get(i)
-		if line == nil {
-			continue
+	n := end - msg.start
+	workers := min(runtime.NumCPU(), 8)
+	if workers > n {
+		workers = max(n, 1)
+	}
+	type shard struct {
+		view   []*model.ParsedLine
+		hidden int
+		levels map[string]int
+	}
+	shards := make([]shard, workers)
+	var wg sync.WaitGroup
+	sub := (n + workers - 1) / workers
+	for w := 0; w < workers; w++ {
+		lo, hi := msg.start+w*sub, min(msg.start+(w+1)*sub, end)
+		if lo >= hi {
+			break
 		}
-		if a.chunkLevels != nil {
-			if lv := line.Get(model.FieldLevel); lv != "" {
-				a.chunkLevels[lv]++
+		wg.Add(1)
+		go func(w, lo, hi int) {
+			defer wg.Done()
+			s := shard{view: make([]*model.ParsedLine, 0, hi-lo)}
+			if a.chunkLevels != nil {
+				s.levels = make(map[string]int, 4)
+			}
+			for i := lo; i < hi; i++ {
+				line := a.buffer.Get(i)
+				if line == nil {
+					continue
+				}
+				if s.levels != nil {
+					if lv := line.Get(model.FieldLevel); lv != "" {
+						s.levels[lv]++
+					}
+				}
+				if len(a.hides) > 0 && a.matchHides(line) {
+					s.hidden++
+					continue
+				}
+				if a.searchInput != "" {
+					if !a.queryCache.MatchLine(line) {
+						continue
+					}
+				}
+				if a.levelFilter != "" {
+					if !a.matchLevelFilter(line) {
+						continue
+					}
+				}
+				s.view = append(s.view, line)
+			}
+			shards[w] = s
+		}(w, lo, hi)
+	}
+	wg.Wait()
+	for _, s := range shards {
+		a.filteredView = append(a.filteredView, s.view...)
+		a.chunkHidden += s.hidden
+		if s.levels != nil && a.chunkLevels != nil {
+			for k, v := range s.levels {
+				a.chunkLevels[k] += v
 			}
 		}
-		if len(a.hides) > 0 && a.matchHides(line) {
-			a.chunkHidden++
-			continue
-		}
-		if a.searchInput != "" {
-			if !a.queryCache.MatchLine(line) {
-				continue
-			}
-		}
-		if a.levelFilter != "" {
-			if !a.matchLevelFilter(line) {
-				continue
-			}
-		}
-		a.filteredView = append(a.filteredView, line)
 	}
 	a.chunkNext = end
 	if end < a.chunkTotal {
@@ -1301,6 +1409,21 @@ func (a *App) buildCtxLines(before bool, n int) {
 	a.ctxN = len(a.ctxAnchors)
 	if newAnchor >= 0 {
 		a.cursor = newAnchor
+		// 视口跟随锚行(2026-10-12 用户反馈"混入不显示"根因之一):大文件过滤后
+		// fv 上万行,锚/插入行落在视口外时用户完全看不到混入效果;借 zz 的
+		// scrollAnchor=2 居中锚行一次,后续移动键经 moveCursor 统一重置为 auto
+		a.scrollAnchor = 2
+	}
+	// 窗口内无未命中行(如连续 ERROR 段)时没有可插入内容——给一行反馈,
+	// 避免用户误以为按键失效(锚已生效,状态栏"混入 ×K"仍在)
+	inserted := 0
+	for _, e := range lines {
+		if e.dim {
+			inserted++
+		}
+	}
+	if inserted == 0 {
+		a.yankMsg = "锚点窗口内无可混入的未命中行(连续命中段)"
 	}
 }
 

@@ -360,9 +360,13 @@ func applyAllFlag(paths []string, cmd *cobra.Command) error {
 		// 全量驻留是长活对象场景,压低 GC 目标水位换内存峰值(GOGC 100→30):
 		// 1G/664 万行实测 RSS 6.0G→4.3G,加载耗时仅 +6%
 		debug.SetGCPercent(30)
+		gcTuned = true
 	}
 	return nil
 }
+
+// gcTuned applyAllFlag 已压 GC 水位(--all→30)的标记,runTUI 的默认档(→50)不覆盖它。
+var gcTuned bool
 
 // appConfig 承载 rules.yaml 的加载结果，供各子命令装配 TUI。
 type appConfig struct {
@@ -378,6 +382,11 @@ func runTUI(src stream.LogStream, resume bool, cfg appConfig, openPicker bool) e
 	// 性能诊断开关:LOGVIEW_PPROF=:6060 时开 pprof 端口(go tool pprof)
 	if addr := os.Getenv("LOGVIEW_PPROF"); addr != "" {
 		go func() { _ = http.ListenAndServe(addr, nil) }()
+	}
+	// 默认档压 GC 水位(GOGC 100→50):TUI 滑窗活对象有限,堆目标 2×→1.5×
+	// 实测默认档 RSS -20MB 级;--all 的 30 在 applyAllFlag 已先行设置,不覆盖
+	if !gcTuned {
+		debug.SetGCPercent(50)
 	}
 	app := tui.NewApp(src, cfg.parsers, bufferSize, cfg.defaultHides)
 	app.SetRulesPath(cfg.rulesPath)
