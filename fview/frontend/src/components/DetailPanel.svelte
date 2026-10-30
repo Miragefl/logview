@@ -71,7 +71,7 @@
     background: var(--muted);
     color: var(--muted-fg);
     border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border-radius: 7px;
     cursor: pointer;
     padding: 2px 8px;
     font-size: 0.8125rem;

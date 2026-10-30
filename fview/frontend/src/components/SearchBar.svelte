@@ -68,7 +68,7 @@
     flex: 1;
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 7px;
     color: var(--fg);
     padding: 3px 8px;
     font-size: 0.875rem;
@@ -95,7 +95,7 @@
     background: var(--muted);
     color: var(--muted-fg);
     border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border-radius: 7px;
     cursor: pointer;
     padding: 2px 8px;
   }

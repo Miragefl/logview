@@ -102,7 +102,7 @@
     text-align: left;
     font-size: 0.9375rem;
     padding: 3px 4px;
-    border-radius: 4px;
+    border-radius: 7px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -112,7 +112,7 @@
     background: var(--muted);
     color: var(--muted-fg);
     border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border-radius: 7px;
     cursor: pointer;
     padding: 1px 7px;
     font-size: 0.8125rem;

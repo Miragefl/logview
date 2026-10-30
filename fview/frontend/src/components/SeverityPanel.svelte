@@ -114,7 +114,7 @@
     border: none;
     cursor: pointer;
     padding: 3px 4px;
-    border-radius: 4px;
+    border-radius: 7px;
     font-size: 0.75rem;
     text-align: left;
   }

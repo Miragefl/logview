@@ -154,7 +154,7 @@
     flex: 1;
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 7px;
     color: var(--fg);
     padding: 3px 6px;
     font-size: 0.875rem;
@@ -178,7 +178,7 @@
     padding: 3px 10px;
     font-size: 0.875rem;
     font-family: 'SF Mono', Menlo, monospace;
-    border-radius: 4px;
+    border-radius: 7px;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
@@ -195,7 +195,7 @@
     background: var(--muted);
     color: var(--muted-fg);
     border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border-radius: 7px;
     cursor: pointer;
     padding: 2px 8px;
     font-size: 0.8125rem;

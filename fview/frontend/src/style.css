@@ -1,22 +1,24 @@
-/* fview 全局样式与设计 token（OLED 深色默认；主题切换时覆盖 --bg/--fg/--level-* 等基础变量，
- * 派生色经 color-mix 自动跟随主题明暗协调） */
+/* fview 全局样式 — Apple 设计语言（macOS Sonoma 风格）
+ * 浅色 vibrancy 为主：窗口 #f5f5f7、内容白卡、系统蓝 #007aff、毛玻璃侧栏；
+ * 主题切换时覆盖 --bg/--fg，派生色经 color-mix 自动协调明暗 */
 :root {
-  --bg: #0f172a;
-  --fg: #f8fafc;
-  --card: color-mix(in srgb, var(--bg) 84%, #ffffff);
-  --muted: color-mix(in srgb, var(--bg) 72%, var(--fg));
-  --hover: color-mix(in srgb, var(--bg) 88%, var(--fg));
-  --border: color-mix(in srgb, var(--fg) 16%, transparent);
-  --border-strong: color-mix(in srgb, var(--fg) 28%, transparent);
-  --muted-fg: color-mix(in srgb, var(--fg) 62%, var(--bg));
-  --faint: color-mix(in srgb, var(--fg) 40%, var(--bg));
-  --primary: #2563eb;
-  --primary-hover: #3b82f6;
-  --ok: #22c55e;
-  --error: #ef4444;
-  --warn: #f59e0b;
-  --hit-bg: color-mix(in srgb, var(--warn) 18%, var(--bg));
-  --hit-current-bg: color-mix(in srgb, var(--warn) 38%, var(--bg));
+  --bg: #f5f5f7;
+  --fg: #1d1d1f;
+  --card: #ffffff;
+  --muted: rgba(0, 0, 0, 0.05);
+  --hover: rgba(0, 0, 0, 0.06);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --muted-fg: #86868b;
+  --faint: #aeaeb2;
+  --primary: #007aff;
+  --primary-hover: #2b90ff;
+  --ok: #34c759;
+  --error: #ff3b30;
+  --warn: #ff9500;
+  --hit-bg: rgba(255, 149, 0, 0.14);
+  --hit-current-bg: rgba(255, 149, 0, 0.32);
+  --sidebar-bg: rgba(245, 245, 247, 0.82);
   --font-ui: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', Menlo, Monaco, monospace;
 }
@@ -29,13 +31,14 @@ body {
   color: var(--fg);
   font-family: var(--font-ui);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
   height: 100vh;
 }
 
-/* 全局交互质感：可点元素指针 + 统一过渡 + 可见焦点环（键盘导航） */
+/* 交互质感：指针 + 平滑过渡 + 键盘焦点环（macOS focus ring 蓝） */
 button,
 select,
 input[type='checkbox'],
@@ -58,7 +61,8 @@ select,
 .fold-btn,
 .st-btn,
 .link,
-.entry {
+.entry,
+.nav-item {
   transition:
     background-color 160ms ease,
     color 160ms ease,
@@ -66,9 +70,9 @@ select,
     box-shadow 160ms ease;
 }
 :focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 3px solid color-mix(in srgb, var(--primary) 50%, transparent);
   outline-offset: 1px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
