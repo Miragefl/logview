@@ -48,18 +48,19 @@ function onFontChange(v: string | null) {
         <span v-if="!theme.nameList.length" class="hint">主题列表为空</span>
       </div>
     </section>
+    <!-- 字体独占整行:长字体名完整可见(验收反馈⑧);字号/行高第二行二等分 -->
+    <section>
+      <h4>字体</h4>
+      <NSelect
+        :value="ui.fontFamily"
+        size="small"
+        filterable
+        placeholder="系统字体"
+        :options="fontOptions"
+        @update:value="onFontChange"
+      />
+    </section>
     <section class="row">
-      <div>
-        <h4>字体</h4>
-        <NSelect
-          :value="ui.fontFamily"
-          size="small"
-          filterable
-          placeholder="系统字体"
-          :options="fontOptions"
-          @update:value="onFontChange"
-        />
-      </div>
       <div>
         <h4>字号</h4>
         <NInputNumber

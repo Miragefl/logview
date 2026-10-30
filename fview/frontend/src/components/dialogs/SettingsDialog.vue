@@ -11,10 +11,11 @@ const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>()
 
 type Page = 'appearance' | 'rules' | 'about'
 const page = ref<Page>('appearance')
-const navItems: { key: Page; label: string }[] = [
-  { key: 'appearance', label: '🎨 外观' },
-  { key: 'rules', label: '📋 解析规则' },
-  { key: 'about', label: 'ℹ️ 关于' },
+// 图标与 SidebarRail 同风格:22px 描边 SVG(stroke currentColor)——emoji 弃用(验收反馈⑦)
+const navItems: { key: Page; label: string; icon: string }[] = [
+  { key: 'appearance', label: '外观', icon: 'palette' },
+  { key: 'rules', label: '解析规则', icon: 'rules' },
+  { key: 'about', label: '关于', icon: 'about' },
 ]
 </script>
 
@@ -35,7 +36,25 @@ const navItems: { key: Page; label: string }[] = [
           :class="{ on: page === i.key }"
           @click="page = i.key"
         >
-          {{ i.label }}
+          <!-- 外观:调色板 -->
+          <svg v-if="i.icon === 'palette'" viewBox="0 0 24 24" class="ico">
+            <path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-.9 2-2 0-1.4-1-1.6-1-2.6 0-.9.7-1.4 1.8-1.4H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z" />
+            <circle cx="7.5" cy="11" r="0.6" />
+            <circle cx="11" cy="7.5" r="0.6" />
+            <circle cx="15.5" cy="8.5" r="0.6" />
+          </svg>
+          <!-- 解析规则:列表+尖括号 -->
+          <svg v-else-if="i.icon === 'rules'" viewBox="0 0 24 24" class="ico">
+            <path d="M4 6h16M4 12h10M4 18h7" />
+            <path d="M17 14l-2.5 2.5L17 19M21 14l-2.5 2.5L21 19" />
+          </svg>
+          <!-- 关于:info -->
+          <svg v-else viewBox="0 0 24 24" class="ico">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v5" />
+            <circle cx="12" cy="8" r="0.6" />
+          </svg>
+          <span>{{ i.label }}</span>
         </button>
       </nav>
       <div class="content">
@@ -61,6 +80,9 @@ const navItems: { key: Page; label: string }[] = [
   flex: none;
 }
 .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   text-align: left;
   border: none;
   background: transparent;
@@ -69,6 +91,17 @@ const navItems: { key: Page; label: string }[] = [
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
+}
+/* 与 SidebarRail 同款描边图标 */
+.ico {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
 }
 .nav-item:hover {
   background: var(--popup-bg, #1f2c3f);
