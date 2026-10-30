@@ -1,4 +1,4 @@
-package tui
+package logcore
 
 import (
 	"strings"
@@ -29,7 +29,7 @@ func parsedLineWithTime(level, traceID, thread, logger, message string, t time.T
 
 func TestSimpleKeyword(t *testing.T) {
 	// 裸词只搜 message：裸 ERROR 不再命中 level=ERROR
-	q := parseSearchQuery("ERROR")
+	q := ParseSearchQuery("ERROR")
 	// message 含 ERROR → 匹配
 	if !q.MatchLine(parsedLine("INFO", "", "", "", "ERROR happened")) {
 		t.Error("bare ERROR should match message containing ERROR")
@@ -41,7 +41,7 @@ func TestSimpleKeyword(t *testing.T) {
 }
 
 func TestKeywordSearchInMessage(t *testing.T) {
-	q := parseSearchQuery("timeout")
+	q := ParseSearchQuery("timeout")
 	line := parsedLine("ERROR", "abc", "main", "com.example.App", "connection timeout after 30s")
 	if !q.MatchLine(line) {
 		t.Error("should match message containing 'timeout'")
@@ -49,7 +49,7 @@ func TestKeywordSearchInMessage(t *testing.T) {
 }
 
 func TestAndOperator(t *testing.T) {
-	q := parseSearchQuery("level:ERROR AND timeout")
+	q := ParseSearchQuery("level:ERROR AND timeout")
 	line1 := parsedLine("ERROR", "abc", "main", "com.example.App", "connection timeout")
 	if !q.MatchLine(line1) {
 		t.Error("should match ERROR + timeout")
@@ -65,7 +65,7 @@ func TestAndOperator(t *testing.T) {
 }
 
 func TestOrOperator(t *testing.T) {
-	q := parseSearchQuery("level:ERROR OR level:WARN")
+	q := ParseSearchQuery("level:ERROR OR level:WARN")
 	line1 := parsedLine("ERROR", "abc", "main", "com.example.App", "broke")
 	if !q.MatchLine(line1) {
 		t.Error("should match ERROR")
@@ -81,7 +81,7 @@ func TestOrOperator(t *testing.T) {
 }
 
 func TestImplicitAnd(t *testing.T) {
-	q := parseSearchQuery("level:ERROR timeout")
+	q := ParseSearchQuery("level:ERROR timeout")
 	// implicit AND: both level:ERROR and timeout must be present
 	line1 := parsedLine("ERROR", "abc", "main", "com.example.App", "connection timeout")
 	if !q.MatchLine(line1) {
@@ -95,7 +95,7 @@ func TestImplicitAnd(t *testing.T) {
 
 func TestAndOrPrecedence(t *testing.T) {
 	// level:ERROR AND timeout OR level:WARN → (level:ERROR AND timeout) OR level:WARN
-	q := parseSearchQuery("level:ERROR AND timeout OR level:WARN")
+	q := ParseSearchQuery("level:ERROR AND timeout OR level:WARN")
 	line1 := parsedLine("WARN", "abc", "main", "com.example.App", "careful")
 	if !q.MatchLine(line1) {
 		t.Error("WARN alone should match (OR branch)")
@@ -111,7 +111,7 @@ func TestAndOrPrecedence(t *testing.T) {
 }
 
 func TestFieldMatchTraceID(t *testing.T) {
-	q := parseSearchQuery("traceId:abc123")
+	q := ParseSearchQuery("traceId:abc123")
 	line1 := parsedLine("ERROR", "abc123", "main", "com.example.App", "broke")
 	if !q.MatchLine(line1) {
 		t.Error("should match exact traceId")
@@ -123,7 +123,7 @@ func TestFieldMatchTraceID(t *testing.T) {
 }
 
 func TestFieldMatchLevel(t *testing.T) {
-	q := parseSearchQuery("level:ERROR")
+	q := ParseSearchQuery("level:ERROR")
 	line1 := parsedLine("ERROR", "abc", "main", "com.example.App", "broke")
 	if !q.MatchLine(line1) {
 		t.Error("should match level ERROR")
@@ -140,7 +140,7 @@ func TestFieldMatchLevel(t *testing.T) {
 
 func TestTimeRange(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
-	q := parseSearchQueryAt("time:>09:00 time:<10:00", anchor)
+	q := ParseSearchQueryAt("time:>09:00 time:<10:00", anchor)
 	t0930 := time.Date(2026, 5, 15, 9, 30, 0, 0, time.UTC)
 	t1001 := time.Date(2026, 5, 15, 10, 1, 0, 0, time.UTC)
 	t0830 := time.Date(2026, 5, 15, 8, 30, 0, 0, time.UTC)
@@ -167,7 +167,7 @@ func TestTimeRange(t *testing.T) {
 
 func TestTimeRangeSugar(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
-	q := parseSearchQueryAt("time:9:00..10:00", anchor) // 前导零宽容 + 区间闭区间
+	q := ParseSearchQueryAt("time:9:00..10:00", anchor) // 前导零宽容 + 区间闭区间
 	inLow := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC))
 	inHigh := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC))
 	below := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 5, 15, 8, 59, 59, 0, time.UTC))
@@ -182,20 +182,20 @@ func TestTimeRangeSugar(t *testing.T) {
 
 func TestTimeRelative(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
-	q := parseSearchQueryAt("time:>-10m", anchor)
+	q := ParseSearchQueryAt("time:>-10m", anchor)
 	in := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-5*time.Minute))
 	out := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-11*time.Minute))
 	if !q.MatchLine(in) || q.MatchLine(out) {
 		t.Error("time:>-10m 应命中 anchor 前 10 分钟内")
 	}
 	// 简写 time:-1h 等价 >-1h
-	q2 := parseSearchQueryAt("time:-1h", anchor)
+	q2 := ParseSearchQueryAt("time:-1h", anchor)
 	in2 := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-30*time.Minute))
 	if !q2.MatchLine(in2) {
 		t.Error("time:-1h 简写应等价 >-1h")
 	}
 	// 复合时长
-	q3 := parseSearchQueryAt("time:>-1h30m", anchor)
+	q3 := ParseSearchQueryAt("time:>-1h30m", anchor)
 	in3 := parsedLineWithTime("INFO", "", "", "", "x", anchor.Add(-90*time.Minute+time.Second))
 	if !q3.MatchLine(in3) {
 		t.Error("time:>-1h30m 应命中 anchor 前 90 分钟内")
@@ -205,13 +205,13 @@ func TestTimeRelative(t *testing.T) {
 func TestTimeUTCAnchor(t *testing.T) {
 	// 日期字面量 + 秒级 + RFC3339 T 与 _ 别名
 	anchor := time.Date(2026, 8, 28, 23, 0, 0, 0, time.UTC)
-	q := parseSearchQueryAt("time:>2026-08-26T09:00:30", anchor)
+	q := ParseSearchQueryAt("time:>2026-08-26T09:00:30", anchor)
 	in := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 8, 26, 9, 0, 31, 0, time.UTC))
 	out := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 8, 26, 9, 0, 30, 0, time.UTC))
 	if !q.MatchLine(in) || q.MatchLine(out) {
 		t.Error("time:> 应为严格大于")
 	}
-	q2 := parseSearchQueryAt("time:>=2026-08-26_09:00:30", anchor) // _ 别名 + 含边界
+	q2 := ParseSearchQueryAt("time:>=2026-08-26_09:00:30", anchor) // _ 别名 + 含边界
 	boundary := parsedLineWithTime("INFO", "", "", "", "x", time.Date(2026, 8, 26, 9, 0, 30, 0, time.UTC))
 	if !q2.MatchLine(boundary) {
 		t.Error("time:>= 应含边界行（cron 整点不丢）")
@@ -221,16 +221,16 @@ func TestTimeUTCAnchor(t *testing.T) {
 func TestTimeErrors(t *testing.T) {
 	// 非法值必须显式报错（不静默降级），查询匹配空集
 	for _, bad := range []string{
-		"time:09:00",     // 缺比较符
-		"time:>8-26",     // MM-DD 已删
-		"time:>9:0",      // 格式错
-		"time:>",         // 空值
-		"time:>10:00..",  // 区间缺右值
-		"time:-10x",      // 非法单位
-		"time:>+10m",     // 正号拒绝
+		"time:09:00",       // 缺比较符
+		"time:>8-26",       // MM-DD 已删
+		"time:>9:0",        // 格式错
+		"time:>",           // 空值
+		"time:>10:00..",    // 区间缺右值
+		"time:-10x",        // 非法单位
+		"time:>+10m",       // 正号拒绝
 		"time:>2026-02-30", // 日期非法
 	} {
-		q := parseSearchQuery(bad)
+		q := ParseSearchQuery(bad)
 		if q.ParseError() == "" {
 			t.Errorf("%q 应产生解析错误", bad)
 		}
@@ -239,7 +239,7 @@ func TestTimeErrors(t *testing.T) {
 		}
 	}
 	// 错误经 OR 右支传播：整体空集
-	q := parseSearchQuery("level:ERROR OR time:>xx")
+	q := ParseSearchQuery("level:ERROR OR time:>xx")
 	if q.ParseError() == "" || q.MatchLine(parsedLine("ERROR", "", "", "", "boom")) {
 		t.Error("OR 右支 time 错误应使整体空集")
 	}
@@ -248,18 +248,18 @@ func TestTimeErrors(t *testing.T) {
 func TestTimeNullPropagation(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	noTime := parsedLine("INFO", "abc", "main", "App", "msg") // 无时间字段
-	q := parseSearchQueryAt("time:>09:00", anchor)
+	q := ParseSearchQueryAt("time:>09:00", anchor)
 	if q.MatchLine(noTime) {
 		t.Error("无时间行不参与 time 条件")
 	}
-	q2 := parseSearchQueryAt("NOT time:>09:00", anchor)
+	q2 := ParseSearchQueryAt("NOT time:>09:00", anchor)
 	if q2.MatchLine(noTime) {
 		t.Error("NOT time 也不得复活无时间行（NULL 传播）")
 	}
 }
 
 func TestFieldAndKeyword(t *testing.T) {
-	q := parseSearchQuery("traceId:abc123 AND level:ERROR")
+	q := ParseSearchQuery("traceId:abc123 AND level:ERROR")
 	line1 := parsedLine("ERROR", "abc123", "main", "com.example.App", "broke")
 	if !q.MatchLine(line1) {
 		t.Error("should match traceId:abc123 AND level:ERROR")
@@ -272,7 +272,7 @@ func TestFieldAndKeyword(t *testing.T) {
 
 func TestTimeRangeWithKeyword(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
-	q := parseSearchQueryAt("time:>09:00 (level:ERROR OR level:WARN)", anchor)
+	q := ParseSearchQueryAt("time:>09:00 (level:ERROR OR level:WARN)", anchor)
 	t0930 := time.Date(2026, 5, 15, 9, 30, 0, 0, time.UTC)
 	t0800 := time.Date(2026, 5, 15, 8, 0, 0, 0, time.UTC)
 
@@ -291,7 +291,7 @@ func TestTimeRangeWithKeyword(t *testing.T) {
 }
 
 func TestEmptyQuery(t *testing.T) {
-	q := parseSearchQuery("")
+	q := ParseSearchQuery("")
 	if !q.IsEmpty() {
 		t.Error("empty query should be IsEmpty")
 	}
@@ -303,33 +303,33 @@ func TestEmptyQuery(t *testing.T) {
 
 func TestTimeRangeHint(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
-	q1 := parseSearchQueryAt("time:>09:00 time:<10:00 ERROR", anchor)
+	q1 := ParseSearchQueryAt("time:>09:00 time:<10:00 ERROR", anchor)
 	hint := q1.TimeRangeHint()
 	want := "05-15 09:00:00~05-15 10:00:00"
 	if hint != want {
 		t.Errorf("expected %q, got %q", want, hint)
 	}
 	// 相对时间显示本地视角锚点 + 原始写法
-	q2 := parseSearchQueryAt("time:>-10m", anchor)
+	q2 := ParseSearchQueryAt("time:>-10m", anchor)
 	h2 := q2.TimeRangeHint()
 	want2 := anchor.Add(-10 * time.Minute).Format("01-02 15:04:05")
 	if !strings.Contains(h2, want2) || !strings.Contains(h2, "-10m") {
 		t.Errorf("relative hint 应含本地锚点 %s 与原始写法, got %q", want2, h2)
 	}
 	// 无 time 条件 → 空
-	q3 := parseSearchQuery("ERROR")
+	q3 := ParseSearchQuery("ERROR")
 	if q3.TimeRangeHint() != "" {
 		t.Errorf("expected empty hint, got %q", q3.TimeRangeHint())
 	}
 	// OR 语境不显示
-	q4 := parseSearchQueryAt("time:>09:00 OR level:ERROR", anchor)
+	q4 := ParseSearchQueryAt("time:>09:00 OR level:ERROR", anchor)
 	if q4.TimeRangeHint() != "" {
 		t.Errorf("OR 语境不应显示区间 hint, got %q", q4.TimeRangeHint())
 	}
 }
 
 func TestHighlightKeywords(t *testing.T) {
-	q := parseSearchQuery("level:ERROR AND traceId:abc123")
+	q := ParseSearchQuery("level:ERROR AND traceId:abc123")
 	kw := q.HighlightKeywords()
 	if len(kw) != 2 {
 		t.Fatalf("expected 2 keywords, got %d: %v", len(kw), kw)
@@ -340,7 +340,7 @@ func TestHighlightKeywords(t *testing.T) {
 }
 
 func TestHighlightKeywordsOr(t *testing.T) {
-	q := parseSearchQuery("timeout OR level:WARN")
+	q := ParseSearchQuery("timeout OR level:WARN")
 	kw := q.HighlightKeywords()
 	if len(kw) != 2 {
 		t.Fatalf("expected 2 keywords, got %d: %v", len(kw), kw)
@@ -358,10 +358,10 @@ func TestHighlightKeywordsOr(t *testing.T) {
 
 func TestTokenizeNewTokens(t *testing.T) {
 	cases := map[string][]tokenKind{
-		"NOT level:ERROR":  {tokNot, tokField},
-		"(ERROR OR WARN)":  {tokLParen, tokKeyword, tokOr, tokKeyword, tokRParen},
-		`message:"a b"`:    {tokField},
-		`"hello world"`:    {tokKeyword},
+		"NOT level:ERROR": {tokNot, tokField},
+		"(ERROR OR WARN)": {tokLParen, tokKeyword, tokOr, tokKeyword, tokRParen},
+		`message:"a b"`:   {tokField},
+		`"hello world"`:   {tokKeyword},
 	}
 	for input, want := range cases {
 		toks := tokenize(input)
@@ -394,7 +394,7 @@ func TestTimeFieldPresent(t *testing.T) {
 		t.Error("time: 应在 fieldPrefixes 中")
 	}
 	// 裸 >X 不进时间语义（字面量关键字）
-	q := parseSearchQuery(">09:00")
+	q := ParseSearchQuery(">09:00")
 	line := parsedLine("INFO", "", "", "", "value >09:00 here")
 	if !q.MatchLine(line) {
 		t.Error("裸 >09:00 应为字面量关键字搜索")
@@ -403,7 +403,7 @@ func TestTimeFieldPresent(t *testing.T) {
 		t.Error("裸 >09:00 不应产生解析错误")
 	}
 	// after:/before: 前缀移除后按未知前缀 → 关键字
-	q2 := parseSearchQuery("after:09:00")
+	q2 := ParseSearchQuery("after:09:00")
 	if q2.ParseError() != "" {
 		t.Error("after: 移除后应按普通词处理（不报错）")
 	}
@@ -412,7 +412,7 @@ func TestTimeFieldPresent(t *testing.T) {
 // --- 裸词只搜 message（breaking） ---
 
 func TestBareWordMessageOnly(t *testing.T) {
-	q := parseSearchQuery("abc123")
+	q := ParseSearchQuery("abc123")
 	if q.MatchLine(parsedLine("INFO", "abc123", "", "", "no match here")) {
 		t.Error("bare word should not search traceId")
 	}
@@ -427,7 +427,7 @@ func TestBareWordMessageOnly(t *testing.T) {
 // --- field: 后空格 + 大小写不敏感操作符（回归） ---
 
 func TestFieldSpaceAndCaseInsensitiveOps(t *testing.T) {
-	q := parseSearchQuery("message: JF350 and message: JF351")
+	q := ParseSearchQuery("message: JF350 and message: JF351")
 	if kw := q.HighlightKeywords(); len(kw) != 2 || kw[0] != "JF350" || kw[1] != "JF351" {
 		t.Errorf("expected [JF350 JF351], got %v", kw)
 	}
@@ -437,14 +437,14 @@ func TestFieldSpaceAndCaseInsensitiveOps(t *testing.T) {
 	if q.MatchLine(parsedLine("INFO", "", "", "", "只有 JF350")) {
 		t.Error("只含 JF350 的行不应匹配 AND 查询")
 	}
-	qOr := parseSearchQuery("message: JF350 or message: JF351")
+	qOr := ParseSearchQuery("message: JF350 or message: JF351")
 	if !qOr.MatchLine(parsedLine("INFO", "", "", "", "只有 JF350")) {
 		t.Error("or 查询应匹配含 JF350 的行")
 	}
 	if !qOr.MatchLine(parsedLine("INFO", "", "", "", "只有 JF351")) {
 		t.Error("or 查询应匹配含 JF351 的行")
 	}
-	qOp := parseSearchQuery("message: AND timeout")
+	qOp := ParseSearchQuery("message: AND timeout")
 	if !qOp.MatchLine(parsedLine("ERROR", "", "", "", "connection timeout")) {
 		t.Error("message: AND timeout 应匹配含 timeout 的行")
 	}
@@ -453,21 +453,21 @@ func TestFieldSpaceAndCaseInsensitiveOps(t *testing.T) {
 // --- NOT 操作符 ---
 
 func TestNotOperator(t *testing.T) {
-	q := parseSearchQuery("message:ERROR NOT timeout")
+	q := ParseSearchQuery("message:ERROR NOT timeout")
 	if !q.MatchLine(parsedLine("ERROR", "", "", "", "[ERROR] boom")) {
 		t.Error("ERROR NOT timeout should match ERROR without timeout")
 	}
 	if q.MatchLine(parsedLine("ERROR", "", "", "", "[ERROR] connection timeout")) {
 		t.Error("ERROR NOT timeout should not match when timeout present")
 	}
-	q2 := parseSearchQuery("NOT level:DEBUG")
+	q2 := ParseSearchQuery("NOT level:DEBUG")
 	if !q2.MatchLine(parsedLine("INFO", "", "", "", "x")) {
 		t.Error("NOT level:DEBUG should match INFO")
 	}
 	if q2.MatchLine(parsedLine("DEBUG", "", "", "", "x")) {
 		t.Error("NOT level:DEBUG should not match DEBUG")
 	}
-	q3 := parseSearchQuery("NOT NOT message:timeout")
+	q3 := ParseSearchQuery("NOT NOT message:timeout")
 	if !q3.MatchLine(parsedLine("INFO", "", "", "", "connection timeout")) {
 		t.Error("NOT NOT timeout should match timeout")
 	}
@@ -476,7 +476,7 @@ func TestNotOperator(t *testing.T) {
 // --- 括号分组 ---
 
 func TestParenGrouping(t *testing.T) {
-	q := parseSearchQuery("(ERROR OR WARN) AND timeout")
+	q := ParseSearchQuery("(ERROR OR WARN) AND timeout")
 	if !q.MatchLine(parsedLine("INFO", "", "", "", "ERROR timeout occurred")) {
 		t.Error("(ERROR OR WARN) AND timeout should match ERROR+timeout")
 	}
@@ -486,7 +486,7 @@ func TestParenGrouping(t *testing.T) {
 }
 
 func TestNestedParens(t *testing.T) {
-	q := parseSearchQuery("ERROR OR (WARN AND timeout)")
+	q := ParseSearchQuery("ERROR OR (WARN AND timeout)")
 	if !q.MatchLine(parsedLine("INFO", "", "", "", "ERROR here")) {
 		t.Error("should match ERROR")
 	}
@@ -499,49 +499,22 @@ func TestNestedParens(t *testing.T) {
 }
 
 // --- 中间态查询判定（输入操作符/括号/引号时不立即搜索） ---
-
-func TestCurrentQueryPartialStripsOperator(t *testing.T) {
-	a := &App{}
-	line := &model.ParsedLine{Raw: model.RawLine{Text: "hello world"}, Fields: map[model.Field]string{model.FieldMessage: "hello world"}}
-	// 纯操作符中间态：剥离为空 → 显示全部
-	for _, in := range []string{"not", "NOT", "and", "or"} {
-		a.searchInput = in
-		q := a.currentQuery()
-		if !q.IsEmpty() {
-			t.Errorf("input %q: 纯操作符应剥离为空", in)
-		}
-		if !q.MatchLine(line) {
-			t.Errorf("input %q: 剥离空应匹配全部", in)
-		}
-	}
-	// "ERROR not" → 剥离末尾 not → "ERROR" → 搜 message 含 ERROR（hello world 不含）
-	a.searchInput = "ERROR not"
-	if a.currentQuery().MatchLine(line) {
-		t.Error(`"ERROR not" 应剥离为搜 ERROR，hello world 不含`)
-	}
-	// 非中间态正常搜
-	a.searchInput = "hello"
-	if a.currentQuery().IsEmpty() {
-		t.Error("非中间态应正常搜")
-	}
-}
-
 func TestStrippedQuery(t *testing.T) {
 	cases := map[string]string{
-		"not": "",
-		"NOT": "",
-		"and": "",
-		"or": "",
-		"ERROR not": "ERROR",
-		"error and": "error",
-		"ERROR OR": "ERROR",
+		"not":           "",
+		"NOT":           "",
+		"and":           "",
+		"or":            "",
+		"ERROR not":     "ERROR",
+		"error and":     "error",
+		"ERROR OR":      "ERROR",
 		"ERROR timeout": "ERROR timeout",
-		"n": "n",
-		"no": "no",
+		"n":             "n",
+		"no":            "no",
 	}
 	for in, want := range cases {
-		if got := strippedQuery(in); got != want {
-			t.Errorf("strippedQuery(%q)=%q, want %q", in, got, want)
+		if got := StrippedQuery(in); got != want {
+			t.Errorf("StrippedQuery(%q)=%q, want %q", in, got, want)
 		}
 	}
 }
@@ -560,13 +533,13 @@ func TestIsPartialQuery(t *testing.T) {
 		"after:09:00", "level:ERROR",
 	}
 	for _, s := range trues {
-		if !isPartialQuery(s) {
-			t.Errorf("isPartialQuery(%q) = false, want true", s)
+		if !IsPartialQuery(s) {
+			t.Errorf("IsPartialQuery(%q) = false, want true", s)
 		}
 	}
 	for _, s := range falses {
-		if isPartialQuery(s) {
-			t.Errorf("isPartialQuery(%q) = true, want false", s)
+		if IsPartialQuery(s) {
+			t.Errorf("IsPartialQuery(%q) = true, want false", s)
 		}
 	}
 }

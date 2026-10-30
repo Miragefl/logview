@@ -1,4 +1,4 @@
-package tui
+package logcore
 
 // time: 语法改造(v2)回归审计测试。
 // 背景:timeTerm/errorTerm 取代 timeAfterTerm/timeBeforeTerm,fieldPrefixes 移除
@@ -27,7 +27,7 @@ type comboCase struct {
 func runComboCases(t *testing.T, cases []comboCase) {
 	t.Helper()
 	for _, tc := range cases {
-		q := parseSearchQuery(tc.query)
+		q := ParseSearchQuery(tc.query)
 		if q.ParseError() != "" {
 			t.Errorf("[%s] %q: 意外解析错误: %s", tc.name, tc.query, q.ParseError())
 			continue
@@ -129,7 +129,7 @@ func TestComboOrAndMatrix(t *testing.T) {
 			name:  "field混合双括号",
 			query: "(level:ERROR OR level:WARN) AND (timeout OR retry)",
 			rows:  []comboRow{
-				// level 走 EqualFold、message 走 containsIgnoreCase(大小写混合验证)
+				// level 走 EqualFold、message 走 ContainsIgnoreCase(大小写混合验证)
 			},
 		},
 		{
@@ -166,7 +166,7 @@ func TestComboOrAndMatrix(t *testing.T) {
 
 // field 混合双括号的真值表(与 runComboCases 分开:行需构造 level)。
 func TestComboFieldOrAndMatrix(t *testing.T) {
-	q := parseSearchQuery("(level:ERROR OR level:WARN) AND (timeout OR retry)")
+	q := ParseSearchQuery("(level:ERROR OR level:WARN) AND (timeout OR retry)")
 	rows := []struct {
 		level, msg string
 		want       bool
@@ -179,7 +179,7 @@ func TestComboFieldOrAndMatrix(t *testing.T) {
 		{"WARN", "ok", false},
 		{"INFO", "timeout", false},
 		{"INFO", "ok", false},
-		{"error", "TIMEOUT", true}, // level EqualFold + message containsIgnoreCase
+		{"error", "TIMEOUT", true}, // level EqualFold + message ContainsIgnoreCase
 		{"ERRORS", "timeout", false},
 		{"INFO", "TIMEOUT occurred", false},
 	}
@@ -235,44 +235,44 @@ func TestFieldSemanticsRegression(t *testing.T) {
 		{"level大小写混合查询", "level:WaRn", "wArN", true},
 	}
 	for _, tc := range cases {
-		q := parseSearchQuery(tc.query)
+		q := ParseSearchQuery(tc.query)
 		got := q.MatchLine(parsedLine(tc.level, "", "", "", "m"))
 		if got != tc.want {
 			t.Errorf("[%s] %q vs level=%s = %v, want %v", tc.name, tc.query, tc.level, got, tc.want)
 		}
 	}
 
-	// 非关键字段 containsIgnoreCase(thread/traceId/logger/message/source)
-	q := parseSearchQuery("thread:EXEC")
+	// 非关键字段 ContainsIgnoreCase(thread/traceId/logger/message/source)
+	q := ParseSearchQuery("thread:EXEC")
 	if !q.MatchLine(parsedLine("INFO", "", "worker-exec-3", "", "m")) {
 		t.Error("thread:EXEC 应包含匹配 worker-exec-3(大小写不敏感)")
 	}
-	q = parseSearchQuery("traceId:abc")
+	q = ParseSearchQuery("traceId:abc")
 	if !q.MatchLine(parsedLine("INFO", "xyzabc789", "", "", "m")) {
 		t.Error("traceId:abc 应包含匹配 xyzabc789")
 	}
-	q = parseSearchQuery("logger:example.App")
+	q = ParseSearchQuery("logger:example.App")
 	if !q.MatchLine(parsedLine("INFO", "", "", "com.example.Application", "m")) {
 		t.Error("logger:example.App 应包含匹配 com.example.Application")
 	}
 	pl := parsedLine("INFO", "", "", "", "m")
 	pl.Raw.Source = "pod/api-7d8f-x9k2j"
-	if !parseSearchQuery("source:api-7d8f").MatchLine(pl) {
+	if !ParseSearchQuery("source:api-7d8f").MatchLine(pl) {
 		t.Error("source:ai-7d8f 应包含匹配 pod/api-7d8f-x9k2j")
 	}
-	if parseSearchQuery("source:nomatch").MatchLine(pl) {
+	if ParseSearchQuery("source:nomatch").MatchLine(pl) {
 		t.Error("source:nomatch 不应匹配")
 	}
 
 	// 字段缺失 → false
-	if parseSearchQuery("traceId:abc").MatchLine(parsedLine("INFO", "", "", "", "abc in message")) {
+	if ParseSearchQuery("traceId:abc").MatchLine(parsedLine("INFO", "", "", "", "abc in message")) {
 		t.Error("traceId:abc 不应命中 message(字段缺失为 false,不回落 message)")
 	}
 }
 
 func TestFieldQuotedAndSwallowRegression(t *testing.T) {
 	// field:"带空格" 引号值
-	q := parseSearchQuery(`message:"hello world"`)
+	q := ParseSearchQuery(`message:"hello world"`)
 	if !q.MatchLine(parsedLine("INFO", "", "", "", "say hello world now")) {
 		t.Error(`message:"hello world" 应匹配含连续短语的行`)
 	}
@@ -280,12 +280,12 @@ func TestFieldQuotedAndSwallowRegression(t *testing.T) {
 		t.Error(`message:"hello world" 不应匹配被拆开的短语`)
 	}
 	// field: 空格吞词(不带引号)
-	q2 := parseSearchQuery("message: hello")
+	q2 := ParseSearchQuery("message: hello")
 	if !q2.MatchLine(parsedLine("INFO", "", "", "", "HELLO there")) {
 		t.Error("message: hello(空格) 应吞词为值并大小写不敏感匹配")
 	}
 	// field: AND 不吞操作符(空值 message 匹配 message 非空行)
-	q3 := parseSearchQuery("message: AND world")
+	q3 := ParseSearchQuery("message: AND world")
 	if !q3.MatchLine(parsedLine("INFO", "", "", "", "hello world")) {
 		t.Error("message: AND world 应匹配含 world 的行(AND 不被吞)")
 	}
@@ -293,12 +293,12 @@ func TestFieldQuotedAndSwallowRegression(t *testing.T) {
 		t.Error("message: AND world 不应匹配无 world 的行")
 	}
 	// field: 后跟括号不吞
-	q4 := parseSearchQuery("message: (hello OR world)")
+	q4 := ParseSearchQuery("message: (hello OR world)")
 	if !q4.MatchLine(parsedLine("INFO", "", "", "", "hello")) {
 		t.Error("message: (hello OR world) 中括号组应独立参与 AND")
 	}
 	// level: 空值 → EqualFold(val,"") 恒 false(level 非空时)
-	if parseSearchQuery("level: AND world").MatchLine(parsedLine("ERROR", "", "", "", "world")) {
+	if ParseSearchQuery("level: AND world").MatchLine(parsedLine("ERROR", "", "", "", "world")) {
 		t.Error("level: 空值对非空 level 行应恒 false")
 	}
 }
@@ -322,7 +322,7 @@ func TestHighlightKeywordsRegression(t *testing.T) {
 	}
 	for _, tc := range cases {
 		anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
-		q := parseSearchQueryAt(tc.query, anchor)
+		q := ParseSearchQueryAt(tc.query, anchor)
 		got := q.HighlightKeywords()
 		if len(got) != len(tc.want) {
 			t.Errorf("[%s] %q keywords = %v, want %v", tc.name, tc.query, got, tc.want)
@@ -335,7 +335,7 @@ func TestHighlightKeywordsRegression(t *testing.T) {
 		}
 	}
 	// errorTerm 不产词,同查询其余词照常产
-	q := parseSearchQuery("level:ERROR AND time:>xx")
+	q := ParseSearchQuery("level:ERROR AND time:>xx")
 	if kw := q.HighlightKeywords(); len(kw) != 1 || kw[0] != "ERROR" {
 		t.Errorf("errorTerm 应不产词, got %v", kw)
 	}
@@ -344,7 +344,7 @@ func TestHighlightKeywordsRegression(t *testing.T) {
 	}
 }
 
-// --- 4. isPartialQuery / strippedQuery ---
+// --- 4. IsPartialQuery / StrippedQuery ---
 
 func TestIsPartialQueryRegression(t *testing.T) {
 	trues := []string{
@@ -373,13 +373,13 @@ func TestIsPartialQueryRegression(t *testing.T) {
 		"time:>abc", "time:>-10x",
 	}
 	for _, s := range trues {
-		if !isPartialQuery(s) {
-			t.Errorf("isPartialQuery(%q) = false, want true", s)
+		if !IsPartialQuery(s) {
+			t.Errorf("IsPartialQuery(%q) = false, want true", s)
 		}
 	}
 	for _, s := range falses {
-		if isPartialQuery(s) {
-			t.Errorf("isPartialQuery(%q) = true, want false", s)
+		if IsPartialQuery(s) {
+			t.Errorf("IsPartialQuery(%q) = true, want false", s)
 		}
 	}
 }
@@ -395,8 +395,8 @@ func TestStrippedQueryRegression(t *testing.T) {
 		`"unclosed`: `"unclosed`,
 	}
 	for in, want := range cases {
-		if got := strippedQuery(in); got != want {
-			t.Errorf("strippedQuery(%q)=%q, want %q", in, got, want)
+		if got := StrippedQuery(in); got != want {
+			t.Errorf("StrippedQuery(%q)=%q, want %q", in, got, want)
 		}
 	}
 }
@@ -453,7 +453,7 @@ func TestTokenizerLiteralRegression(t *testing.T) {
 func TestLiteralKeywordParseRegression(t *testing.T) {
 	anchor := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	for _, lit := range []string{">09:00", "<init>", "<2026-08-26T09:00>", "after:09:00", "before:10:00"} {
-		q := parseSearchQueryAt(lit, anchor)
+		q := ParseSearchQueryAt(lit, anchor)
 		if q.ParseError() != "" {
 			t.Errorf("%q 不应产生解析错误: %s", lit, q.ParseError())
 		}
@@ -465,7 +465,7 @@ func TestLiteralKeywordParseRegression(t *testing.T) {
 		}
 	}
 	// 字面量混入布尔组合仍按 keyword 参与运算
-	q := parseSearchQueryAt("<init> AND level:ERROR", anchor)
+	q := ParseSearchQueryAt("<init> AND level:ERROR", anchor)
 	if !q.MatchLine(parsedLine("ERROR", "", "main", "", "in <init> thread")) {
 		t.Error("<init> AND level:ERROR 应命中 ERROR 行 message 含 <init>")
 	}
@@ -473,7 +473,7 @@ func TestLiteralKeywordParseRegression(t *testing.T) {
 		t.Error("<init> AND level:ERROR 不应命中 INFO 行")
 	}
 	// after: 带引号值也按普通 keyword 处理(不进时间语义)
-	q2 := parseSearchQueryAt(`after:"09:00"`, anchor)
+	q2 := ParseSearchQueryAt(`after:"09:00"`, anchor)
 	if q2.ParseError() != "" || !q2.MatchLine(parsedLine("INFO", "", "", "", "ran after:09:00 sharp")) {
 		t.Error(`after:"09:00" 应按普通 keyword 处理`)
 	}
@@ -495,7 +495,7 @@ func TestTimeBooleanCompositionRegression(t *testing.T) {
 
 	tRun := func(t *testing.T, name, query string, rows []timeRow) {
 		t.Helper()
-		q := parseSearchQueryAt(query, anchor)
+		q := ParseSearchQueryAt(query, anchor)
 		if q.ParseError() != "" {
 			t.Errorf("[%s] %q 意外解析错误: %s", name, query, q.ParseError())
 			return

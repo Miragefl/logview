@@ -1,4 +1,4 @@
-package tui
+package logcore
 
 // time: 时间范围搜索 — 行为规格测试（矩阵第一、三节）。
 // 用例来源:docs/superpowers/plans/2026-08-28-time-range-test-matrix.md
@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
 )
 
 // anchorA0 矩阵默认锚点:A0 = 2026-08-28T10:00:00Z。
@@ -46,7 +45,7 @@ type timeTC struct {
 func runTimeTC(t *testing.T, name string, cases []timeTC) {
 	t.Helper()
 	for i, c := range cases {
-		q := parseSearchQueryAt(c.query, anchorA0)
+		q := ParseSearchQueryAt(c.query, anchorA0)
 		if got := q.MatchLine(c.line); got != c.want {
 			t.Errorf("%s[%d] %q 期望 %v, 实际 %v", name, i+1, c.query, c.want, got)
 		}
@@ -126,7 +125,7 @@ func TestTimeRelativeDurations(t *testing.T) {
 		{"time:>-30s", tl(utc(8, 28, 9, 59, 30)), false},
 	})
 	// B13 anchor 减法正确性:解析产物的绝对时刻 == A0.Add(-90m) = 08:30:00Z
-	q := parseSearchQueryAt("time:>-90m", anchorA0)
+	q := ParseSearchQueryAt("time:>-90m", anchorA0)
 	tn, ok := q.root.(*termNode)
 	if !ok {
 		t.Fatalf("B13: 根节点应为 *termNode, 实际 %T", q.root)
@@ -206,29 +205,29 @@ func TestTimeMultiSegmentAndOrthogonal(t *testing.T) {
 func TestTimeParseErrors(t *testing.T) {
 	normalLine := tl(utc(8, 28, 9, 30, 0))
 	cases := []struct {
-		query     string
+		query      string
 		degradeMsg string // 防降级行的 message（空则只验普通行）
-		checkLine *model.ParsedLine
+		checkLine  *model.ParsedLine
 	}{
-		{"time:09:00", "job at 09:00 started", nil},          // F1 缺方向符
-		{"time:>8-26", "backup 8-26 done", nil},               // F2 MM-DD 已删
-		{"time:>9:0", "delay 9:0 ms", nil},                    // F3 分钟须两位
-		{"time:>", "", nil},                                   // F4 方向符后空值
-		{"time:>10:00..", "range 10:00.. open", nil},          // F5 方向符后区间缺右值
-		{"time:10:00..", "range 10:00.. open", nil},           // F6 区间缺右值
-		{"time:-10x", "took -10x retries", nil},               // F7 非法单位
-		{"time:>+10m", "shift +10m later", nil},               // F8 正号拒绝
-		{"time:>-10", "delta -10 units", nil},                 // F9 纯数字缺单位
-		{"time:>09:00:3", "clock 09:00:3 weird", nil},         // F10 秒一位
-		{"time:>2026-8-26", "on 2026-8-26 note", nil},         // F11 月份须两位
-		{"time:>24:00", "open 24:00 hours", nil},              // F12 小时越界（防归一化）
-		{"time:>09:60", "leap 09:60 min", nil},                // F13 分钟越界
-		{"time:>xx OR level:ERROR", "", parsedLine("ERROR", "", "", "", "boom")},           // F14
-		{"NOT time:>xx", "", tl(utc(8, 28, 8, 30, 0))},                                      // F15
-		{"level:ERROR AND time:>xx", "", parsedLine("ERROR", "", "", "", "boom")},           // F16
+		{"time:09:00", "job at 09:00 started", nil},                               // F1 缺方向符
+		{"time:>8-26", "backup 8-26 done", nil},                                   // F2 MM-DD 已删
+		{"time:>9:0", "delay 9:0 ms", nil},                                        // F3 分钟须两位
+		{"time:>", "", nil},                                                       // F4 方向符后空值
+		{"time:>10:00..", "range 10:00.. open", nil},                              // F5 方向符后区间缺右值
+		{"time:10:00..", "range 10:00.. open", nil},                               // F6 区间缺右值
+		{"time:-10x", "took -10x retries", nil},                                   // F7 非法单位
+		{"time:>+10m", "shift +10m later", nil},                                   // F8 正号拒绝
+		{"time:>-10", "delta -10 units", nil},                                     // F9 纯数字缺单位
+		{"time:>09:00:3", "clock 09:00:3 weird", nil},                             // F10 秒一位
+		{"time:>2026-8-26", "on 2026-8-26 note", nil},                             // F11 月份须两位
+		{"time:>24:00", "open 24:00 hours", nil},                                  // F12 小时越界（防归一化）
+		{"time:>09:60", "leap 09:60 min", nil},                                    // F13 分钟越界
+		{"time:>xx OR level:ERROR", "", parsedLine("ERROR", "", "", "", "boom")},  // F14
+		{"NOT time:>xx", "", tl(utc(8, 28, 8, 30, 0))},                            // F15
+		{"level:ERROR AND time:>xx", "", parsedLine("ERROR", "", "", "", "boom")}, // F16
 	}
 	for i, c := range cases {
-		q := parseSearchQueryAt(c.query, anchorA0) // ① 不 panic
+		q := ParseSearchQueryAt(c.query, anchorA0) // ① 不 panic
 		if q.ParseError() == "" {
 			t.Errorf("F%d %q 应产生解析错误", i+1, c.query)
 		}
@@ -268,14 +267,14 @@ func TestTimeNullPropagationIsZero(t *testing.T) {
 	noTimeErr := parsedLine("ERROR", "", "", "", "no time field")
 	noTimeInfo := noTime // H7 复用（level=INFO）
 	runTimeTC(t, "H", []timeTC{
-		{"time:>09:00", noTime, false},                                        // H1 基础 NULL
-		{"NOT time:>09:00", noTime, false},                                    // H2 notNode 特判防翻转
-		{"level:ERROR AND time:>09:00", noTimeErr, false},                     // H3 AND 传播
-		{"time:>09:00 OR level:ERROR", noTimeErr, true},                       // H4 分支级 NULL（裁决定案）
-		{"time:10:00..11:00", noTime, false},                                  // H5 区间糖 = 两 time AND
-		{"time:>09:00 time:<10:00", noTime, false},                            // H6 双条件同理
-		{"NOT (time:>09:00 OR level:ERROR)", noTimeInfo, false},               // H7 深层 NULL 传播（bug 修复后:子树含 time 且行无时间,NOT 不得复活）
-		{"time:>09:00 OR NOT time:<08:00", noTime, false},                     // H8 OR 右支 NOT time 特判 false
+		{"time:>09:00", noTime, false},                          // H1 基础 NULL
+		{"NOT time:>09:00", noTime, false},                      // H2 notNode 特判防翻转
+		{"level:ERROR AND time:>09:00", noTimeErr, false},       // H3 AND 传播
+		{"time:>09:00 OR level:ERROR", noTimeErr, true},         // H4 分支级 NULL（裁决定案）
+		{"time:10:00..11:00", noTime, false},                    // H5 区间糖 = 两 time AND
+		{"time:>09:00 time:<10:00", noTime, false},              // H6 双条件同理
+		{"NOT (time:>09:00 OR level:ERROR)", noTimeInfo, false}, // H7 深层 NULL 传播（bug 修复后:子树含 time 且行无时间,NOT 不得复活）
+		{"time:>09:00 OR NOT time:<08:00", noTime, false},       // H8 OR 右支 NOT time 特判 false
 	})
 }
 
@@ -283,123 +282,42 @@ func TestTimeNullPropagationIsZero(t *testing.T) {
 
 func TestTimeRangeHintNew(t *testing.T) {
 	// I1 相对值:显示解析后绝对时刻 + 原始时长（展示跟随 anchor 的 location,时区无关断言）
-	h := parseSearchQueryAt("time:>-10m", anchorA0).TimeRangeHint()
+	h := ParseSearchQueryAt("time:>-10m", anchorA0).TimeRangeHint()
 	wantI1 := anchorA0.Add(-10 * time.Minute).Format("15:04:05")
 	if !strings.Contains(h, wantI1) || !strings.Contains(h, "-10m") {
 		t.Errorf("I1: hint 应含 %s 与 -10m, 实际 %q", wantI1, h)
 	}
 	// I2 区间显示补全后的绝对区间。注:实现排版为 "01-02 15:04:05"（无年份），
 	// 矩阵翻译约定"具体排版以实现为准"，断言子串相应调整。
-	h = parseSearchQueryAt("time:10:00..11:00", anchorA0).TimeRangeHint()
+	h = ParseSearchQueryAt("time:10:00..11:00", anchorA0).TimeRangeHint()
 	if !strings.Contains(h, "08-28") || !strings.Contains(h, "10:00") || !strings.Contains(h, "11:00") {
 		t.Errorf("I2: hint 应含 08-28 / 10:00 / 11:00, 实际 %q", h)
 	}
 	// I3 解析错误:红字经 ParseError 通道（searchbar 的 timeFeedback 渲染
 	// "✗ time: <错误>"），TimeRangeHint 此时为空。
-	q3 := parseSearchQueryAt("time:>xx", anchorA0)
+	q3 := ParseSearchQueryAt("time:>xx", anchorA0)
 	if q3.ParseError() == "" {
 		t.Error("I3: time:>xx 应产生解析错误")
 	}
 	if q3.TimeRangeHint() != "" {
 		t.Errorf("I3: 解析错误时 TimeRangeHint 应为空, 实际 %q", q3.TimeRangeHint())
 	}
-	a := &App{searchInput: "time:>xx"}
-	if fb := stripANSI(a.timeFeedback(q3)); !strings.Contains(fb, "time") {
-		t.Errorf("I3: 错误反馈红字应含 time, 实际 %q", fb)
-	}
 	// I4 纯关键字无 hint
-	if got := parseSearchQueryAt("ERROR", anchorA0).TimeRangeHint(); got != "" {
+	if got := ParseSearchQueryAt("ERROR", anchorA0).TimeRangeHint(); got != "" {
 		t.Errorf("I4: 纯关键字 hint 应为空, 实际 %q", got)
 	}
 	// I5 OR 语境不显示区间 hint
-	if got := parseSearchQueryAt("time:10:00..11:00 OR level:ERROR", anchorA0).TimeRangeHint(); got != "" {
+	if got := ParseSearchQueryAt("time:10:00..11:00 OR level:ERROR", anchorA0).TimeRangeHint(); got != "" {
 		t.Errorf("I5: OR 语境 hint 应为空, 实际 %q", got)
 	}
 	// I6 NOT 语境不显示区间 hint
-	if got := parseSearchQueryAt("NOT time:>09:00", anchorA0).TimeRangeHint(); got != "" {
+	if got := ParseSearchQueryAt("NOT time:>09:00", anchorA0).TimeRangeHint(); got != "" {
 		t.Errorf("I6: NOT 语境 hint 应为空, 实际 %q", got)
 	}
 }
 
 // --- 三、集成用例（file 模式多日，P1-P4，4 条）---
 // fixture 为 java-logback 多日样本（时间经 parser 解析为无时区即 UTC 语义）。
-// 纯时分形态不进集成（依赖真实 Now 锚点，不稳定），只测带完整日期形态（anchor 无关）。
-// 注:矩阵样本行缺 [thread] [traceId] logger 结构，无法命中生产 logback 规则，
-// 此处修正为完整结构（时间与 message 语义不变）。
-
-var timeMultiDayFixture = []string{
-	"2026-08-26 08:00:00.000 [main] [t-2601] INFO  com.example.Day - day26 early",
-	"2026-08-26 12:00:00.000 [main] [t-2602] ERROR com.example.Day - day26 error",
-	"2026-08-26 23:59:00.000 [main] [t-2603] WARN  com.example.Day - day26 late",
-	"2026-08-27 08:59:00.000 [main] [t-2701] INFO  com.example.Day - day27 before-boundary",
-	"2026-08-27 09:00:00.000 [main] [t-2702] INFO  com.example.Day - day27 boundary-exact",
-	"2026-08-27 09:00:01.000 [main] [t-2703] INFO  com.example.Day - day27 boundary-plus-1s",
-	"2026-08-27 10:30:00.000 [main] [t-2704] ERROR com.example.Day - day27 error",
-	"2026-08-27 23:00:00.000 [main] [t-2705] INFO  com.example.Day - day27 late",
-}
-
-func TestTimeFileModeMultiDay(t *testing.T) {
-	p, err := parser.NewRegexParser("java-logback",
-		`(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<thread>[^\]]+)\] \[(?P<traceId>[^\]]+)\] (?P<level>\w+)\s+(?P<logger>\S+) - (?P<message>.*)`)
-	if err != nil {
-		t.Fatalf("构造 logback 解析器失败: %v", err)
-	}
-	app := NewApp(&mockStream{}, parser.NewAutoDetect([]parser.Parser{p}), 1000, nil)
-	for _, ln := range timeMultiDayFixture {
-		app.processLine(model.RawLine{Text: ln, Source: "file-test"})
-	}
-	// 前置:8 行全部解析出时间（否则后续断言无意义）
-	if app.buffer.Len() != len(timeMultiDayFixture) {
-		t.Fatalf("缓冲行数 = %d, 期望 %d", app.buffer.Len(), len(timeMultiDayFixture))
-	}
-	for i := 0; i < app.buffer.Len(); i++ {
-		if app.buffer.Get(i).Time().IsZero() {
-			t.Fatalf("第 %d 行未解析出时间: %q", i, app.buffer.Get(i).Raw.Text)
-		}
-	}
-
-	cases := []struct {
-		name     string
-		query    string
-		wantMsgs []string // 期望命中集合（message 子串）
-	}{
-		{"P1", "time:>2026-08-27T09:00", []string{
-			"day27 boundary-plus-1s", "day27 error", "day27 late",
-		}},
-		{"P2", "time:2026-08-26..2026-08-27", []string{
-			"day26 early", "day26 error", "day26 late",
-		}},
-		{"P3", "level:ERROR AND time:>2026-08-27T09:00", []string{
-			"day27 error",
-		}},
-		{"P4", "time:<2026-08-27T09:00", []string{
-			"day26 early", "day26 error", "day26 late", "day27 before-boundary",
-		}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			app.searchInput = c.query
-			app.recomputeView()
-			if got := len(app.filteredView); got != len(c.wantMsgs) {
-				t.Fatalf("%s %q 命中 %d 行, 期望 %d 行", c.name, c.query, got, len(c.wantMsgs))
-			}
-			for _, want := range c.wantMsgs {
-				found := false
-				for _, line := range app.filteredView {
-					if strings.Contains(line.Message(), want) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("%s %q 应命中 message 含 %q 的行", c.name, c.query, want)
-				}
-			}
-		})
-	}
-}
-
-// --- 无日期时间戳（HH:mm:ss.SSS 日志）的时分窗口退化 ---
 func TestTimeNoDateTimestamps(t *testing.T) {
 	anchor := time.Date(2026, 9, 3, 22, 33, 0, 0, time.Local) // 锚点/行/查询同 Local 视角(对齐生产挂载)
 	// parser 对无日期时间戳产出 0000-01-01（Year()<=0）。
@@ -410,17 +328,17 @@ func TestTimeNoDateTimestamps(t *testing.T) {
 	}
 	run := func(query string, line *model.ParsedLine, want bool) {
 		t.Helper()
-		q := parseSearchQueryAt(query, anchor)
+		q := ParseSearchQueryAt(query, anchor)
 		if got := q.MatchLine(line); got != want {
 			t.Errorf("%q 对 %s = %v, want %v", query, line.Time().Format("15:04:05"), got, want)
 		}
 	}
-	run("time:>09:00", noDate(22, 31, 49), true)  // 用户实测场景
+	run("time:>09:00", noDate(22, 31, 49), true) // 用户实测场景
 	run("time:>09:00", noDate(8, 31, 49), false)
 	run("time:<23:00", noDate(22, 31, 49), true)
 	run("time:22:00..23:00", noDate(22, 31, 49), true)
-	run("time:22:00..22:32", noDate(22, 31, 49), true)   // 上界 22:32:00,行 22:31:49 在内
-	run("time:22:00..22:31", noDate(22, 31, 0), true)    // 闭区间含端点
+	run("time:22:00..22:32", noDate(22, 31, 49), true) // 上界 22:32:00,行 22:31:49 在内
+	run("time:22:00..22:31", noDate(22, 31, 0), true)  // 闭区间含端点
 	run("time:22:00..22:30", noDate(22, 31, 49), false)
 	// 相对时间退化:锚点取本地视角时分(行按 anchor 本地时刻 ± 偏移构造,时区无关)
 	noDateFromLocal := func(anchor time.Time, d time.Duration) *model.ParsedLine {
@@ -428,7 +346,7 @@ func TestTimeNoDateTimestamps(t *testing.T) {
 		return parsedLineWithTime("INFO", "", "", "", "x",
 			time.Date(0, 1, 1, loc.Hour(), loc.Minute(), loc.Second(), 0, time.Local))
 	}
-	run("time:>-10m", noDateFromLocal(anchor, 2*time.Minute), true)   // 本地 now+2m 必在窗口内
+	run("time:>-10m", noDateFromLocal(anchor, 2*time.Minute), true)    // 本地 now+2m 必在窗口内
 	run("time:>-10m", noDateFromLocal(anchor, -20*time.Minute), false) // 本地 now-20m 必在窗口外
 	run("time:>-3m", noDateFromLocal(anchor, 1*time.Minute), true)
 	run("time:>-3m", noDateFromLocal(anchor, -5*time.Minute), false)

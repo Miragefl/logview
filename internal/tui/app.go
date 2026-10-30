@@ -6,9 +6,9 @@ import (
 	"os/exec"
 	"runtime"
 	"runtime/debug"
-	"sync"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,13 +55,13 @@ type App struct {
 
 	// 大视图分帧刷新状态机:搜索 flush 拆片执行,片间让出事件循环(打字/渲染不冻结);
 	// 新输入/换源/清屏自增 chunkTok 作废在途分片
-	chunkTok          int
-	chunkNext         int
-	chunkTotal        int
-	chunkActive       bool
-	chunkHidden       int
-	chunkLevels       map[string]int
-	chunkCollectLvl   bool
+	chunkTok        int
+	chunkNext       int
+	chunkTotal      int
+	chunkActive     bool
+	chunkHidden     int
+	chunkLevels     map[string]int
+	chunkCollectLvl bool
 
 	width        int
 	height       int
@@ -100,7 +100,7 @@ type App struct {
 	helpMode bool
 	// detailMode d 键行详情面板：完整字段 + 消息全文 + 原始行，j/k 联动移动光标
 	detailMode bool
-	yankMsg  string
+	yankMsg    string
 
 	highlights      []string
 	highlightInput  string
@@ -111,27 +111,27 @@ type App struct {
 	hideCursor    int
 	hiddenByHides int // recomputeView 统计：当前被 hides 隐藏的行数（供状态栏提示）
 
-	levelCounts map[string]int // 缓冲内级别统计（标题栏用）
-	showKeyHints bool          // 底部快捷键提示栏开关（\ 切换）
+	levelCounts  map[string]int // 缓冲内级别统计（标题栏用）
+	showKeyHints bool           // 底部快捷键提示栏开关（\ 切换）
 
 	parserName string
 
 	searchMatchCount int
 	searchMatchIdx   int
 
-	searchHistory    []string
-	currentScope     string // 当前源词频隔离域(NewApp/ReplaceStream 刷新,空=全局)
-	searchPending     bool // 搜索输入已变更未应用(防抖期)
-	searchDebounceTok int  // 防抖令牌:输入变更/立即应用时自增,在途 tick 携带旧令牌即作废
-	searchHistMode   bool // ctrl+r 历史列表 overlay 是否展开
-	keywordHist      []string // 高亮/隐藏 C-r 快照(当前 scope 词频降序,打开时刷新)
-	timePresetMode   bool // ctrl+t 时间快捷片 overlay 是否展开（仅搜索分区）
-	timePresetCursor int  // 快捷片选中索引
-	searchHistCursor int  // 列表选中索引（搜索=最新在前；高亮/隐藏=高频在前）
+	searchHistory     []string
+	currentScope      string   // 当前源词频隔离域(NewApp/ReplaceStream 刷新,空=全局)
+	searchPending     bool     // 搜索输入已变更未应用(防抖期)
+	searchDebounceTok int      // 防抖令牌:输入变更/立即应用时自增,在途 tick 携带旧令牌即作废
+	searchHistMode    bool     // ctrl+r 历史列表 overlay 是否展开
+	keywordHist       []string // 高亮/隐藏 C-r 快照(当前 scope 词频降序,打开时刷新)
+	timePresetMode    bool     // ctrl+t 时间快捷片 overlay 是否展开（仅搜索分区）
+	timePresetCursor  int      // 快捷片选中索引
+	searchHistCursor  int      // 列表选中索引（搜索=最新在前；高亮/隐藏=高频在前）
 
-	ctxInput  string     // +x/-x 上下文输入态("+"/"-" 前缀 + 累积数字;空=未激活)
-	ctxLines  []ctxEntry // 上下文混入快照(nil=纯过滤视图;不随 follow 刷新)
-	ctxN      int        // 混入锚数(状态栏指示;0=未混入)
+	ctxInput string     // +x/-x 上下文输入态("+"/"-" 前缀 + 累积数字;空=未激活)
+	ctxLines []ctxEntry // 上下文混入快照(nil=纯过滤视图;不随 follow 刷新)
+	ctxN     int        // 混入锚数(状态栏指示;0=未混入)
 	// ctxAnchors 混入锚集合:每个命中行独立窗口(参数=该行最后一次按键,重复按键覆盖),
 	// 多锚累积互不清除,仅 --/++/Esc 全局清空;buildCtxLines 按锚集合全量重建。
 	ctxAnchors map[*model.ParsedLine]ctxAnchorParam
@@ -139,16 +139,16 @@ type App struct {
 	// exitCtxView 置空——免 viewLines 每帧重建切片(混入态每行渲染调用一次)。
 	ctxViewCache []*model.ParsedLine
 
-	sshPwMode   bool   // SSH 密码输入框展开（密码认证重连）
-	sshPwInput  string // 密码（内存暂存，不落盘不进历史）
-	sshPwCursor int
-	sshPwHost  string // 待重连的主机
-	sshPwPath  string // 待重连的路径
-	sshPwFromPicker bool // 来源：picker 目录浏览（确认后回目录浏览而非 tail）
-	sshPwUser    string // frp 场景的 ssh 用户名（密码确认后重拉目录用）
-	sshPwFRPPort int    // >0 = frp 浏览来源的密码框（端口随隧道，需单独记）
-	sshPwFRPServer string // frp 浏览来源暂存的服务器名（openSourcePicker 全量重置，确认后回填供记录保存）
-	sshPwFRPSK     string // frp 浏览来源暂存的 sk（同上）
+	sshPwMode       bool   // SSH 密码输入框展开（密码认证重连）
+	sshPwInput      string // 密码（内存暂存，不落盘不进历史）
+	sshPwCursor     int
+	sshPwHost       string // 待重连的主机
+	sshPwPath       string // 待重连的路径
+	sshPwFromPicker bool   // 来源：picker 目录浏览（确认后回目录浏览而非 tail）
+	sshPwUser       string // frp 场景的 ssh 用户名（密码确认后重拉目录用）
+	sshPwFRPPort    int    // >0 = frp 浏览来源的密码框（端口随隧道，需单独记）
+	sshPwFRPServer  string // frp 浏览来源暂存的服务器名（openSourcePicker 全量重置，确认后回填供记录保存）
+	sshPwFRPSK      string // frp 浏览来源暂存的 sk（同上）
 
 	sshPasswords map[string]string // host → password 内存缓存（会话内免重输，不落盘）
 
@@ -161,34 +161,34 @@ type App struct {
 	bufSize           int   // ring 容量(SSH/FRP gz 装配传给 SSHSource)
 	statsDirty        bool  // ring 发生淘汰后流式统计失真,recomputeView 需全量重算 levelCounts
 
-	pickerK8sLevel   int    // K8s 浏览层级：0=context 1=namespace 2=资源
-	pickerKubeCtx    string // 已选 kubectl context（空=当前）
+	pickerK8sLevel    int    // K8s 浏览层级：0=context 1=namespace 2=资源
+	pickerKubeCtx     string // 已选 kubectl context（空=当前）
 	pickerCurCtxCache string // 当前 context 缓存（渲染面包屑用，避免每次渲染跑 kubectl）
-	pickerContexts   []sourceCandidate
-	pickerNamespaces []sourceCandidate
-	pickerNsInput    string
-	pickerNsCursor   int
+	pickerContexts    []sourceCandidate
+	pickerNamespaces  []sourceCandidate
+	pickerNsInput     string
+	pickerNsCursor    int
 
-	pickerLocalDir   string // 本地浏览当前目录
+	pickerLocalDir string // 本地浏览当前目录
 
-	pickerSSHHost    string // SSH 已连接浏览的主机（空=主机层）
-	pickerSSHDir     string // 远程浏览当前目录
-	pickerSSHRoot    string // 进入浏览时的起始目录（Backspace 到此层再按回主机层）
-	pickerDirFilter  string // 目录浏览过滤前缀（本地/SSH 共用）
+	pickerSSHHost      string // SSH 已连接浏览的主机（空=主机层）
+	pickerSSHDir       string // 远程浏览当前目录
+	pickerSSHRoot      string // 进入浏览时的起始目录（Backspace 到此层再按回主机层）
+	pickerDirFilter    string // 目录浏览过滤前缀（本地/SSH 共用）
 	pickerFilterCursor int
-	k8sUseContextFn  func(string) error // 可注入的 context 切换（测试用）
-	pickerHostInput  string
-	pickerHostCursor int
-	pickerRemotePath string
+	k8sUseContextFn    func(string) error // 可注入的 context 切换（测试用）
+	pickerHostInput    string
+	pickerHostCursor   int
+	pickerRemotePath   string
 	pickerRemoteCursor int
-	pickerSshFocus   int // SSH 主机层焦点：0=主机 1=路径
+	pickerSshFocus     int // SSH 主机层焦点：0=主机 1=路径
 
-	pickerFRPLevel      int             // FRP 层级：0=连接列表 1=新建表单 2=远程目录
-	pickerFRPStep       int             // 表单步骤：0=选服务器 1=新地址 2=token 3=sk 4=proxy 5=user
-	pickerFRPInput      string          // FRP 搜索/表单输入
+	pickerFRPLevel      int    // FRP 层级：0=连接列表 1=新建表单 2=远程目录
+	pickerFRPStep       int    // 表单步骤：0=选服务器 1=新地址 2=token 3=sk 4=proxy 5=user
+	pickerFRPInput      string // FRP 搜索/表单输入
 	pickerFRPCursor     int
-	pickerFRPServerName string          // 已选/新建的服务器名
-	pickerFRPServerAddr string          // 新服务器地址（表单暂存）
+	pickerFRPServerName string // 已选/新建的服务器名
+	pickerFRPServerAddr string // 新服务器地址（表单暂存）
 	pickerFRPSK         string
 	pickerFRPProxy      string
 	pickerFRPUser       string
@@ -365,7 +365,7 @@ func (a *App) resetViewState() {
 	a.ctxLines = nil // 换源重置即清混入(快照行属旧源,失效)
 	a.ctxViewCache = nil
 	a.ctxAnchors = nil // 锚集合随视图失效全清(spec:不做部分保留)
-	a.ctxN = 0          // 状态栏指示同步清零(否则残留幽灵指示)
+	a.ctxN = 0         // 状态栏指示同步清零(否则残留幽灵指示)
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
 	a.levelCounts = make(map[string]int)
@@ -1149,54 +1149,6 @@ func (a *App) streamLabel() string {
 	return "跟踪中"
 }
 
-// containsIgnoreCase 子串忽略大小写包含判断。
-// ASCII 走零分配字节比较(日志场景压倒性路径,替代每行两次 ToLower 的全行分配);
-// 含非 ASCII 字节回落 Unicode 语义(strings.ToLower 折叠),行为与原实现一致。
-func containsIgnoreCase(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	if len(s) < len(sub) {
-		return false
-	}
-	if hasNonASCII(s) || hasNonASCII(sub) {
-		return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
-	}
-	n := len(s) - len(sub)
-	f0 := lowerByte(sub[0])
-	for i := 0; i <= n; i++ {
-		if lowerByte(s[i]) != f0 {
-			continue // 首字节折叠不匹配,滑窗剪枝
-		}
-		j := 1
-		for ; j < len(sub); j++ {
-			if lowerByte(s[i+j]) != lowerByte(sub[j]) {
-				break
-			}
-		}
-		if j == len(sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasNonASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return true
-		}
-	}
-	return false
-}
-
-func lowerByte(c byte) byte {
-	if 'A' <= c && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-	return c
-}
-
 func (a *App) matchLevelFilter(line *model.ParsedLine) bool {
 	lv := strings.ToUpper(line.Level())
 	switch a.levelFilter {
@@ -1675,7 +1627,7 @@ func (a *App) clearScreen() {
 	a.ctxLines = nil // 清屏即清混入(快照行已随 buffer 失效)
 	a.ctxViewCache = nil
 	a.ctxAnchors = nil // 锚集合随视图失效全清(spec:不做部分保留)
-	a.ctxN = 0          // 状态栏指示同步清零(否则残留幽灵指示)
+	a.ctxN = 0         // 状态栏指示同步清零(否则残留幽灵指示)
 	a.stGroups = nil
 	a.expanded = make(map[int]bool)
 	a.levelCounts = make(map[string]int)
