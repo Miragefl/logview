@@ -134,11 +134,12 @@ func Score(key string) float64 {
 }
 
 // RecentSourceKeys 源类 key 按衰减分降序返回（同分 LastUsed 新→旧、再词序升序），
-// 截前 limit；高亮/隐藏词条前缀被排除。
+// 截前 limit；高亮/隐藏词条前缀被排除。遍历与排序全程持锁——
+// Wails 绑定多 goroutine 并发调用（Bump 写 map 与本遍历重叠会 fatal）。
 func RecentSourceKeys(limit int) []string {
 	mu.Lock()
+	defer mu.Unlock()
 	m := loadLocked()
-	mu.Unlock()
 	now := time.Now()
 	type ranked struct {
 		key   string

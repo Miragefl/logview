@@ -22,7 +22,7 @@ async function open(k: string) {
   const p = filePath(k)
   if (!p) return
   try {
-    await openFileTab(p, 200, true)
+    await openFileTab(p, 0, true)
     await usageTouch(k)
     recent.value = ((await usageRecent()) ?? []) // 刷新排序
   } catch {

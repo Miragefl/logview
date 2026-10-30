@@ -78,7 +78,8 @@ export const useThemeStore = defineStore('theme', {
     },
   },
   actions: {
-    /** apply 切换主题：拉 CSS 变量 → 注入 :root → 更新 overrides/基底 → 原生标题栏跟随 → 持久化。 */
+    /** apply 切换主题：拉 CSS 变量 → 注入 :root → 更新 overrides/基底 → 原生标题栏跟随 → 持久化。
+     * 空值变量不注入（CSS 里 --x:'' 会废掉 var() 的 fallback）；切主题先清旧键防残留。 */
     async apply(name: string) {
       const vars = (await themeCSS(name)) ?? {}
       this.name = name
@@ -86,8 +87,12 @@ export const useThemeStore = defineStore('theme', {
       this.overrides = toNaiveOverrides(vars)
       this.base = detectBase(vars)
       const root = document.documentElement
+      // 清上一主题的全部键（旧键残留会让缺字段的变体错拿旧值）
+      for (const k of Object.keys(this.vars)) {
+        root.style.removeProperty(k)
+      }
       for (const [k, v] of Object.entries(vars)) {
-        root.style.setProperty(k, v)
+        if (v) root.style.setProperty(k, v)
       }
       // 原生窗口标题栏跟随亮暗（macOS/Windows 均生效；非桌面环境调用无害）
       if (this.base === 'dark') {

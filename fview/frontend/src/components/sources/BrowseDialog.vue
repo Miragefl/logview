@@ -74,10 +74,10 @@ async function pickFile(name: string) {
   const full = `${base}/${name}`
   try {
     if (props.mode === 'ssh') {
-      await openSSHTab(props.host ?? '', full, 200, password.value)
+      await openSSHTab(props.host ?? '', full, 0, password.value)
       usageTouch(`ssh:${props.host ?? ''}`)
     } else {
-      await openFRPTab(props.connName ?? '', full, 200, password.value)
+      await openFRPTab(props.connName ?? '', full, 0, password.value)
       usageTouch(`frp:${props.connName ?? ''}`)
     }
     close()

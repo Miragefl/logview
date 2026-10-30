@@ -4,7 +4,10 @@ import { frp } from '../../wailsjs/go/models'
 import {
   GetMemStats,
   OpenFileTab,
+  Patterns,
+  SavePatterns,
   PickAndOpenFile,
+  SystemFonts,
   UsageRecent,
   UsageTouch,
   CloseTab,
@@ -156,16 +159,30 @@ export function setTheme(name: string): Promise<void> {
 export interface RuleConfig {
   name: string
   pattern: string
+  /** parse 解析器选择：空=正则；json=JSON 解析（写回必须透传，抹掉会破坏 JSON 规则） */
+  parse: string
   fallback: boolean
 }
 
 export async function getRules(): Promise<RuleConfig[]> {
   const raw = await Rules()
-  return (raw ?? []).map((r) => ({ name: r.Name, pattern: r.Pattern, fallback: r.Fallback }))
+  return (raw ?? []).map((r) => ({ name: r.Name, pattern: r.Pattern, parse: r.Parse ?? '', fallback: r.Fallback }))
 }
 
 export function saveRules(rules: RuleConfig[]): Promise<void> {
-  return SaveRules(rules.map((r) => ({ Name: r.name, Pattern: r.pattern, Parse: '', Fallback: r.fallback })))
+  return SaveRules(
+    rules.map((r) => ({ Name: r.name, Pattern: r.pattern, Parse: r.parse, Fallback: r.fallback }))
+  )
+}
+
+/** getPatterns 字段正则片段（rules.yaml patterns 键：{name} 引用 → 实际正则）。 */
+export async function getPatterns(): Promise<Record<string, string>> {
+  return (await Patterns()) ?? {}
+}
+
+/** savePatterns 写回 patterns 键（新 tab 生效）。 */
+export function savePatterns(p: Record<string, string>): Promise<void> {
+  return SavePatterns(p)
 }
 
 export interface DirEntry {
@@ -276,4 +293,9 @@ export function usageTouch(key: string): Promise<void> {
 /** getMemStats 状态栏内存徽章：Sys-HeapReleased 字节数，前端换算 MB。 */
 export function getMemStats(): Promise<number> {
   return GetMemStats()
+}
+
+/** systemFonts 系统字体名列表（外观页字体下拉数据源）。 */
+export function systemFonts(): Promise<string[]> {
+  return SystemFonts()
 }

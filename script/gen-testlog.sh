@@ -27,10 +27,11 @@ awk -v total="$LINES" 'BEGIN {
     # 级别分布：INFO 60% / DEBUG 15% / WARN 15% / ERROR 10%
     r = rand()
     lvl = (r < 0.60) ? "INFO " : (r < 0.75) ? "DEBUG" : (r < 0.90) ? "WARN " : "ERROR"
-    # traceId/耗时：六成行携带
-    extra = (rand() < 0.6) ? sprintf(" traceId=%08x cost=%dms", int(rand()*4294967295), int(rand()*900)) : ""
+    # traceId（方括号段，对齐默认 java-logback 规则）+ 耗时（六成行携带 cost 尾缀）
+    traceId = sprintf("%08x", int(rand() * 4294967295))
+    extra = (rand() < 0.6) ? sprintf(" cost=%dms", int(rand() * 900)) : ""
     logger = sprintf("c.example.%s", mod)
-    printf "%s [%s] %s %-28s - %s%s\n", t, th, lvl, logger, msg, extra
+    printf "%s [%s] [%s] %s %-28s - %s%s\n", t, th, traceId, lvl, logger, msg, extra
     # 每约 500 行：一个 ERROR 附多行堆栈（8~14 帧）
     if (i % 500 == 0) {
       print "java.sql.SQLException: Connection refused: jdbc:mysql://10.0.1.7:3306/orderdb"

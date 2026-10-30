@@ -8,6 +8,7 @@ vi.mock('../../lib/backend', () => ({
   subscribeTabEvents: vi.fn(),
   closeTab: vi.fn().mockResolvedValue(undefined),
   getHides: vi.fn().mockResolvedValue([]),
+  getFields: vi.fn().mockResolvedValue([]),
   usageRecent: vi.fn().mockResolvedValue(['file:/tmp/app.log', 'file:/tmp/error.log']),
   currentTheme: vi.fn().mockResolvedValue(''),
   themeNames: vi.fn().mockResolvedValue([]),

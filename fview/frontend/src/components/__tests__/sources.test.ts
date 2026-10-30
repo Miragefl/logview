@@ -27,6 +27,10 @@ vi.mock('../../lib/backend', () => ({
   getFrpConns: vi.fn().mockResolvedValue([
     { name: 'office-frp', server: 'frps.example', sk: 'xxx', proxy: '', user: '', path: '' },
   ]),
+  getFrpServers: vi.fn().mockResolvedValue([{ name: 'frps.example', addr: 'frps.example:7000', token: 't' }]),
+  upsertFrpServer: vi.fn().mockResolvedValue(undefined),
+  upsertFrpConn: vi.fn().mockResolvedValue(undefined),
+  deleteFrpConn: vi.fn().mockResolvedValue(undefined),
   browseFRP: vi.fn().mockResolvedValue([{ name: 'sys.log', isDir: false }]),
   releaseFRPBrowse: vi.fn().mockResolvedValue(undefined),
   openFRPTab: vi.fn().mockResolvedValue('frp-tab'),
@@ -64,7 +68,7 @@ describe('源面板', () => {
     expect(w.text()).toContain('error.log')
     // 点击第一项 → openFileTab + usageTouch('file:...')
     await w.findAll('.recent-item')[0].trigger('click')
-    expect(backend.openFileTab).toHaveBeenCalledWith('/tmp/app.log', 200, true)
+    expect(backend.openFileTab).toHaveBeenCalledWith('/tmp/app.log', 0, true)
     expect(backend.usageTouch).toHaveBeenCalledWith('file:/tmp/app.log')
   })
 
@@ -89,7 +93,7 @@ describe('源面板', () => {
       'pod/order-svc-xk2lp',
       'default',
       'prod',
-      200
+      0
     )
   })
 
@@ -99,6 +103,35 @@ describe('源面板', () => {
     expect(w.text()).toContain('office-frp')
     await w.findAll('.conn-item')[0].trigger('click')
     expect(backend.browseFRP).toHaveBeenCalled()
+  })
+
+  it('FRPPanel：新增连接表单保存（server+conn upsert）与删除', async () => {
+    const w = mountC(FRPPanel)
+    await new Promise((r) => setTimeout(r, 0))
+    // 打开新增表单
+    await w.find('.conn-add').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+    const inputs = document.body.querySelectorAll<HTMLInputElement>('.conn-form input')
+    expect(inputs.length).toBeGreaterThanOrEqual(4)
+    inputs[0].value = 'nas' // 连接名
+    inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+    inputs[1].value = 'office' // 服务器名
+    inputs[1].dispatchEvent(new Event('input', { bubbles: true }))
+    inputs[2].value = 'frps.example:7000' // 服务器地址（新 server 则 upsert）
+    inputs[2].dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    const save = document.body.querySelector('.conn-save')
+    save!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(backend.upsertFrpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'office', addr: 'frps.example:7000' })
+    )
+    expect(backend.upsertFrpConn).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'nas', server: 'office' })
+    )
+    // 删除连接
+    await w.findAll('.conn-del')[0].trigger('click')
+    expect(backend.deleteFrpConn).toHaveBeenCalledWith('office-frp')
   })
 
   it('BrowseDialog：目录项渲染，点文件开 tab 并计热点', async () => {

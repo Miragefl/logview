@@ -49,6 +49,8 @@ export function OpenSSHTab(arg1:string,arg2:string,arg3:number,arg4:string):Prom
 
 export function ParseQuery(arg1:string):Promise<fview.QueryMeta>;
 
+export function Patterns():Promise<Record<string, string>>;
+
 export function PickAndOpenFile(arg1:boolean):Promise<string>;
 
 export function ReleaseFRPBrowse(arg1:string):Promise<void>;
@@ -65,11 +67,15 @@ export function SaveFields(arg1:Array<parser.FieldConfig>):Promise<void>;
 
 export function SaveHides(arg1:Array<string>):Promise<void>;
 
+export function SavePatterns(arg1:Record<string, string>):Promise<void>;
+
 export function SaveRules(arg1:Array<parser.RuleConfig>):Promise<void>;
 
 export function SetFollow(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetTheme(arg1:string):Promise<void>;
+
+export function SystemFonts():Promise<Array<string>>;
 
 export function Tabs():Promise<Array<fview.TabInfo>>;
 

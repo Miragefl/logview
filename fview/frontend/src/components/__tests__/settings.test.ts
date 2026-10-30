@@ -5,10 +5,15 @@ import naive from 'naive-ui'
 
 vi.mock('../../lib/backend', () => ({
   getRules: vi.fn().mockResolvedValue([
-    { name: 'java-logback', pattern: '(?P<message>.*)', fallback: false },
-    { name: 'json', pattern: '\\{.*\\}', fallback: true },
+    { name: 'java-logback', pattern: '{time} {level} {message}', parse: '', fallback: false },
+    { name: 'json-log', pattern: '(?P<raw>.*)', parse: 'json', fallback: true },
   ]),
   saveRules: vi.fn().mockResolvedValue(undefined),
+  getPatterns: vi.fn().mockResolvedValue({
+    time: '(?P<time>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})',
+    level: '(?P<level>\\w+)',
+  }),
+  savePatterns: vi.fn().mockResolvedValue(undefined),
   getHides: vi.fn().mockResolvedValue([]),
   subscribeTabEvents: vi.fn(),
   currentTheme: vi.fn().mockResolvedValue('midnight'),
@@ -61,27 +66,33 @@ describe('设置中心', () => {
     expect(JSON.parse(localStorage.getItem('fview-ui')!).fontSize).toBe(16)
   })
 
-  it('解析规则页：渲染规则表格，可新增并保存', async () => {
+  it('解析规则页：列表+弹窗新增保存（parse 透传）+ patterns 片段渲染', async () => {
     const w = mountDlg()
     await new Promise((r) => setTimeout(r, 0))
-    // 切到解析规则页（teleport 内容里找 nav 按钮）
     const navBtns = document.body.querySelectorAll('.nav-item')
     const rulesBtn = Array.from(navBtns).find((b) => b.textContent?.includes('解析规则'))
     rulesBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
     await new Promise((r) => setTimeout(r, 0))
-    // 规则名在 input value 里（textContent 查不到）
-    const nameInputs = document.body.querySelectorAll<HTMLInputElement>('.row .c-name')
-    expect(nameInputs.length).toBeGreaterThanOrEqual(2)
-    expect(nameInputs[0].value).toBe('java-logback')
-    // 新增一行
+    // 列表渲染规则名
+    expect(document.body.textContent).toContain('java-logback')
+    // patterns 片段渲染（time 字段正则可见）
+    expect(document.body.textContent).toContain('字段片段')
+    // 新增规则：弹窗 → 填表 → 保存
     const addBtn = document.body.querySelector('.rules-add')
     addBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
-    const saveBtn = document.body.querySelector('.rules-save')
-    expect(saveBtn).toBeTruthy()
+    expect(document.body.querySelector('.rule-form')).toBeTruthy()
+    const saveBtn = document.body.querySelector('.rule-save')
     saveBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
     expect(backend.saveRules).toHaveBeenCalled()
+    // parse 透传（I-9）：现有 json 规则保存后 parse 不被抹掉
+    const savedArg = (backend.saveRules as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+      name: string
+      parse: string
+    }>
+    const jsonRule = savedArg.find((r) => r.name === 'json-log')
+    expect(jsonRule?.parse).toBe('json')
   })
 })

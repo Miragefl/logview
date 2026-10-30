@@ -49,7 +49,7 @@ watch(ns, async (n) => {
 async function open(r: { kind: string; name: string }) {
   if (!ctx.value || !ns.value) return
   try {
-    await openK8sTab(`${r.kind}/${r.name}`, ns.value, ctx.value, 200)
+    await openK8sTab(`${r.kind}/${r.name}`, ns.value, ctx.value, 0)
     usageTouch(`k8sres:${r.kind}/${r.name}`)
   } catch {
     /* 打开失败静默 */

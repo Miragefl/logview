@@ -96,3 +96,41 @@ func TestUpdateRules(t *testing.T) {
 		t.Errorf("规则内容不符: %+v", res.Rules)
 	}
 }
+
+// TestUpdatePatterns patterns 键（字段正则片段）读写：目标键替换、rules 等其余键保留。
+func TestUpdatePatterns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rules.yaml")
+	seed := `patterns:
+  time: '(?P<time>\d+)'
+rules:
+  - name: java-logback
+    pattern: '{time} {level}'
+theme: dracula
+`
+	if err := os.WriteFile(path, []byte(seed), 0644); err != nil {
+		t.Fatalf("写入种子: %v", err)
+	}
+
+	err := UpdatePatterns(path, map[string]string{
+		"time":  `(?P<time>\d{4}-\d{2}-\d{2})`,
+		"level": `(?P<level>\w+)`,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePatterns: %v", err)
+	}
+
+	res, err := parser.LoadRules(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Patterns["time"] != `(?P<time>\d{4}-\d{2}-\d{2})` || res.Patterns["level"] != `(?P<level>\w+)` {
+		t.Fatalf("patterns 应更新: %v", res.Patterns)
+	}
+	if len(res.Rules) != 1 || res.Rules[0].Name != "java-logback" {
+		t.Fatalf("rules 键应保留: %+v", res.Rules)
+	}
+	if res.Theme != "dracula" {
+		t.Fatalf("theme 键应保留: %q", res.Theme)
+	}
+}

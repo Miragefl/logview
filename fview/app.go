@@ -12,6 +12,7 @@ import (
 	"github.com/justfun/logview/internal/logcore"
 	"github.com/justfun/logview/internal/parser"
 	"github.com/justfun/logview/internal/stream"
+	"github.com/justfun/logview/internal/usage"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -86,6 +87,13 @@ func (a *App) OpenFileTab(paths []string, tailLines int, follow bool) (string, e
 	if err == nil && follow {
 		err = a.mgr.SetFollow(id, true)
 	}
+	if err == nil {
+		// 本地文件热点（file: 前缀，与 TUI 共享 usage.json）——打开即计频，
+		// 保证"最近文件"冷启动有数据（PickAndOpenFile 亦经此路径）
+		for _, p := range paths {
+			usage.Bump(usage.KeyFile + p)
+		}
+	}
 	return id, err
 }
 
@@ -133,10 +141,10 @@ func (a *App) Lines(tabID string, start, end int) []fview.LineDTO {
 	return a.mgr.Lines(tabID, start, end)
 }
 
-// Rules 读共享 rules.yaml 解析规则列表（正则配置 UI 数据源）。
+// Rules 读模板版规则列表（{name} 引用保留——展开正则写回会固化引用，编辑走模板）。
 func (a *App) Rules() []parser.RuleConfig {
 	if res, err := parser.LoadRules(rulesPath()); err == nil {
-		return res.Rules
+		return res.RawRules
 	}
 	return nil
 }
@@ -144,6 +152,23 @@ func (a *App) Rules() []parser.RuleConfig {
 // SaveRules 写回解析规则并重载（已开 tab 不受影响，新 tab 生效）。
 func (a *App) SaveRules(rules []parser.RuleConfig) error {
 	if err := fview.UpdateRules(rulesPath(), rules); err != nil {
+		return err
+	}
+	a.loadParsers()
+	return nil
+}
+
+// Patterns 读共享 rules.yaml 的 patterns（字段正则片段，规则 {name} 引用）。
+func (a *App) Patterns() map[string]string {
+	if res, err := parser.LoadRules(rulesPath()); err == nil {
+		return res.Patterns
+	}
+	return map[string]string{}
+}
+
+// SavePatterns 写回 patterns 键并重载解析器。
+func (a *App) SavePatterns(p map[string]string) error {
+	if err := fview.UpdatePatterns(rulesPath(), p); err != nil {
 		return err
 	}
 	a.loadParsers()
@@ -419,6 +444,9 @@ func (a *App) UsageTouch(key string) { fview.UsageTouch(key) }
 
 // GetMemStats 状态栏内存徽章：Sys-HeapReleased 字节数（口径对齐 TUI）。
 func (a *App) GetMemStats() uint64 { return fview.MemStatsBytes() }
+
+// SystemFonts 系统字体名列表（外观页字体下拉数据源）。
+func (a *App) SystemFonts() []string { return fview.SystemFonts() }
 
 // ---- k8s 浏览绑定 ----
 

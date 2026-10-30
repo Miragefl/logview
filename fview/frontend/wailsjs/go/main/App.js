@@ -90,6 +90,10 @@ export function ParseQuery(arg1) {
   return window['go']['main']['App']['ParseQuery'](arg1);
 }
 
+export function Patterns() {
+  return window['go']['main']['App']['Patterns']();
+}
+
 export function PickAndOpenFile(arg1) {
   return window['go']['main']['App']['PickAndOpenFile'](arg1);
 }
@@ -122,6 +126,10 @@ export function SaveHides(arg1) {
   return window['go']['main']['App']['SaveHides'](arg1);
 }
 
+export function SavePatterns(arg1) {
+  return window['go']['main']['App']['SavePatterns'](arg1);
+}
+
 export function SaveRules(arg1) {
   return window['go']['main']['App']['SaveRules'](arg1);
 }
@@ -132,6 +140,10 @@ export function SetFollow(arg1, arg2) {
 
 export function SetTheme(arg1) {
   return window['go']['main']['App']['SetTheme'](arg1);
+}
+
+export function SystemFonts() {
+  return window['go']['main']['App']['SystemFonts']();
 }
 
 export function Tabs() {

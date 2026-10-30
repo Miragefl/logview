@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 图标条：四源 + 底部设置；点图标从旁滑出面板，再点同图标或点日志区收起。
+// 图标为 22px 描边 SVG（emoji 跨平台渲染不稳且辨识度差——验收反馈②）。
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import LocalPanel from './LocalPanel.vue'
 import SSHPanel from './SSHPanel.vue'
@@ -12,11 +13,11 @@ type Pane = '' | 'local' | 'ssh' | 'k8s' | 'frp'
 const active = ref<Pane>('')
 const railEl = ref<HTMLElement | null>(null)
 
-const icons: { key: Pane; label: string; icon: string }[] = [
-  { key: 'local', label: '本地文件', icon: '📁' },
-  { key: 'ssh', label: 'SSH', icon: '🖥' },
-  { key: 'k8s', label: 'K8s', icon: '☸' },
-  { key: 'frp', label: 'FRP', icon: '🔗' },
+const icons: { key: Pane; label: string }[] = [
+  { key: 'local', label: '本地文件' },
+  { key: 'ssh', label: 'SSH' },
+  { key: 'k8s', label: 'K8s' },
+  { key: 'frp', label: 'FRP' },
 ]
 
 function toggle(k: Pane) {
@@ -44,11 +45,39 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
         :title="i.label"
         @click="toggle(i.key)"
       >
-        {{ i.icon }}
+        <!-- 本地：文件夹 -->
+        <svg v-if="i.key === 'local'" viewBox="0 0 24 24" class="ico">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+        </svg>
+        <!-- SSH：终端 -->
+        <svg v-else-if="i.key === 'ssh'" viewBox="0 0 24 24" class="ico">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M7 9l3 3-3 3M13 15h4" />
+        </svg>
+        <!-- K8s：舵轮（圆心+七向辐条，helm 意象） -->
+        <svg v-else-if="i.key === 'k8s'" viewBox="0 0 24 24" class="ico">
+          <circle cx="12" cy="12" r="3.2" />
+          <path
+            d="M12 8.8V3.5M12 15.2v5.3M8.8 12H3.5M15.2 12h5.3M9.7 9.7L6 6M14.3 14.3L18 18M14.3 9.7L18 6M9.7 14.3L6 18"
+          />
+        </svg>
+        <!-- FRP：链路 -->
+        <svg v-else-if="i.key === 'frp'" viewBox="0 0 24 24" class="ico">
+          <path d="M10 14a4 4 0 0 0 5.66 0l3.17-3.18a4 4 0 1 0-5.66-5.65L11.6 6.74" />
+          <path d="M14 10a4 4 0 0 0-5.66 0L5.17 13.18a4 4 0 1 0 5.66 5.65l1.57-1.57" />
+        </svg>
       </button>
     </div>
     <div class="bottom">
-      <button class="icon-btn" title="设置" @click="emit('open-settings')">⚙</button>
+      <!-- 设置：齿轮 -->
+      <button class="icon-btn" title="设置" @click="emit('open-settings')">
+        <svg viewBox="0 0 24 24" class="ico">
+          <circle cx="12" cy="12" r="3.4" />
+          <path
+            d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"
+          />
+        </svg>
+      </button>
     </div>
     <div v-if="active" class="flyout">
       <LocalPanel v-if="active === 'local'" />
@@ -62,7 +91,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
 <style scoped>
 .rail {
   position: relative;
-  width: 40px;
+  width: 46px;
   display: flex;
   flex-direction: column;
   background: var(--popup-bg, #141b26);
@@ -72,7 +101,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding-top: 10px;
 }
 .bottom {
@@ -82,29 +111,37 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
   padding-bottom: 10px;
 }
 .icon-btn {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
-  font-size: 15px;
   cursor: pointer;
-  opacity: 0.55;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--dim, #8b98a9);
 }
 .icon-btn:hover {
-  opacity: 1;
+  color: var(--fg, #e6e6e6);
   background: var(--popup-border, #1f2c3f);
 }
 .icon-btn.on {
-  opacity: 1;
-  background: var(--accent, #2a4d8f);
+  color: var(--accent, #7dc4e4);
+  background: color-mix(in srgb, var(--accent, #2a4d8f) 22%, transparent);
+}
+.ico {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .flyout {
   position: absolute;
-  left: 44px;
+  left: 50px;
   top: 8px;
   z-index: 20;
   background: var(--popup-bg, #16202e);

@@ -77,3 +77,8 @@ func UpdateFields(path string, fields []parser.FieldConfig) error {
 func UpdateRules(path string, rules []parser.RuleConfig) error {
 	return updateRulesKey(path, "rules", rules)
 }
+
+// UpdatePatterns 写回共享 rules.yaml 的 patterns 键（字段正则片段，规则 {name} 引用）。
+func UpdatePatterns(path string, patterns map[string]string) error {
+	return updateRulesKey(path, "patterns", patterns)
+}

@@ -1,19 +1,34 @@
 <script setup lang="ts">
-// 外观页：主题（全局多配色，壳+日志区一起换）/ 字体 / 字号 / 行高。
-import { onMounted } from 'vue'
-import { NInput, NInputNumber } from 'naive-ui'
+// 外观页：主题（全局多配色，壳+日志区一起换）/ 系统字体下拉 / 字号 / 行高。
+import { onMounted, ref } from 'vue'
+import { NInputNumber, NSelect } from 'naive-ui'
 import { useThemeStore } from '../../themes'
 import { useUiStore } from '../../stores/ui'
+import { systemFonts } from '../../lib/backend'
 
 const theme = useThemeStore()
 const ui = useUiStore()
 
+const fontOptions = ref<{ label: string; value: string }[]>([])
+
 // 面板自取主题列表（App 的 init 幂等，此处兜底单测/异常路径）
-onMounted(() => {
+onMounted(async () => {
   if (!theme.nameList.length) {
     theme.init()
   }
+  // 系统字体下拉（枚举失败保底 monospace）
+  try {
+    const fonts = (await systemFonts()) ?? []
+    fontOptions.value = fonts.map((f) => ({ label: f, value: f }))
+  } catch {
+    fontOptions.value = []
+  }
 })
+
+function onFontChange(v: string | null) {
+  ui.fontFamily = v || 'SF Mono, Menlo, monospace'
+  ui.persist()
+}
 </script>
 
 <template>
@@ -36,7 +51,14 @@ onMounted(() => {
     <section class="row">
       <div>
         <h4>字体</h4>
-        <NInput v-model:value="ui.fontFamily" size="small" @blur="ui.persist()" />
+        <NSelect
+          :value="ui.fontFamily"
+          size="small"
+          filterable
+          placeholder="系统字体"
+          :options="fontOptions"
+          @update:value="onFontChange"
+        />
       </div>
       <div>
         <h4>字号</h4>

@@ -5,7 +5,7 @@ import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useThemeStore } from './themes'
 import { useTabsStore } from './stores/tabs'
 import { useUiStore } from './stores/ui'
-import { getHides, subscribeTabEvents } from './lib/backend'
+import { getFields, subscribeTabEvents } from './lib/backend'
 import type { LevelFilterMode } from './lib/filter'
 import TabBar from './components/tabs/TabBar.vue'
 import Welcome from './components/Welcome.vue'
@@ -66,6 +66,10 @@ function onKeydown(e: KeyboardEvent) {
     logviewRef.value?.scrollLines(3)
   } else if (e.key === 'k') {
     logviewRef.value?.scrollLines(-3)
+  } else if (e.key === 'g') {
+    logviewRef.value?.scrollToEnd(true)
+  } else if (e.key === 'G') {
+    logviewRef.value?.scrollToEnd(false)
   } else if (e.key === '/') {
     e.preventDefault()
     toolbarRef.value?.focusSearch()
@@ -73,6 +77,16 @@ function onKeydown(e: KeyboardEvent) {
     logviewRef.value?.jumpHit(1)
   } else if (e.key === 'N' || (e.key === 'n' && e.shiftKey)) {
     logviewRef.value?.jumpHit(-1)
+  } else if (e.key === 'e') {
+    levelMode.value = 'E' // 级别档位（对齐 TUI/m4m6：e/w/i/a/d）
+  } else if (e.key === 'w') {
+    levelMode.value = 'W'
+  } else if (e.key === 'i') {
+    levelMode.value = 'I'
+  } else if (e.key === 'a') {
+    levelMode.value = 'A'
+  } else if (e.key === 'd') {
+    levelMode.value = 'D'
   }
 }
 
@@ -84,10 +98,13 @@ onMounted(async () => {
     onMeta: tabs.applyMeta,
     onClosed: (ev) => tabs.remove(ev.tabId),
   })
-  // 字段显隐按 rules.yaml hides 校正（与 TUI 同源）
+  // 字段显隐按 rules.yaml 的 fields.Visible 校正（与 TUI 同源；hides 是行级隐藏词不得混用）
   try {
-    const hides = (await getHides()) ?? []
-    fields.value = ALL_FIELDS.filter((f) => !hides.includes(f))
+    const fs = (await getFields()) ?? []
+    const visible = new Set(fs.filter((f) => f.visible).map((f) => f.name))
+    if (visible.size > 0) {
+      fields.value = ALL_FIELDS.filter((f) => visible.has(f))
+    }
   } catch {
     /* 默认全显 */
   }

@@ -46,7 +46,9 @@ type rulesFile struct {
 // RulesResult 承载 rules.yaml 的全部加载结果，避免多返回值膨胀。
 type RulesResult struct {
 	Rules       []RuleConfig
+	RawRules    []RuleConfig // 模板版（{name} 引用未展开，fview 编辑用）
 	Fields      []FieldConfig
+	Patterns    map[string]string
 	History     int
 	Theme       string
 	ThemeColors map[string]string
@@ -64,6 +66,10 @@ func LoadRules(path string) (*RulesResult, error) {
 	if err := yaml.Unmarshal(data, &rf); err != nil {
 		return nil, fmt.Errorf("parse rules yaml: %w", err)
 	}
+	// RawRules 留模板版（{name} 引用保留）：fview 设置中心编辑模板 + patterns 分开管理，
+	// 避免"展开正则写回后 patterns 引用被固化"——必须在展开前拷贝
+	raw := make([]RuleConfig, len(rf.Rules))
+	copy(raw, rf.Rules)
 	if len(rf.Patterns) > 0 {
 		for i := range rf.Rules {
 			rf.Rules[i].Pattern = expandPatterns(rf.Rules[i].Pattern, rf.Patterns)
@@ -71,7 +77,9 @@ func LoadRules(path string) (*RulesResult, error) {
 	}
 	return &RulesResult{
 		Rules:       rf.Rules,
+		RawRules:    raw,
 		Fields:      rf.Fields,
+		Patterns:    rf.Patterns,
 		History:     rf.History,
 		Theme:       rf.Theme,
 		ThemeColors: rf.ThemeColors,
