@@ -60,6 +60,14 @@ git push origin "v$NEXT"
 echo "==> goreleaser release"
 GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
 
+# fview 桌面端（Wails v2：macOS only，本地 mac + node + CGO；失败即中止，不留半截 Release。
+# 产物入 dist/ 供 gitee_sync 顺带镜像到 gitee）
+echo "==> building fview desktop (wails, darwin/universal)"
+(cd fview && wails build -platform darwin/universal)
+FVIEW_TGZ="dist/fview_${NEXT}_macos_universal.tar.gz"
+tar czf "$FVIEW_TGZ" -C fview/build/bin fview.app
+gh release upload "v$NEXT" "$FVIEW_TGZ"
+
 # gitee mirror assets verify & repair (mirror release sync is unreliable,
 # v0.18.2 stalled at 2/7 assets; failure warns but does not block the release)
 echo "==> verifying gitee mirror assets"
@@ -86,6 +94,10 @@ git tag nightly
 git push origin nightly
 
 GITHUB_TOKEN=$(gh auth token) goreleaser release --clean --snapshot
+
+# fview: snapshot --clean 清空了 dist/，重新打包（wails 产物在 fview/build/bin 不受影响）
+FVIEW_NIGHTLY_TGZ="dist/fview_nightly_macos_universal.tar.gz"
+tar czf "$FVIEW_NIGHTLY_TGZ" -C fview/build/bin fview.app
 
 SNAPSHOT_ARTIFACTS=()
 for f in dist/*.tar.gz; do

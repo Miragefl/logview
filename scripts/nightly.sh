@@ -29,6 +29,12 @@ tar czf logview-darwin_arm64.tar.gz logview-darwin_arm64
 tar czf logview-linux_amd64.tar.gz logview-linux_amd64
 tar czf logview-linux_arm64.tar.gz logview-linux_arm64
 
+# fview 桌面端（Wails v2：macOS only，本地构建；与 TUI 同 nightly Release 分发）
+echo "=== Building fview desktop (wails, darwin/universal) ==="
+(cd fview && wails build -platform darwin/universal)
+FVIEW_TGZ="fview-macos_universal.tar.gz"
+tar czf "$FVIEW_TGZ" -C fview/build/bin fview.app
+
 # compute sha256
 SHA_DARWIN_AMD=$(sha256sum logview-darwin_amd64.tar.gz | cut -d' ' -f1)
 SHA_DARWIN_ARM=$(sha256sum logview-darwin_arm64.tar.gz | cut -d' ' -f1)
@@ -47,6 +53,7 @@ gh release create nightly \
   logview-darwin_amd64.tar.gz \
   logview-darwin_arm64.tar.gz \
   logview-linux_amd64.tar.gz \
+  "$FVIEW_TGZ" \
   logview-linux_arm64.tar.gz \
   --title "Nightly (${DATE})" \
   --notes "Automated nightly build from ${COMMIT}" \
@@ -131,3 +138,4 @@ cd -
 # cleanup
 rm -f logview-darwin_amd64 logview-darwin_arm64 logview-linux_amd64 logview-linux_arm64
 rm -f logview-darwin_amd64.tar.gz logview-darwin_arm64.tar.gz logview-linux_amd64.tar.gz logview-linux_arm64.tar.gz
+rm -f "$FVIEW_TGZ"
