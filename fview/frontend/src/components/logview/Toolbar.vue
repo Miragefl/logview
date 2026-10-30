@@ -31,7 +31,13 @@ const ui = useUiStore()
 function openSearch(tab = 0) {
   search.open(tab)
 }
-defineExpose({ openSearch })
+
+/** 字段下拉受控显隐(F 键入口)。 */
+const fieldsShow = ref(false)
+function toggleFields() {
+  fieldsShow.value = !fieldsShow.value
+}
+defineExpose({ openSearch, toggleFields })
 
 // ---- 字段显隐（rules.yaml fields 同源） ----
 const allFields = ref<FieldConfig[]>([])
@@ -95,12 +101,19 @@ function zoom(delta: number) {
       <NButton size="tiny" quaternary @click="openSearch(0)">🔍 搜索</NButton>
     </NBadge>
     <NDropdown
-      trigger="click"
+      trigger="manual"
       placement="bottom-start"
+      :show="fieldsShow"
       :options="fieldsOptions"
-      @select="(key: string) => toggleField(key)"
+      @clickoutside="fieldsShow = false"
+      @select="
+        (key: string) => {
+          toggleField(key)
+          fieldsShow = false
+        }
+      "
     >
-      <NButton size="tiny" quaternary>👁 字段</NButton>
+      <NButton size="tiny" quaternary @click="toggleFields">👁 字段</NButton>
     </NDropdown>
     <NSelect
       size="tiny"

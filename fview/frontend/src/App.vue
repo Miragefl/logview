@@ -8,6 +8,8 @@ import { useUiStore } from './stores/ui'
 import { getFields, subscribeTabEvents } from './lib/backend'
 import type { FieldConfig } from './lib/backend'
 import { fieldsWidths } from './lib/columns'
+import { resolveKey } from './lib/keymap'
+import type { KeyAction } from './lib/keymap'
 import type { LevelFilterMode } from './lib/filter'
 import TabBar from './components/tabs/TabBar.vue'
 import Welcome from './components/Welcome.vue'
@@ -35,6 +37,7 @@ const allFieldsCfg = ref<FieldConfig[]>([])
 const colWidths = computed(() => fieldsWidths(allFieldsCfg.value, fields.value))
 
 const logviewRef = ref<InstanceType<typeof LogView> | null>(null)
+const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
 
 // 设置中心（Task 10 接入对话框，先占位开关）
 const settingsShow = ref(false)
@@ -67,40 +70,109 @@ function isTyping(e: KeyboardEvent): boolean {
     t.isContentEditable
   )
 }
+// ---- vim 键位机(验收反馈④):resolveKey 纯映射 + dispatch 接线 ----
+const keyState = { pendingZ: false }
 function onKeydown(e: KeyboardEvent) {
   if (isTyping(e)) return
-  if (e.key === 'j') {
-    logviewRef.value?.scrollLines(3)
-  } else if (e.key === 'k') {
-    logviewRef.value?.scrollLines(-3)
-  } else if (e.key === 'g') {
-    logviewRef.value?.scrollToEnd(true)
-  } else if (e.key === 'G') {
-    logviewRef.value?.scrollToEnd(false)
-  } else if (e.key === '/' || e.key === 'f') {
-    // 统一搜索弹窗·搜索分区(TUI /、f 同款;h 高亮、x 隐藏,验收反馈③④)
-    e.preventDefault()
-    searchStore.open(0)
-  } else if (e.key === 'h') {
-    e.preventDefault()
-    searchStore.open(1)
-  } else if (e.key === 'x') {
-    e.preventDefault()
-    searchStore.open(2)
-  } else if (e.key === 'n' && !e.shiftKey) {
-    logviewRef.value?.jumpHit(1)
-  } else if (e.key === 'N' || (e.key === 'n' && e.shiftKey)) {
-    logviewRef.value?.jumpHit(-1)
-  } else if (e.key === 'e') {
-    levelMode.value = 'E' // 级别档位（对齐 TUI/m4m6：e/w/i/a/d）
-  } else if (e.key === 'w') {
-    levelMode.value = 'W'
-  } else if (e.key === 'i') {
-    levelMode.value = 'I'
-  } else if (e.key === 'a') {
-    levelMode.value = 'A'
-  } else if (e.key === 'd') {
-    levelMode.value = 'D'
+  const { action, arg } = resolveKey(e, keyState)
+  if (action === 'none' || action === 'pending') return
+  if (action === 'search' || action === 'highlight' || action === 'hide') {
+    e.preventDefault() // 阻止浏览器快速搜索(/)等默认行为
+  }
+  dispatchKey(action, arg)
+}
+
+function dispatchKey(action: KeyAction, arg?: string) {
+  const lv = logviewRef.value
+  switch (action) {
+    case 'cursorDown':
+      lv?.moveCursor(1)
+      break
+    case 'cursorUp':
+      lv?.moveCursor(-1)
+      break
+    case 'gotoTop':
+      lv?.gotoTop()
+      break
+    case 'gotoBottom':
+      lv?.gotoBottom()
+      break
+    case 'viewportTop':
+      lv?.cursorToViewport('top')
+      break
+    case 'viewportMid':
+      lv?.cursorToViewport('mid')
+      break
+    case 'viewportBottom':
+      lv?.cursorToViewport('bottom')
+      break
+    case 'anchorTop':
+      lv?.anchorCursor('t')
+      break
+    case 'anchorMid':
+      lv?.anchorCursor('z')
+      break
+    case 'anchorBottom':
+      lv?.anchorCursor('b')
+      break
+    case 'halfDown':
+      lv?.halfPage(1)
+      break
+    case 'halfUp':
+      lv?.halfPage(-1)
+      break
+    case 'pageDown':
+      lv?.pageMove(1)
+      break
+    case 'pageUp':
+      lv?.pageMove(-1)
+      break
+    case 'nextHit':
+      lv?.cursorToHit(1)
+      break
+    case 'prevHit':
+      lv?.cursorToHit(-1)
+      break
+    case 'search':
+      searchStore.open(0)
+      break
+    case 'highlight':
+      searchStore.open(1)
+      break
+    case 'hide':
+      searchStore.open(2)
+      break
+    case 'level':
+      // 级别档位 = 大写 E/W/I/D/A(小写已释放给折叠/换行/详情,对齐 TUI)
+      if (arg) levelMode.value = arg as LevelFilterMode
+      break
+    case 'detail':
+      lv?.openDetailAtCursor()
+      break
+    case 'fields':
+      toolbarRef.value?.toggleFields()
+      break
+    case 'fold':
+      lv?.toggleFold()
+      break
+    case 'visual':
+      lv?.startVisual(false)
+      break
+    case 'visualLine':
+      lv?.startVisual(true)
+      break
+    case 'yank':
+      lv?.yankSelection()
+      break
+    case 'bookmark':
+      lv?.toggleBookmark()
+      break
+    case 'gotoBookmarks':
+      lv?.showBookmarks()
+      break
+    // wrap(T10)/lineNumbers(T9)/help(T9)/clear(T7):后续任务实装,先占位
+    default:
+      break
   }
 }
 
@@ -140,6 +212,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <Welcome v-if="tabs.tabs.length === 0" />
           <template v-else>
             <Toolbar
+              ref="toolbarRef"
               v-model:level-mode="levelMode"
               :fields="fields"
               @update:fields="(f: string[]) => (fields = f)"

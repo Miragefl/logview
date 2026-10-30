@@ -11,6 +11,7 @@ import { levelFilter } from '../../lib/filter'
 import { levelClass } from '../../lib/levelColor'
 import { DEFAULT_WIDTHS, headerCells, layoutLine } from '../../lib/columns'
 import { visibleRange } from '../../lib/virtual'
+import { ensureVisible, moveClamp } from '../../lib/nav'
 import { splitSpans } from '../../lib/hlSpan'
 import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
 import { scopeOfLabel } from '../../lib/scope'
@@ -191,43 +192,147 @@ async function openDetail(ln: LineDTO) {
   detail.value.show = true
 }
 
-// ---- 对外暴露（vim 键驱动） ----
-/** scrollLines 滚动 ±n 行。 */
-function scrollLines(delta: number) {
-  const el = scrollEl.value
-  if (el) el.scrollTop += delta * rowH.value
+// ---- 光标模型（验收反馈④,TUI 手感:j/k 移光标,scrolloff 跟随） ----
+const cursorSeq = ref(0)
+const cursorIdx = computed(() => filteredLines.value.findIndex((l) => l.seq === cursorSeq.value))
+const rowsInView = computed(() => Math.max(1, Math.floor(viewportH.value / rowH.value)))
+
+/** stopFollow 关跟随（本地+后端;锚定/回顶时用,对齐 TUI）。 */
+function stopFollow() {
+  const t = tabs.active
+  if (t?.info.follow) {
+    tabs.toggleFollow(t.info.id, false)
+    setFollow(t.info.id, false).catch(() => {})
+  }
 }
-/** jumpHit 跳到上/下一个搜索命中行（seq 有序命中集合内顺序查找）。 */
-function jumpHit(dir: 1 | -1) {
+
+/** setCursor 置光标到过滤视图 idx,可选滚动保可视（scrolloff=3）。 */
+function setCursor(idx: number, scroll = true) {
+  const arr = filteredLines.value
+  if (idx < 0 || idx >= arr.length) return
+  cursorSeq.value = arr[idx].seq
+  if (scroll && scrollEl.value) {
+    const first = ensureVisible(idx, range.value[0], rowsInView.value, arr.length)
+    scrollEl.value.scrollTop = first * rowH.value
+  }
+}
+
+/** moveCursor 光标 ±delta;无光标时从可视区边缘起。 */
+function moveCursor(delta: number) {
+  const arr = filteredLines.value
+  if (!arr.length) return
+  const ci = cursorIdx.value
+  if (ci < 0) {
+    setCursor(delta > 0 ? range.value[0] : Math.max(0, range.value[1] - 1))
+    return
+  }
+  setCursor(moveClamp(ci, delta, arr.length))
+}
+
+/** cursorToViewport 光标跳到可视顶/中/底（不滚动）。 */
+function cursorToViewport(pos: 'top' | 'mid' | 'bottom') {
+  const [s, e] = range.value
+  const idx = pos === 'top' ? s : pos === 'mid' ? Math.floor((s + e) / 2) : Math.max(0, e - 1)
+  setCursor(idx, false)
+}
+
+/** cursorToSeq 光标到指定 seq 行。 */
+function cursorToSeq(seq: number) {
+  const idx = filteredLines.value.findIndex((l) => l.seq === seq)
+  if (idx >= 0) setCursor(idx)
+}
+
+/** anchorCursor zt/zz/zb:滚动使光标行置顶/居中/置底（关 follow,对齐 TUI）。 */
+function anchorCursor(pos: 't' | 'z' | 'b') {
+  const ci = cursorIdx.value
+  const el = scrollEl.value
+  if (ci < 0 || !el) return
+  stopFollow()
+  if (pos === 't') {
+    el.scrollTop = ci * rowH.value
+  } else if (pos === 'z') {
+    el.scrollTop = Math.max(0, ci * rowH.value - viewportH.value / 2)
+  } else {
+    el.scrollTop = Math.max(0, (ci + 1) * rowH.value - viewportH.value)
+  }
+}
+
+/** cursorToHit n/N:光标跳上/下一个搜索命中（以光标为基准,跳后居中）。 */
+function cursorToHit(dir: 1 | -1) {
   if (props.hitSeqs.size === 0) return
   const arr = filteredLines.value
-  const first = range.value[0]
-  const firstSeq = arr[first]?.seq ?? 0
-  let target: LineDTO | undefined
+  const ref = cursorIdx.value >= 0 ? cursorIdx.value : range.value[0]
+  const refSeq = arr[ref]?.seq ?? 0
+  let target = -1
   if (dir === 1) {
-    target = arr.find((l) => l.seq > firstSeq && props.hitSeqs.has(l.seq))
+    target = arr.findIndex((l) => l.seq > refSeq && props.hitSeqs.has(l.seq))
   } else {
-    for (let i = Math.min(first, arr.length - 1); i >= 0; i--) {
-      if (props.hitSeqs.has(arr[i].seq) && arr[i].seq < firstSeq) {
-        target = arr[i]
+    for (let i = Math.min(ref, arr.length - 1); i >= 0; i--) {
+      if (props.hitSeqs.has(arr[i].seq) && arr[i].seq < refSeq) {
+        target = i
         break
       }
     }
   }
-  if (target && scrollEl.value) {
-    const idx = arr.indexOf(target)
-    scrollEl.value.scrollTop = Math.max(0, idx * rowH.value - viewportH.value / 2)
+  if (target >= 0) {
+    setCursor(target, false)
+    if (scrollEl.value) {
+      scrollEl.value.scrollTop = Math.max(0, target * rowH.value - viewportH.value / 2)
+    }
   }
 }
 
-/** scrollToEnd 滚到顶/底（vim g/G）。 */
-function scrollToEnd(top: boolean) {
-  const el = scrollEl.value
-  if (!el) return
-  el.scrollTop = top ? 0 : el.scrollHeight
+/** gotoTop g:回顶（关 follow）。 */
+function gotoTop() {
+  stopFollow()
+  cursorToSeq(filteredLines.value[0]?.seq ?? 0)
+  if (scrollEl.value) scrollEl.value.scrollTop = 0
 }
 
-defineExpose({ scrollLines, jumpHit, scrollToEnd })
+/** gotoBottom G:到底（开 follow,对齐 TUI autoscroll）。 */
+function gotoBottom() {
+  const t = tabs.active
+  if (t && !t.info.follow) {
+    tabs.toggleFollow(t.info.id, true)
+    setFollow(t.info.id, true).catch(() => {})
+  }
+  cursorToSeq(filteredLines.value[filteredLines.value.length - 1]?.seq ?? 0)
+  if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
+}
+
+/** halfPage ctrl+d/u:光标 ±半页。 */
+function halfPage(dir: 1 | -1) {
+  moveCursor(dir * Math.max(1, Math.floor(rowsInView.value / 2)))
+}
+
+/** pageMove ctrl+f/b、pgup/pgdn:光标 ±整页（留 2 行上下文）。 */
+function pageMove(dir: 1 | -1) {
+  moveCursor(dir * Math.max(1, rowsInView.value - 2))
+}
+
+/** openDetailAtCursor d:光标行详情（等价双击）。 */
+function openDetailAtCursor() {
+  const ci = cursorIdx.value
+  if (ci >= 0) openDetail(filteredLines.value[ci])
+}
+defineExpose({
+  moveCursor,
+  cursorToViewport,
+  cursorToSeq,
+  anchorCursor,
+  cursorToHit,
+  gotoTop,
+  gotoBottom,
+  halfPage,
+  pageMove,
+  openDetailAtCursor,
+  toggleFold: (_dir?: 1 | -1) => {}, // T6 堆栈折叠实现,先占位
+  startVisual: (_line: boolean) => {}, // T8 可视选择实现,先占位
+  exitVisual: () => {},
+  yankSelection: () => {},
+  toggleBookmark: () => {}, // T9 书签实现,先占位
+  showBookmarks: () => {},
+})
 </script>
 
 <template>
@@ -252,7 +357,7 @@ defineExpose({ scrollLines, jumpHit, scrollToEnd })
         v-for="(ln, i) in visLines"
         :key="ln.seq"
         class="row"
-        :class="{ hit: hitSeqs.has(ln.seq) }"
+        :class="{ hit: hitSeqs.has(ln.seq), cur: ln.seq === cursorSeq }"
         :style="{ top: i * rowH + 'px' }"
         @contextmenu="onContext($event, ln)"
         @dblclick="openDetail(ln)"
@@ -345,6 +450,11 @@ defineExpose({ scrollLines, jumpHit, scrollToEnd })
 }
 .row.hit {
   background: var(--hit-row-bg, rgba(122, 162, 214, 0.12));
+}
+/* 光标行(TUI Selected 色,左侧 accent 竖条) */
+.row.cur {
+  background: var(--selected, #30354f);
+  box-shadow: inset 2px 0 0 var(--accent, #7dc4e4);
 }
 /* 分栏:固定列定宽 + 两空格分隔;message 弹性 */
 .cell {
