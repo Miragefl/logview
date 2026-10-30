@@ -27,6 +27,12 @@ export function GetLine(arg1:string,arg2:number):Promise<Record<string, string>>
 
 export function Hides():Promise<Array<string>>;
 
+export function K8sContexts():Promise<Array<string>>;
+
+export function K8sNamespaces(arg1:string):Promise<Array<string>>;
+
+export function K8sResources(arg1:string,arg2:string):Promise<Array<fview.ResourceDTO>>;
+
 export function Lines(arg1:string,arg2:number,arg3:number):Promise<Array<fview.LineDTO>>;
 
 export function MatchLines(arg1:string,arg2:string):Promise<Array<number>>;

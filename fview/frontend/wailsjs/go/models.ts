@@ -85,6 +85,20 @@ export namespace fview {
 	        this.timeRangeHint = source["timeRangeHint"];
 	    }
 	}
+	export class ResourceDTO {
+	    kind: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResourceDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	    }
+	}
 	export class TabInfo {
 	    id: string;
 	    label: string;

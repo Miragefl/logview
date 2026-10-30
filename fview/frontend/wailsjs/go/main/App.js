@@ -46,6 +46,18 @@ export function Hides() {
   return window['go']['main']['App']['Hides']();
 }
 
+export function K8sContexts() {
+  return window['go']['main']['App']['K8sContexts']();
+}
+
+export function K8sNamespaces(arg1) {
+  return window['go']['main']['App']['K8sNamespaces'](arg1);
+}
+
+export function K8sResources(arg1, arg2) {
+  return window['go']['main']['App']['K8sResources'](arg1, arg2);
+}
+
 export function Lines(arg1, arg2, arg3) {
   return window['go']['main']['App']['Lines'](arg1, arg2, arg3);
 }

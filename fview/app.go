@@ -403,3 +403,16 @@ func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) 
 func (a *App) shutdown(ctx context.Context) {
 	frp.KillAllTunnels()
 }
+
+// ---- k8s 浏览绑定 ----
+
+// K8sContexts 列出 kubeconfig 全部 context。
+func (a *App) K8sContexts() ([]string, error) { return fview.K8sContexts() }
+
+// K8sNamespaces 列出 context 的 namespace。
+func (a *App) K8sNamespaces(kubeCtx string) ([]string, error) { return fview.K8sNamespaces(kubeCtx) }
+
+// K8sResources 列出 namespace 的工作负载资源。
+func (a *App) K8sResources(kubeCtx, namespace string) ([]fview.ResourceDTO, error) {
+	return fview.K8sResources(kubeCtx, namespace)
+}
