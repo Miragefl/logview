@@ -19,7 +19,17 @@ import {
   SaveRules,
   SSHBrowse,
   OpenSSHTab,
+  FrpServers,
+  FrpConns,
+  UpsertFrpServer,
+  UpsertFrpConn,
+  DeleteFrpServer,
+  DeleteFrpConn,
+  SSHHosts,
+  AddSSHHost,
+  RemoveSSHHost,
 } from '../../wailsjs/go/main/App'
+
 import type { LineDTO, TabInfo } from './stores/tabs'
 
 export interface LinesEvent {
@@ -161,4 +171,49 @@ export function sshBrowse(
 
 export function openSSHTab(host: string, path: string, tailLines: number, password: string): Promise<string> {
   return OpenSSHTab(host, path, tailLines, password)
+}
+
+// ---- 连接库（共享正本 frp.json + rules.yaml ssh_hosts）----
+
+export interface FrpServer {
+  name: string
+  addr: string
+  token: string
+}
+
+export interface FrpConn {
+  name: string
+  server: string
+  sk: string
+  proxy: string
+  user: string
+  path: string
+}
+
+export async function getFrpServers(): Promise<FrpServer[]> {
+  return (await FrpServers()) ?? []
+}
+export async function getFrpConns(): Promise<FrpConn[]> {
+  return (await FrpConns()) ?? []
+}
+export function upsertFrpServer(s: FrpServer): Promise<void> {
+  return UpsertFrpServer({ Name: s.name, Addr: s.addr, Token: s.token })
+}
+export function upsertFrpConn(c: FrpConn): Promise<void> {
+  return UpsertFrpConn({ Name: c.name, Server: c.server, SK: c.sk, Proxy: c.proxy, User: c.user, Path: c.path })
+}
+export function deleteFrpServer(name: string): Promise<void> {
+  return DeleteFrpServer(name)
+}
+export function deleteFrpConn(name: string): Promise<void> {
+  return DeleteFrpConn(name)
+}
+export async function getSSHHosts(): Promise<string[]> {
+  return (await SSHHosts()) ?? []
+}
+export function addSSHHost(host: string): Promise<void> {
+  return AddSSHHost(host)
+}
+export function removeSSHHost(host: string): Promise<void> {
+  return RemoveSSHHost(host)
 }

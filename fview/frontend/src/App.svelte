@@ -9,6 +9,7 @@
   import DetailPanel from './components/DetailPanel.svelte'
   import RulesPanel from './components/RulesPanel.svelte'
   import BrowseDialog from './components/BrowseDialog.svelte'
+  import ConnectionPanel from './components/ConnectionPanel.svelte'
   import {
     openFileViaDialog,
     setFollow,
@@ -156,9 +157,13 @@
 
 <svelte:window on:keydown={onKeydown} />
 <div class="app">
+  <ConnectionPanel
+    on:openLocal={(e) => handleOpen(e.detail)}
+    on:browseSSH={(e) => (browseHost = e.detail)}
+    on:openK8s={() => {}}
+  />
+  <div class="main-col">
   <header class="topbar">
-    <button class="open-btn" on:click={() => handleOpen(false)}>打开文件</button>
-    <button class="open-btn follow" on:click={() => handleOpen(true)}>打开并跟踪</button>
     <button class="top-btn" on:click={() => (showRules = true)}>规则</button>
     <TabBar />
     <div class="spacer" />
@@ -237,6 +242,7 @@
       onClose={() => (browseHost = '')}
     />
   {/if}
+  </div>
 </div>
 
 <style>
@@ -244,10 +250,16 @@
     width: 100vw;
     height: 100vh;
     display: flex;
-    flex-direction: column;
     background: var(--bg, #10161f);
     color: var(--fg, #e6e6e6);
     font-family: -apple-system, 'PingFang SC', sans-serif;
+  }
+  .main-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
   }
   .topbar {
     display: flex;
