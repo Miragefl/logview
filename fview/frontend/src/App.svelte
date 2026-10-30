@@ -73,6 +73,8 @@
   // 菜单字体与字号（真 font 设置；缩放 menuZoom 为独立功能）
   let uiFontFamily = localStorage.getItem('fview.ui-font-family') || ''
   let uiFontSize = Number(localStorage.getItem('fview.ui-font-size')) || 14
+  let logFontFamily = localStorage.getItem('fview.log-font-family') || ''
+  $: localStorage.setItem('fview.log-font-family', logFontFamily)
   $: {
     document.body.style.fontFamily = uiFontFamily || "-apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif"
     document.documentElement.style.fontSize = uiFontSize + 'px'
@@ -304,6 +306,7 @@
               bind:this={logView}
               lines={current.lines}
               uiZoom={menuZoom}
+              fontFamily={logFontFamily}
               follow={current.info.follow}
               onFollowPause={() => current && current.info.follow && handleFollowToggle()}
               {hits}
@@ -356,10 +359,12 @@
       logFontSize={fontSize}
       uiFontFamily={uiFontFamily}
       uiFontSize={uiFontSize}
+      logFontFamily={logFontFamily}
       on:menuZoom={(e) => (menuZoom = e.detail)}
       on:logFontSize={(e) => (fontSize = e.detail)}
       on:uiFontFamily={(e) => (uiFontFamily = e.detail)}
       on:uiFontSize={(e) => (uiFontSize = e.detail)}
+      on:logFontFamily={(e) => (logFontFamily = e.detail)}
       on:close={() => (showSettings = false)}
       on:changed={() => connPanel?.refresh()}
     />
@@ -406,15 +411,15 @@
     width: 100vw;
     height: 100vh;
     display: flex;
-    background: var(--bg, #f7f7f2);
-    color: var(--fg, #1a1d21);
+    background: var(--bg, var(--bg));
+    color: var(--fg, var(--fg));
     font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
   }
   .sidebar {
     width: 232px;
     flex-shrink: 0;
-    background: #ebebe2;
-    border-right: 1px solid #e2e2d8;
+    background: var(--bg);
+    border-right: 1px solid var(--muted);
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -422,7 +427,7 @@
     padding: 10px 10px;
   }
   .sev-wrap {
-    border-top: 1px solid #e2e2d8;
+    border-top: 1px solid var(--muted);
     padding-top: 10px;
   }
   .main-col {
@@ -437,28 +442,28 @@
     align-items: center;
     gap: 8px;
     padding: 4px 10px 0;
-    background: #ebebe2;
-    border-bottom: 1px solid #e2e2d8;
+    background: var(--bg);
+    border-bottom: 1px solid var(--muted);
     min-height: 34px;
   }
   .spacer { flex: 1; }
   .hamburger {
     background: none;
-    border: 1px solid #c7c7bc;
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
-    color: #5f6672;
+    color: var(--muted-fg);
     cursor: pointer;
     font-size: 1rem;
     padding: 2px 8px;
     line-height: 1.3;
   }
   .hamburger:hover {
-    background: #e2e2d8;
+    background: var(--muted);
   }
   .theme-select {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     padding: 3px 6px;
     font-size: 0.875rem;
@@ -475,16 +480,16 @@
     align-items: stretch;
     gap: 8px;
     padding: 6px 10px 2px;
-    background: #ebebe2;
+    background: var(--bg);
   }
   .toolbar.sub {
     padding: 2px 10px 6px;
-    border-bottom: 1px solid #e2e2d8;
+    border-bottom: 1px solid var(--muted);
   }
   .fold-btn {
-    background: #e2e2d8;
-    color: #5f6672;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 0 10px;
@@ -496,40 +501,40 @@
     align-items: center;
     gap: 14px;
     padding: 3px 12px;
-    background: #ebebe2;
-    border-top: 1px solid #e2e2d8;
+    background: var(--bg);
+    border-top: 1px solid var(--muted);
     font-size: 0.875rem;
-    color: #5f6672;
+    color: var(--muted-fg);
     min-height: 26px;
   }
   .st-file {
     font-family: 'SF Mono', Menlo, monospace;
-    color: #3a3f47;
+    color: var(--fg);
     max-width: 320px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .st-follow {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     padding: 1px 10px;
     cursor: pointer;
     font-size: 0.875rem;
   }
-  .st-follow.on { color: #15803d; border-color: #15803d; }
+  .st-follow.on { color: var(--ok); border-color: var(--ok); }
   .zoom { display: flex; align-items: center; gap: 4px; }
   .zoom-val { min-width: 40px; text-align: center; }
   .st-btn {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 8px;
     font-size: 0.875rem;
   }
-  .st-btn:hover { color: #1a1d21; }
+  .st-btn:hover { color: var(--fg); }
 </style>

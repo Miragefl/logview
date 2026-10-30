@@ -48,8 +48,8 @@
   .detail {
     width: 360px;
     flex-shrink: 0;
-    border-left: 1px solid #e2e2d8;
-    background: #ebebe2;
+    border-left: 1px solid var(--muted);
+    background: var(--bg);
     display: flex;
     flex-direction: column;
     overflow-y: auto;
@@ -60,17 +60,17 @@
     justify-content: space-between;
     align-items: center;
     padding: 6px 10px;
-    color: #6b7280;
-    border-bottom: 1px solid #e2e2d8;
+    color: var(--muted-fg);
+    border-bottom: 1px solid var(--muted);
   }
   .head > div {
     display: flex;
     gap: 4px;
   }
   .mini {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
@@ -82,7 +82,7 @@
   }
   th {
     text-align: left;
-    color: #9aa0a8;
+    color: var(--faint);
     padding: 4px 10px;
     width: 70px;
     vertical-align: top;
@@ -90,18 +90,18 @@
   }
   td {
     padding: 4px 10px 4px 0;
-    color: #3a3f47;
+    color: var(--fg);
     word-break: break-all;
   }
   tr {
-    border-bottom: 1px solid #ecece4;
+    border-bottom: 1px solid var(--border);
   }
   .raw {
     padding: 8px 10px;
     flex: 1;
   }
   .raw-label {
-    color: #9aa0a8;
+    color: var(--faint);
     margin-bottom: 4px;
   }
   pre {
@@ -109,8 +109,8 @@
     white-space: pre-wrap;
     word-break: break-all;
     font-family: 'SF Mono', Menlo, monospace;
-    color: #3a3f47;
-    background: #ffffff;
+    color: var(--fg);
+    background: var(--card);
     padding: 8px;
     border-radius: 6px;
   }

@@ -36,8 +36,8 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: #ffffff;
-    color: #6b7280;
+    background: var(--card);
+    color: var(--muted-fg);
     border: none;
     border-radius: 6px 6px 0 0;
     cursor: pointer;
@@ -46,8 +46,8 @@
     max-width: 220px;
   }
   .tab.active {
-    background: #e8e8de;
-    color: #1a1d21;
+    background: var(--border);
+    color: var(--fg);
   }
   .label {
     overflow: hidden;
@@ -63,7 +63,7 @@
     padding: 0 3px;
   }
   .close:hover {
-    background: #d8d8cd;
-    color: #fff;
+    background: var(--hover);
+    color: var(--card);
   }
 </style>

@@ -45,22 +45,22 @@
     gap: 8px;
   }
   .lbl {
-    color: #9aa0a8;
+    color: var(--faint);
     font-size: 0.8125rem;
   }
   .filterrow input {
-    background: #ffffff;
-    border: 1px solid #d5d5ca;
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    color: #1a1d21;
+    color: var(--fg);
     padding: 3px 8px;
     font-size: 0.8125rem;
     width: 300px;
   }
   .mini {
-    background: #e2e2d8;
-    color: #5f6672;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 3px 10px;
@@ -68,7 +68,7 @@
     white-space: nowrap;
   }
   .mini:hover {
-    background: #d8d8cd;
+    background: var(--hover);
   }
   .fields-wrap {
     position: relative;
@@ -77,8 +77,8 @@
     position: absolute;
     top: 30px;
     right: 0;
-    background: #ffffff;
-    border: 1px solid #c7c7bc;
+    background: var(--card);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
     padding: 8px 12px;
     display: flex;

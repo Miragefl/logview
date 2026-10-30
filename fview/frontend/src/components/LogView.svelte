@@ -9,6 +9,7 @@
   export let rowHeight = 20
   export let fontSize = 13 // 日志字号（与菜单字号独立调节）
   export let uiZoom = 1 // 菜单/UI 缩放（日志区反向抵消，日志显示只由 fontSize 决定）
+  export let fontFamily = '' // 日志字体族（空=默认 SF Mono 栈）
   export let follow = false
   export let onFollowPause: (() => void) | undefined = undefined
   export let hits: number[] = []
@@ -127,6 +128,7 @@
   on:scroll={onScroll}
   style:font-size="{fontSize}px"
   style:zoom={String(1 / uiZoom)}
+  style:font-family={fontFamily || "'SF Mono', Menlo, Monaco, monospace"}
 >
   <div class="spacer" style:height="{totalH}px">
     <div class="rows" style:transform="translateY({first * rowHeight}px)">
@@ -184,34 +186,34 @@
   .lineno {
     flex: 0 0 64px;
     text-align: right;
-    color: #b8bdc4;
+    color: var(--faint);
     user-select: none;
   }
   .row {
     cursor: pointer;
   }
   .row:hover {
-    background: #f0f0e7;
+    background: var(--hover);
   }
   .row.hit {
-    background: #f3efd3;
+    background: var(--hit-bg);
   }
   .row.hit-current {
-    background: #f5d76e;
-    outline: 2px solid #b45309;
+    background: var(--hit-current-bg);
+    outline: 2px solid var(--warn);
   }
   .col {
-    color: #6b7280;
+    color: var(--muted-fg);
     flex-shrink: 0;
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .col.time {
-    color: #9aa0a8;
+    color: var(--faint);
   }
   .col.logger {
-    color: #6b7280;
+    color: var(--muted-fg);
   }
   .col.level {
     flex: 0 0 64px;
@@ -221,23 +223,23 @@
     padding: 0 2px;
   }
   .row.lv-error .col.level {
-    color: var(--level-error, #dc2626);
-    border: 1px solid var(--level-error, #fdeaea);
+    color: var(--level-error, var(--error));
+    border: 1px solid var(--level-error, color-mix(in srgb, var(--error) 16%, var(--bg)));
   }
   .row.lv-warn .col.level {
-    color: var(--level-warn, #b45309);
-    border: 1px solid var(--level-warn, #f6e8c8);
+    color: var(--level-warn, var(--warn));
+    border: 1px solid var(--level-warn, color-mix(in srgb, var(--warn) 20%, var(--bg)));
   }
   .row.lv-info .col.level {
-    color: var(--level-info, #2563eb);
+    color: var(--level-info, var(--primary));
     border: 1px solid var(--level-info, #e2ecf8);
   }
   .row.lv-debug .col.level {
-    color: var(--level-debug, #6b7280);
+    color: var(--level-debug, var(--muted-fg));
     border: 1px solid var(--level-debug, #eef0ea);
   }
   .row.lv-error .text {
-    color: #dc2626;
+    color: var(--error);
   }
   .text {
     overflow: hidden;
@@ -248,13 +250,13 @@
     font-weight: 700;
   }
   .text :global(.hl-0) {
-    background: #f6e8c8;
+    background: color-mix(in srgb, var(--warn) 20%, var(--bg));
     color: #92670f;
     border-radius: 2px;
   }
   .text :global(.hl-1) {
     background: #e2ecf8;
-    color: #2563eb;
+    color: var(--primary);
     border-radius: 2px;
   }
   .text :global(.hl-2) {
@@ -263,16 +265,16 @@
     border-radius: 2px;
   }
   .text :global(.fg-red) {
-    color: #dc2626;
+    color: var(--error);
   }
   .text :global(.fg-green) {
-    color: #15803d;
+    color: var(--ok);
   }
   .text :global(.fg-yellow) {
     color: #a16207;
   }
   .text :global(.fg-blue) {
-    color: #2563eb;
+    color: var(--primary);
   }
   .text :global(.fg-magenta) {
     color: #9333ea;
@@ -281,19 +283,19 @@
     color: #0e7490;
   }
   .text :global(.fg-white) {
-    color: #1a1d21;
+    color: var(--fg);
   }
   .text :global(.fg-bright-red) {
-    color: #dc2626;
+    color: var(--error);
   }
   .text :global(.fg-bright-green) {
-    color: #15803d;
+    color: var(--ok);
   }
   .text :global(.fg-bright-yellow) {
     color: #92670f;
   }
   .text :global(.fg-bright-blue) {
-    color: #2563eb;
+    color: var(--primary);
   }
   .text :global(.fg-bright-magenta) {
     color: #e89bf5;
@@ -302,7 +304,7 @@
     color: #7fe8e8;
   }
   .text :global(.fg-bright-white) {
-    color: #ffffff;
+    color: var(--card);
   }
 </style>
 

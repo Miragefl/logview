@@ -1,14 +1,80 @@
-/* fview 全局基础样式：满屏无留白，配色交给 App 组件与主题 CSS 变量 */
+/* fview 全局样式与设计 token（OLED 深色默认；主题切换时覆盖 --bg/--fg/--level-* 等基础变量，
+ * 派生色经 color-mix 自动跟随主题明暗协调） */
+:root {
+  --bg: #0f172a;
+  --fg: #f8fafc;
+  --card: color-mix(in srgb, var(--bg) 84%, #ffffff);
+  --muted: color-mix(in srgb, var(--bg) 72%, var(--fg));
+  --hover: color-mix(in srgb, var(--bg) 88%, var(--fg));
+  --border: color-mix(in srgb, var(--fg) 16%, transparent);
+  --border-strong: color-mix(in srgb, var(--fg) 28%, transparent);
+  --muted-fg: color-mix(in srgb, var(--fg) 62%, var(--bg));
+  --faint: color-mix(in srgb, var(--fg) 40%, var(--bg));
+  --primary: #2563eb;
+  --primary-hover: #3b82f6;
+  --ok: #22c55e;
+  --error: #ef4444;
+  --warn: #f59e0b;
+  --hit-bg: color-mix(in srgb, var(--warn) 18%, var(--bg));
+  --hit-current-bg: color-mix(in srgb, var(--warn) 38%, var(--bg));
+  --font-ui: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  --font-mono: 'SF Mono', Menlo, Monaco, monospace;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg, #ffffff);
-  color: var(--fg, #1a1d21);
-  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
   overflow: hidden;
 }
 
 #app {
   height: 100vh;
+}
+
+/* 全局交互质感：可点元素指针 + 统一过渡 + 可见焦点环（键盘导航） */
+button,
+select,
+input[type='checkbox'],
+.link,
+.entry,
+.res,
+.row[role='button'] {
+  cursor: pointer;
+}
+button,
+select,
+.tab,
+.seg,
+.lv,
+.mini,
+.btn,
+.act,
+.top-btn,
+.hamburger,
+.fold-btn,
+.st-btn,
+.link,
+.entry {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

@@ -74,13 +74,13 @@
   h3 {
     margin: 0;
     font-size: 0.6875rem;
-    color: #9aa0a8;
+    color: var(--faint);
     text-transform: uppercase;
     letter-spacing: 1px;
   }
   .segs {
     display: flex;
-    background: #e2e2d8;
+    background: var(--muted);
     border-radius: 6px;
     padding: 2px;
     gap: 2px;
@@ -90,14 +90,14 @@
     background: none;
     border: none;
     border-radius: 5px;
-    color: #5f6672;
+    color: var(--muted-fg);
     cursor: pointer;
     font-size: 0.75rem;
     padding: 4px 0;
   }
   .seg.on {
-    background: #ffffff;
-    color: #1a1d21;
+    background: var(--card);
+    color: var(--fg);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
   .bars {
@@ -119,7 +119,7 @@
     text-align: left;
   }
   .row:hover {
-    background: #f0f0e7;
+    background: var(--hover);
   }
   .row.dim {
     opacity: 0.45;
@@ -129,16 +129,16 @@
     height: 8px;
     border-radius: 50%;
   }
-  .dot.error { background: #dc2626; }
+  .dot.error { background: var(--error); }
   .dot.warn { background: #d97706; }
-  .dot.info { background: #2563eb; }
-  .dot.debug { background: #6b7280; }
-  .dot.other { background: #a8adb4; }
+  .dot.info { background: var(--primary); }
+  .dot.debug { background: var(--muted-fg); }
+  .dot.other { background: var(--faint); }
   .name {
-    color: #3a3f47;
+    color: var(--fg);
   }
   .count {
-    color: #6b7280;
+    color: var(--muted-fg);
     text-align: right;
     font-variant-numeric: tabular-nums;
   }

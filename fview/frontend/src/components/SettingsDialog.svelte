@@ -25,6 +25,7 @@
     logFontSize: number
     uiFontFamily: string
     uiFontSize: number
+    logFontFamily: string
   }>()
 
   export let tab: 'conn' | 'rules' | 'ui' = 'conn'
@@ -32,6 +33,7 @@
   export let logFontSize = 13
   export let uiFontFamily = ''
   export let uiFontSize = 14
+  export let logFontFamily = '' 
 
   let sshHosts: string[] = []
   let servers: FrpServer[] = []
@@ -122,14 +124,14 @@
 
 <div class="overlay" role="presentation" on:click|self={() => dispatch('close')}>
   <div class="win" role="dialog" aria-label="设置">
-    <div class="head">
-      <div class="tabs">
-        <button class="tab" class:on={tab === 'conn'} on:click={() => (tab = 'conn')}>连接</button>
-        <button class="tab" class:on={tab === 'rules'} on:click={() => (tab = 'rules')}>解析规则</button>
-        <button class="tab" class:on={tab === 'ui'} on:click={() => (tab = 'ui')}>界面</button>
-      </div>
-      <button class="mini" on:click={() => dispatch('close')}>&times;</button>
-    </div>
+    <nav class="nav">
+      <div class="nav-title">设置</div>
+      <button class="nav-item" class:on={tab === 'conn'} on:click={() => (tab = 'conn')}>连接</button>
+      <button class="nav-item" class:on={tab === 'rules'} on:click={() => (tab = 'rules')}>解析规则</button>
+      <button class="nav-item" class:on={tab === 'ui'} on:click={() => (tab = 'ui')}>界面</button>
+      <div class="nav-spacer" />
+      <button class="nav-close" title="关闭" on:click={() => dispatch('close')}>&times;</button>
+    </nav>
     {#if error}
       <div class="errbar">{error}</div>
     {/if}
@@ -282,6 +284,21 @@
         <div class="fontctl">
           <div class="fc-row">
             <div class="fc-label">
+              <span class="fc-name">日志字体</span>
+              <span class="fc-desc">日志行等宽字体族</span>
+            </div>
+            <div class="fc-ctrl">
+              <select class="fc-select" value={logFontFamily} on:change={(e) => dispatch('logFontFamily', e.currentTarget.value)}>
+                <option value="">SF Mono（默认）</option>
+                <option value="Menlo, monospace">Menlo</option>
+                <option value="Monaco, monospace">Monaco</option>
+                <option value="'Courier New', monospace">Courier New</option>
+                <option value="'Andale Mono', monospace">Andale Mono</option>
+              </select>
+            </div>
+          </div>
+          <div class="fc-row">
+            <div class="fc-label">
               <span class="fc-name">界面字体</span>
               <span class="fc-desc">菜单/侧栏/弹窗的字体族（日志区恒为等宽）</span>
             </div>
@@ -350,43 +367,21 @@
   .win {
     width: 780px;
     max-height: 84vh;
-    background: var(--popup-bg, #ffffff);
-    border: 1px solid var(--popup-border, #c7c7bc);
+    background: var(--popup-bg, var(--card));
+    border: 1px solid var(--popup-border, var(--border-strong));
     border-radius: 10px;
     display: flex;
     flex-direction: column;
-    color: var(--fg, #1a1d21);
-  }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 14px 0;
-  }
-  .tabs {
-    display: flex;
-    gap: 4px;
-  }
-  .tab {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: #6b7280;
-    cursor: pointer;
-    font-size: 0.875rem;
-    padding: 8px 14px;
-  }
-  .tab.on {
-    color: #1a1d21;
-    border-bottom-color: #3b5b8c;
+    color: var(--fg, var(--fg));
   }
   .body {
-    padding: 12px 18px 18px;
+    flex: 1;
+    padding: 18px 22px 22px;
     overflow-y: auto;
   }
   h4 {
     margin: 16px 0 8px;
-    color: #6b7280;
+    color: var(--muted-fg);
     font-size: 0.8125rem;
   }
   .addrow {
@@ -398,10 +393,10 @@
   .form input,
   .form select,
   .rulegrid input {
-    background: #ffffff;
-    border: 1px solid #d5d5ca;
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    color: #1a1d21;
+    color: var(--fg);
     padding: 5px 8px;
     font-size: 0.8125rem;
   }
@@ -415,21 +410,21 @@
   }
   th {
     text-align: left;
-    color: #9aa0a8;
+    color: var(--faint);
     font-weight: normal;
     padding: 5px 6px;
-    border-bottom: 1px solid #e2e2d8;
+    border-bottom: 1px solid var(--muted);
   }
   td {
     padding: 5px 6px;
-    border-bottom: 1px solid #ecece4;
+    border-bottom: 1px solid var(--border);
   }
   td.ops {
     text-align: right;
     white-space: nowrap;
   }
   td.dim {
-    color: #9aa0a8;
+    color: var(--faint);
   }
   .form {
     display: flex;
@@ -437,25 +432,25 @@
     align-items: center;
     margin: 10px 0;
     padding: 10px;
-    background: #ffffff;
+    background: var(--card);
     border-radius: 6px;
     flex-wrap: wrap;
   }
   .btn {
-    background: #e2e2d8;
-    color: #3a3f47;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     padding: 5px 14px;
     cursor: pointer;
     font-size: 0.8125rem;
   }
   .btn:hover {
-    background: #d8d8cd;
+    background: var(--hover);
   }
   .btn.primary {
-    background: #3b5b8c;
-    color: #fff;
+    background: var(--primary);
+    color: var(--card);
     border: none;
   }
   .btn.primary:disabled {
@@ -463,28 +458,28 @@
     cursor: default;
   }
   .mini {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 9px;
     font-size: 0.75rem;
   }
   .mini.danger:hover {
-    color: #dc2626;
-    border-color: #eac4c4;
+    color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 40%, transparent);
   }
   .hint {
-    color: #9aa0a8;
+    color: var(--faint);
     font-size: 0.75rem;
     margin: 8px 0 0;
   }
   .errbar {
     padding: 7px 18px;
-    color: #dc2626;
+    color: var(--error);
     font-size: 0.8125rem;
-    border-bottom: 1px solid #eac4c4;
+    border-bottom: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
   }
   .rulegrid {
     display: grid;
@@ -495,7 +490,7 @@
     font-size: 0.8125rem;
   }
   .rulegrid.head-row {
-    color: #9aa0a8;
+    color: var(--faint);
     font-size: 0.75rem;
   }
   .rules-foot {

@@ -69,7 +69,7 @@
   h3 {
     margin: 0 0 6px;
     font-size: 0.8125rem;
-    color: #9aa0a8;
+    color: var(--faint);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -79,9 +79,9 @@
   .act {
     display: block;
     width: 100%;
-    background: #e2e2d8;
-    color: #3a3f47;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
     border-radius: 5px;
     padding: 6px 8px;
     cursor: pointer;
@@ -89,15 +89,15 @@
     margin-bottom: 4px;
     text-align: left;
   }
-  .act:hover { background: #d8d8cd; }
-  .act.follow { color: #15803d; }
+  .act:hover { background: var(--hover); }
+  .act.follow { color: var(--ok); }
   .item { display: flex; }
   .link {
     flex: 1;
     min-width: 0;
     background: none;
     border: none;
-    color: #2563eb;
+    color: var(--primary);
     cursor: pointer;
     text-align: left;
     font-size: 0.9375rem;
@@ -107,27 +107,27 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .link:hover { background: #f0f0e7; }
+  .link:hover { background: var(--hover); }
   .mini {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 7px;
     font-size: 0.8125rem;
   }
-  .mini:hover { color: #1a1d21; }
+  .mini:hover { color: var(--fg); }
   .foot { margin-top: auto; }
   .cfg {
     width: 100%;
     background: none;
-    border: 1px dashed #c7c7bc;
+    border: 1px dashed var(--border-strong);
     border-radius: 5px;
-    color: #6b7280;
+    color: var(--muted-fg);
     cursor: pointer;
     font-size: 0.9375rem;
     padding: 6px;
   }
-  .cfg:hover { color: #1a1d21; border-color: #4a6fa5; }
+  .cfg:hover { color: var(--fg); border-color: var(--primary-hover); }
 </style>

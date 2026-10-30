@@ -61,40 +61,40 @@
     padding: 4px 10px;
   }
   .prompt {
-    color: #9aa0a8;
+    color: var(--faint);
     font-family: 'SF Mono', Menlo, monospace;
   }
   input {
     flex: 1;
-    background: #ffffff;
-    border: 1px solid #d5d5ca;
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    color: #1a1d21;
+    color: var(--fg);
     padding: 3px 8px;
     font-size: 0.875rem;
     font-family: 'SF Mono', Menlo, monospace;
   }
   input:focus {
     outline: none;
-    border-color: #3b5b8c;
+    border-color: var(--primary);
   }
   input.error {
-    border-color: #eac4c4;
+    border-color: color-mix(in srgb, var(--error) 40%, transparent);
   }
   .err {
-    color: #dc2626;
+    color: var(--error);
     font-size: 0.8125rem;
     white-space: nowrap;
   }
   .count {
-    color: #6b7280;
+    color: var(--muted-fg);
     font-size: 0.8125rem;
     white-space: nowrap;
   }
   .nav {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;

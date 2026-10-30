@@ -119,19 +119,19 @@
   .dialog {
     width: 640px;
     height: 480px;
-    background: var(--popup-bg, #ffffff);
-    border: 1px solid var(--popup-border, #c7c7bc);
+    background: var(--popup-bg, var(--card));
+    border: 1px solid var(--popup-border, var(--border-strong));
     border-radius: 10px;
     display: flex;
     flex-direction: column;
-    color: var(--fg, #1a1d21);
+    color: var(--fg, var(--fg));
   }
   .head {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 8px 14px;
-    border-bottom: 1px solid #e2e2d8;
+    border-bottom: 1px solid var(--muted);
     font-size: 0.9375rem;
     font-family: 'SF Mono', Menlo, monospace;
   }
@@ -139,14 +139,14 @@
     display: flex;
     gap: 6px;
     padding: 6px 14px;
-    border-bottom: 1px solid #e2e2d8;
+    border-bottom: 1px solid var(--muted);
   }
   .bar input {
     flex: 1;
-    background: #ffffff;
-    border: 1px solid #d5d5ca;
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    color: #1a1d21;
+    color: var(--fg);
     padding: 3px 8px;
     font-size: 0.875rem;
     font-family: 'SF Mono', Menlo, monospace;
@@ -155,20 +155,20 @@
     display: flex;
     gap: 6px;
     padding: 6px 14px;
-    border-bottom: 1px solid #e2e2d8;
+    border-bottom: 1px solid var(--muted);
   }
   .pwbar input {
     flex: 1;
-    background: #ffffff;
-    border: 1px solid #eac4c4;
+    background: var(--card);
+    border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
     border-radius: 4px;
-    color: #1a1d21;
+    color: var(--fg);
     padding: 3px 8px;
     font-size: 0.875rem;
   }
   .err {
     padding: 6px 14px;
-    color: #dc2626;
+    color: var(--error);
     font-size: 0.8125rem;
   }
   .list {
@@ -187,22 +187,22 @@
     text-overflow: ellipsis;
   }
   .entry:hover {
-    background: #f0f0e7;
+    background: var(--hover);
   }
   .entry.dir {
-    color: #2563eb;
+    color: var(--primary);
   }
   .mini {
-    background: #e2e2d8;
-    color: #6b7280;
-    border: 1px solid #c7c7bc;
+    background: var(--muted);
+    color: var(--muted-fg);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
     font-size: 0.8125rem;
   }
   .hint {
-    color: #9aa0a8;
+    color: var(--faint);
     padding: 8px 10px;
     font-size: 0.875rem;
   }
