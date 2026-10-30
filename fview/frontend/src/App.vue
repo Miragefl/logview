@@ -10,6 +10,7 @@ import type { LevelFilterMode } from './lib/filter'
 import TabBar from './components/tabs/TabBar.vue'
 import Welcome from './components/Welcome.vue'
 import SidebarRail from './components/sources/SidebarRail.vue'
+import SettingsDialog from './components/dialogs/SettingsDialog.vue'
 import Toolbar from './components/logview/Toolbar.vue'
 import LogView from './components/logview/LogView.vue'
 import StatusBar from './components/logview/StatusBar.vue'
@@ -125,6 +126,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         </main>
       </div>
     </div>
+    <SettingsDialog v-model:show="settingsShow" />
   </n-config-provider>
 </template>
 
