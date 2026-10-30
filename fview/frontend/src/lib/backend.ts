@@ -15,6 +15,8 @@ import {
   ThemeCSS,
   CurrentTheme,
   SetTheme,
+  Rules,
+  SaveRules,
 } from '../../wailsjs/go/main/App'
 import type { LineDTO, TabInfo } from './stores/tabs'
 
@@ -125,4 +127,19 @@ export function currentTheme(): Promise<string> {
 }
 export function setTheme(name: string): Promise<void> {
   return SetTheme(name)
+}
+
+export interface RuleConfig {
+  name: string
+  pattern: string
+  fallback: boolean
+}
+
+export async function getRules(): Promise<RuleConfig[]> {
+  const raw = await Rules()
+  return (raw ?? []).map((r) => ({ name: r.Name, pattern: r.Pattern, fallback: r.Fallback }))
+}
+
+export function saveRules(rules: RuleConfig[]): Promise<void> {
+  return SaveRules(rules.map((r) => ({ Name: r.name, Pattern: r.pattern, Parse: '', Fallback: r.fallback })))
 }

@@ -42,12 +42,20 @@ export function PickAndOpenFile(arg1) {
   return window['go']['main']['App']['PickAndOpenFile'](arg1);
 }
 
+export function Rules() {
+  return window['go']['main']['App']['Rules']();
+}
+
 export function SaveFields(arg1) {
   return window['go']['main']['App']['SaveFields'](arg1);
 }
 
 export function SaveHides(arg1) {
   return window['go']['main']['App']['SaveHides'](arg1);
+}
+
+export function SaveRules(arg1) {
+  return window['go']['main']['App']['SaveRules'](arg1);
 }
 
 export function SetFollow(arg1, arg2) {

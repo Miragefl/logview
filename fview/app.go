@@ -127,6 +127,23 @@ func (a *App) Lines(tabID string, start, end int) []fview.LineDTO {
 	return a.mgr.Lines(tabID, start, end)
 }
 
+// Rules 读共享 rules.yaml 解析规则列表（正则配置 UI 数据源）。
+func (a *App) Rules() []parser.RuleConfig {
+	if res, err := parser.LoadRules(rulesPath()); err == nil {
+		return res.Rules
+	}
+	return nil
+}
+
+// SaveRules 写回解析规则并重载（已开 tab 不受影响，新 tab 生效）。
+func (a *App) SaveRules(rules []parser.RuleConfig) error {
+	if err := fview.UpdateRules(rulesPath(), rules); err != nil {
+		return err
+	}
+	a.loadParsers()
+	return nil
+}
+
 // Hides 读共享 rules.yaml 隐藏词。
 func (a *App) Hides() []string {
 	if res, err := parser.LoadRules(rulesPath()); err == nil {

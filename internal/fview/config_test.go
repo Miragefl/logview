@@ -74,3 +74,25 @@ func TestUpdateHidesCreatesMissingFile(t *testing.T) {
 		t.Error("落盘文件应含默认解析规则（纯 fview 新用户开箱即用）")
 	}
 }
+
+// TestUpdateRules 规则列表写回（正则配置 UI 的共享正本持久化）。
+func TestUpdateRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rules.yaml")
+	if err := UpdateRules(path, []parser.RuleConfig{
+		{Name: "my-log", Pattern: `(?P<time>\S+) (?P<level>\w+) (?P<message>.*)`},
+		{Name: "plain-text", Pattern: `(?P<message>.*)`, Fallback: true},
+	}); err != nil {
+		t.Fatalf("UpdateRules: %v", err)
+	}
+	res, err := parser.LoadRules(path)
+	if err != nil {
+		t.Fatalf("LoadRules: %v", err)
+	}
+	if len(res.Rules) != 2 {
+		t.Fatalf("写回后规则数 = %d, 期望 2", len(res.Rules))
+	}
+	if res.Rules[0].Name != "my-log" || !res.Rules[1].Fallback {
+		t.Errorf("规则内容不符: %+v", res.Rules)
+	}
+}

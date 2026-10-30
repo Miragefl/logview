@@ -72,3 +72,8 @@ func UpdateHides(path string, hides []string) error {
 func UpdateFields(path string, fields []parser.FieldConfig) error {
 	return updateRulesKey(path, "fields", fields)
 }
+
+// UpdateRules 写回共享 rules.yaml 的解析规则列表（正则配置 UI 持久化）。
+func UpdateRules(path string, rules []parser.RuleConfig) error {
+	return updateRulesKey(path, "rules", rules)
+}

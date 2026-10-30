@@ -1,26 +1,14 @@
-html {
-    background-color: rgba(27, 38, 54, 1);
-    text-align: center;
-    color: white;
-}
-
+/* fview 全局基础样式：满屏无留白，配色交给 App 组件与主题 CSS 变量 */
+html,
 body {
-    margin: 0;
-    color: white;
-    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
-}
-
-@font-face {
-    font-family: "Nunito";
-    font-style: normal;
-    font-weight: 400;
-    src: local(""),
-    url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
+  margin: 0;
+  padding: 0;
+  background: var(--bg, #10161f);
+  color: var(--fg, #e6e6e6);
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  overflow: hidden;
 }
 
 #app {
-    height: 100vh;
-    text-align: center;
+  height: 100vh;
 }

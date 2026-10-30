@@ -23,9 +23,13 @@ export function ParseQuery(arg1:string):Promise<fview.QueryMeta>;
 
 export function PickAndOpenFile(arg1:boolean):Promise<string>;
 
+export function Rules():Promise<Array<parser.RuleConfig>>;
+
 export function SaveFields(arg1:Array<parser.FieldConfig>):Promise<void>;
 
 export function SaveHides(arg1:Array<string>):Promise<void>;
+
+export function SaveRules(arg1:Array<parser.RuleConfig>):Promise<void>;
 
 export function SetFollow(arg1:string,arg2:boolean):Promise<void>;
 

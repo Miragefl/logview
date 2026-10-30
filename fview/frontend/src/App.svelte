@@ -7,6 +7,7 @@
   import LogView from './components/LogView.svelte'
   import Welcome from './components/Welcome.svelte'
   import DetailPanel from './components/DetailPanel.svelte'
+  import RulesPanel from './components/RulesPanel.svelte'
   import {
     openFileViaDialog,
     setFollow,
@@ -46,6 +47,10 @@
   let hides: string[] = []
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
+  let showRules = false
+  let fontSize = Number(localStorage.getItem('fview.font-size')) || 12
+  $: rowHeight = fontSize + 8
+  $: localStorage.setItem('fview.font-size', String(fontSize))
   let themes: string[] = []
   let theme = ''
 
@@ -130,6 +135,19 @@
       e.preventDefault()
       searchBar.focus()
     }
+    // 字号缩放：Cmd/Ctrl + =/-/0（输入框外）
+    if ((e.metaKey || e.ctrlKey) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault()
+        fontSize = Math.min(24, fontSize + 1)
+      } else if (e.key === '-') {
+        e.preventDefault()
+        fontSize = Math.max(9, fontSize - 1)
+      } else if (e.key === '0') {
+        e.preventDefault()
+        fontSize = 12
+      }
+    }
   }
 </script>
 
@@ -138,6 +156,7 @@
   <header class="topbar">
     <button class="open-btn" on:click={() => handleOpen(false)}>打开文件</button>
     <button class="open-btn follow" on:click={() => handleOpen(true)}>打开并跟踪</button>
+    <button class="top-btn" on:click={() => (showRules = true)}>规则</button>
     <TabBar />
     <div class="spacer" />
     {#if themes.length}
@@ -171,6 +190,11 @@
         />
         <div class="pane-head">
           <span>{current.info.label} · {current.info.lines} 行</span>
+          <span class="zoom">
+            <button class="follow-toggle" on:click={() => (fontSize = Math.max(9, fontSize - 1))} title="缩小 (Cmd+-)">A-</button>
+            <span class="zoom-val">{fontSize}px</span>
+            <button class="follow-toggle" on:click={() => (fontSize = Math.min(24, fontSize + 1))} title="放大 (Cmd+=)">A+</button>
+          </span>
           <button class="follow-toggle" class:on={current.info.follow} on:click={handleFollowToggle}>
             {current.info.follow ? '跟随中 ↓' : '已暂停'}
           </button>
@@ -179,6 +203,8 @@
           <LogView
             lines={current.lines}
             follow={current.info.follow}
+            {fontSize}
+            {rowHeight}
             onFollowPause={() => current && current.info.follow && handleFollowToggle()}
             {hits}
             currentLine={hitPos >= 0 ? hits[hitPos] : -1}
@@ -195,6 +221,9 @@
       </div>
     {/if}
   </main>
+  {#if showRules}
+    <RulesPanel onClose={() => (showRules = false)} />
+  {/if}
 </div>
 
 <style>
@@ -275,6 +304,28 @@
   .follow-toggle.on {
     color: #7ee29a;
     border-color: #2f7d4f;
+  }
+  .top-btn {
+    background: #1c2836;
+    color: #8b98a9;
+    border: 1px solid #2a3a4f;
+    border-radius: 6px 6px 0 0;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .top-btn:hover {
+    color: #e6e6e6;
+  }
+  .zoom {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .zoom-val {
+    font-size: 11px;
+    min-width: 32px;
+    text-align: center;
   }
   .pane-body {
     flex: 1;

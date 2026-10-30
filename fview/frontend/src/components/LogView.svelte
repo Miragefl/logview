@@ -7,6 +7,7 @@
 
   export let lines: LineDTO[] = []
   export let rowHeight = 20
+  export let fontSize = 12 // 字号（App 统一调节，行高=字号+8）
   export let follow = false
   export let onFollowPause: (() => void) | undefined = undefined
   export let hits: number[] = []
@@ -105,7 +106,13 @@
   }
 </script>
 
-<div class="viewport" bind:this={viewport} bind:clientHeight={viewportH} on:scroll={onScroll}>
+<div
+  class="viewport"
+  bind:this={viewport}
+  bind:clientHeight={viewportH}
+  on:scroll={onScroll}
+  style:font-size="{fontSize}px"
+>
   <div class="spacer" style:height="{totalH}px">
     <div class="rows" style:transform="translateY({first * rowHeight}px)">
       {#each slice as r (r.ln.seq)}
@@ -119,6 +126,7 @@
           on:click={() => onLineClick?.(r.ln)}
           on:keydown={(e) => e.key === 'Enter' && onLineClick?.(r.ln)}
         >
+          <span class="lineno">{r.ln.seq}</span>
           {#if visibleFields.includes('time')}<span class="col time">{fieldVal(r.ln, 'time')}</span>{/if}
           {#if visibleFields.includes('level')}<span class="col level">{r.ln.level}</span>{/if}
           {#if visibleFields.includes('thread')}<span class="col">{r.ln.thread}</span>{/if}
@@ -139,7 +147,6 @@
     height: 100%;
     overflow-y: auto;
     font-family: 'SF Mono', Menlo, monospace;
-    font-size: 12px;
     position: relative;
   }
   .spacer {
@@ -157,6 +164,13 @@
     gap: 8px;
     padding: 0 10px;
     white-space: nowrap;
+    font-size: inherit;
+  }
+  .lineno {
+    flex: 0 0 64px;
+    text-align: right;
+    color: #3d4f66;
+    user-select: none;
   }
   .row {
     cursor: pointer;

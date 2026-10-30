@@ -81,6 +81,24 @@ export namespace parser {
 	        this.Width = source["Width"];
 	    }
 	}
+	export class RuleConfig {
+	    Name: string;
+	    Pattern: string;
+	    Parse: string;
+	    Fallback: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuleConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Pattern = source["Pattern"];
+	        this.Parse = source["Parse"];
+	        this.Fallback = source["Fallback"];
+	    }
+	}
 
 }
 
