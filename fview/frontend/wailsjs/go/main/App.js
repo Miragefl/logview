@@ -6,6 +6,14 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function Fields() {
+  return window['go']['main']['App']['Fields']();
+}
+
+export function Hides() {
+  return window['go']['main']['App']['Hides']();
+}
+
 export function Lines(arg1, arg2, arg3) {
   return window['go']['main']['App']['Lines'](arg1, arg2, arg3);
 }
@@ -24,6 +32,14 @@ export function ParseQuery(arg1) {
 
 export function PickAndOpenFile(arg1) {
   return window['go']['main']['App']['PickAndOpenFile'](arg1);
+}
+
+export function SaveFields(arg1) {
+  return window['go']['main']['App']['SaveFields'](arg1);
+}
+
+export function SaveHides(arg1) {
+  return window['go']['main']['App']['SaveHides'](arg1);
 }
 
 export function SetFollow(arg1, arg2) {

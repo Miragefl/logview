@@ -63,3 +63,24 @@ export namespace fview {
 
 }
 
+export namespace parser {
+	
+	export class FieldConfig {
+	    Name: string;
+	    Visible: boolean;
+	    Width: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FieldConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Visible = source["Visible"];
+	        this.Width = source["Width"];
+	    }
+	}
+
+}
+

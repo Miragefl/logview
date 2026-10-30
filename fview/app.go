@@ -33,13 +33,18 @@ func NewApp() *App {
 	return a
 }
 
-// loadParsers 加载共享 rules.yaml 解析规则（与 TUI 同一份正本）；失败降级为全兜底行。
-func (a *App) loadParsers() {
+// rulesPath 共享 rules.yaml 路径（与 TUI 同一份正本）。
+func rulesPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return
+		return ""
 	}
-	res, err := parser.LoadRules(filepath.Join(home, ".config", "logview", "rules.yaml"))
+	return filepath.Join(home, ".config", "logview", "rules.yaml")
+}
+
+// loadParsers 加载共享 rules.yaml 解析规则；失败降级为全兜底行。
+func (a *App) loadParsers() {
+	res, err := parser.LoadRules(rulesPath())
 	if err != nil {
 		return
 	}
@@ -119,4 +124,30 @@ func (a *App) MatchLines(tabID, query string) []int {
 // Lines 拉取 tab 行窗口（end<0 表示到末尾）。
 func (a *App) Lines(tabID string, start, end int) []fview.LineDTO {
 	return a.mgr.Lines(tabID, start, end)
+}
+
+// Hides 读共享 rules.yaml 隐藏词。
+func (a *App) Hides() []string {
+	if res, err := parser.LoadRules(rulesPath()); err == nil {
+		return res.Hides
+	}
+	return nil
+}
+
+// SaveHides 写回隐藏词（共享正本，TUI 下次启动生效）。
+func (a *App) SaveHides(list []string) error {
+	return fview.UpdateHides(rulesPath(), list)
+}
+
+// Fields 读字段显隐配置。
+func (a *App) Fields() []parser.FieldConfig {
+	if res, err := parser.LoadRules(rulesPath()); err == nil {
+		return res.Fields
+	}
+	return nil
+}
+
+// SaveFields 写回字段显隐（共享正本）。
+func (a *App) SaveFields(fields []parser.FieldConfig) error {
+	return fview.UpdateFields(rulesPath(), fields)
 }

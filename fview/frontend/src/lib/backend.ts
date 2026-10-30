@@ -65,3 +65,22 @@ export function parseQuery(input: string): Promise<QueryMeta> {
 export function matchLines(tabId: string, query: string): Promise<number[]> {
   return MatchLines(tabId, query)
 }
+
+export interface FieldConfig {
+  name: string
+  visible: boolean
+  width?: number
+}
+
+export function getHides(): Promise<string[]> {
+  return Hides()
+}
+export function saveHides(list: string[]): Promise<void> {
+  return SaveHides(list)
+}
+export function getFields(): Promise<FieldConfig[]> {
+  return Fields()
+}
+export function saveFields(fields: FieldConfig[]): Promise<void> {
+  return SaveFields(fields)
+}

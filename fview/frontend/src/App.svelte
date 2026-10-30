@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import TabBar from './components/TabBar.svelte'
   import SearchBar from './components/SearchBar.svelte'
+  import FilterBar from './components/FilterBar.svelte'
   import Welcome from './components/Welcome.svelte'
   import LogView from './components/LogView.svelte'
   import {
@@ -12,6 +13,11 @@
   parseQuery,
   matchLines,
   type QueryMeta,
+  getHides,
+  saveHides,
+  getFields,
+  saveFields,
+  type FieldConfig,
 } from './lib/backend'
   import {
     tabsStore,
@@ -21,6 +27,7 @@
     applyClosedEvent,
     toggleFollow,
   } from './lib/stores/tabs'
+  import type { LevelFilterMode } from './lib/filter'
 
   $: current = $tabsStore.find((t) => t.info.id === $activeTab)
 
@@ -28,6 +35,28 @@
   let queryMeta: QueryMeta | null = null
   let hits: number[] = []
   let hitPos = -1
+  let levelMode: LevelFilterMode = 'A'
+  let hides: string[] = []
+  let fields: FieldConfig[] = []
+  const DEFAULT_FIELDS = ['time', 'level', 'message']
+  $: visibleFields = fields.length
+      ? fields.filter((f) => f.visible).map((f) => f.name)
+      : DEFAULT_FIELDS
+
+  onMount(async () => {
+    hides = await getHides()
+    fields = await getFields()
+  })
+
+  async function handleSaveHides(list: string[]) {
+    hides = list
+    await saveHides(list)
+  }
+
+  async function handleToggleField(name: string) {
+    fields = fields.map((f) => (f.name === name ? { ...f, visible: !f.visible } : f))
+    await saveFields(fields)
+  }
 
   async function runSearch(q: string) {
     if (!current || !q.trim()) {
@@ -92,6 +121,14 @@
       <Welcome />
     {:else}
       <div class="pane">
+        <FilterBar
+          {levelMode}
+          {hides}
+          {fields}
+          onLevel={(m) => (levelMode = m)}
+          onSaveHides={handleSaveHides}
+          onToggleField={handleToggleField}
+        />
         <SearchBar
           bind:this={searchBar}
           meta={queryMeta}
@@ -112,6 +149,10 @@
           onFollowPause={() => current && current.info.follow && handleFollowToggle()}
           {hits}
           currentLine={hitPos >= 0 ? hits[hitPos] : -1}
+          {levelMode}
+          hidesList={hides}
+          highlightWords={queryMeta?.highlightKeywords ?? []}
+          {visibleFields}
         />
       </div>
     {/if}
