@@ -87,9 +87,11 @@ async function open(r: { kind: string; name: string }) {
 .head {
   color: var(--dim, #8b98a9);
 }
+/* 上下堆叠占满面板宽：并排 115px 会截断长 namespace（验收反馈①） */
 .sel-row {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
 }
 .list {
   list-style: none;

@@ -2,6 +2,7 @@
 // 图标条：四源 + 底部设置；点图标从旁滑出面板，再点同图标或点日志区收起。
 // 图标为 22px 描边 SVG（emoji 跨平台渲染不稳且辨识度差——验收反馈②）。
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { isPortalNode } from '../../lib/portal'
 import LocalPanel from './LocalPanel.vue'
 import SSHPanel from './SSHPanel.vue'
 import K8sPanel from './K8sPanel.vue'
@@ -24,9 +25,11 @@ function toggle(k: Pane) {
   active.value = active.value === k ? '' : k
 }
 
-/** 点击 rail/面板外收起（面板在 rail 容器内，点日志区即收）。 */
+/** 点击 rail/面板外收起（面板在 rail 容器内，点日志区即收）；
+ * naive-ui 的下拉菜单/弹窗 portal 到 body，不在 rail DOM 内——portal 容器内的
+ * 点击（选 namespace、点密码框）不算外部，否则面板被误卸载（验收反馈①）。 */
 function onDocClick(e: MouseEvent) {
-  if (!railEl.value?.contains(e.target as Node)) {
+  if (!railEl.value?.contains(e.target as Node) && !isPortalNode(e.target as Node)) {
     active.value = ''
   }
 }
