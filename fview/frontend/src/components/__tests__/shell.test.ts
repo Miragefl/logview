@@ -7,11 +7,13 @@ import naive from 'naive-ui'
 vi.mock('../../lib/backend', () => ({
   subscribeTabEvents: vi.fn(),
   closeTab: vi.fn().mockResolvedValue(undefined),
+  getHides: vi.fn().mockResolvedValue([]),
   usageRecent: vi.fn().mockResolvedValue(['file:/tmp/app.log', 'file:/tmp/error.log']),
   currentTheme: vi.fn().mockResolvedValue(''),
   themeNames: vi.fn().mockResolvedValue([]),
   themeCSS: vi.fn().mockResolvedValue({}),
   setTheme: vi.fn().mockResolvedValue(undefined),
+  getMemStats: vi.fn().mockResolvedValue(71 * 1024 * 1024),
 }))
 
 import App from '../../App.vue'

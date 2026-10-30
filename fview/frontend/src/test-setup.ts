@@ -19,3 +19,14 @@ if (g.localStorage === undefined) {
     writable: true,
   })
 }
+
+// jsdom 无 ResizeObserver：LogView 视口跟踪需要，给空 stub（布局尺寸测试走纯函数）
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver =
+    ResizeObserverStub
+}
