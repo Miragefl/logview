@@ -1,7 +1,11 @@
-import {defineConfig} from 'vite'
-import {svelte} from '@sveltejs/vite-plugin-svelte'
+/// <reference types="vitest/config" />
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
 
-// https://vitejs.dev/config/
+// Vue 工程配置（vitest 走 jsdom：组件渲染测试需要 DOM）
 export default defineConfig({
-  plugins: [svelte()]
+  plugins: [vue()],
+  test: {
+    environment: 'jsdom',
+  },
 })

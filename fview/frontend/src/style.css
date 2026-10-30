@@ -1,84 +1,8 @@
-/* fview 全局样式 — Apple 设计语言（macOS Sonoma 风格）
- * 浅色 vibrancy 为主：窗口 #f5f5f7、内容白卡、系统蓝 #007aff、毛玻璃侧栏；
- * 主题切换时覆盖 --bg/--fg，派生色经 color-mix 自动协调明暗 */
-:root {
-  --bg: #f5f5f7;
-  --fg: #1d1d1f;
-  --card: #ffffff;
-  --muted: rgba(0, 0, 0, 0.05);
-  --hover: rgba(0, 0, 0, 0.06);
-  --border: rgba(0, 0, 0, 0.1);
-  --border-strong: rgba(0, 0, 0, 0.16);
-  --muted-fg: #86868b;
-  --faint: #aeaeb2;
-  --primary: #007aff;
-  --primary-hover: #2b90ff;
-  --ok: #34c759;
-  --error: #ff3b30;
-  --warn: #ff9500;
-  --hit-bg: rgba(255, 149, 0, 0.14);
-  --hit-current-bg: rgba(255, 149, 0, 0.32);
-  --sidebar-bg: rgba(245, 245, 247, 0.82);
-  --font-ui: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
-  --font-mono: 'SF Mono', Menlo, Monaco, monospace;
-}
-
+/* 全局基础样式（主题变量由 ThemeCSS 运行时注入 :root） */
 html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-ui);
-  overflow: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-
+body,
 #app {
-  height: 100vh;
-}
-
-/* 交互质感：指针 + 平滑过渡 + 键盘焦点环（macOS focus ring 蓝） */
-button,
-select,
-input[type='checkbox'],
-.link,
-.entry,
-.res,
-.row[role='button'] {
-  cursor: pointer;
-}
-button,
-select,
-.tab,
-.seg,
-.lv,
-.mini,
-.btn,
-.act,
-.top-btn,
-.hamburger,
-.fold-btn,
-.st-btn,
-.link,
-.entry,
-.nav-item {
-  transition:
-    background-color 160ms ease,
-    color 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
-}
-:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--primary) 50%, transparent);
-  outline-offset: 1px;
-  border-radius: 6px;
-}
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
 }
