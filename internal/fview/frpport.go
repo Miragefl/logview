@@ -1,43 +1,75 @@
-// FRP 一键连接编排：AcquireTunnel（引用计数复用）→ 本地端口 SSH 浏览/tail。
-// 浏览临时隧道未转化为 tab 时由 ReleaseFRPBrowse 显式回收（Review Focus 2），
-// 进程退出 KillAllTunnels 兜底（main.go OnShutdown）。
+// FRP 一键连接编排支持：公共校验、浏览目标拼接、幂等隧道注册表。
+// 引用计数语义（frp.Tunnel）：Acquire +1 / Cleanup -1，归零杀 frpc——
+// 浏览侧经 BrowseRegistry 幂等持有一份，tab 侧由 FRPSource 自持（Final Review C1-C3）。
 package fview
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/stream"
 )
 
-// frpBrowsePlan 校验连接并给出浏览目标（host 恒 127.0.0.1，port 由隧道实例注入）。
-func frpBrowsePlan(conn frp.Conn, servers map[string]frp.Server) (host string, port int, err error) {
-	srv, ok := servers[conn.Server]
+// FRPBrowseHost FRP 浏览的 SSH 目标：必须带连接用户名（丢 user@ 会以本地
+// 用户名连远端 sshd，认证死循环——Final Review C1）；空用户兜底 root。
+func FRPBrowseHost(conn frp.Conn) string {
+	user := conn.User
+	if user == "" {
+		user = "root"
+	}
+	return user + "@127.0.0.1"
+}
+
+// FRPLookup 校验连接引用并返回 conn+server（BrowseFRP/OpenFRPTab 公共段）。
+func FRPLookup(st *frp.Store, connName string) (frp.Conn, frp.Server, error) {
+	conn, ok := st.FindConn(connName)
 	if !ok {
-		return "", 0, fmt.Errorf("连接 %s 引用的服务器 %s 不存在，先在连接管理中配置", conn.Name, conn.Server)
+		return frp.Conn{}, frp.Server{}, fmt.Errorf("连接 %s 不存在", connName)
 	}
-	_ = srv // 端口来自 AcquireTunnel 返回的 Tunnel（测试经 port 参数注入）
-	return "127.0.0.1", 0, nil
+	srv, ok := st.FindServer(conn.Server)
+	if !ok {
+		return frp.Conn{}, frp.Server{}, fmt.Errorf("连接 %s 引用的服务器 %s 不存在，先在连接配置中添加", connName, conn.Server)
+	}
+	return conn, srv, nil
 }
 
-// BrowseFRPFRPSource 建隧道浏览的装配入口在 app.go（需 Manager/emit 上下文）；
-// 此处仅提供纯计划逻辑与隧道释放。
-func ReleaseTunnelIfIdle(t *frp.Tunnel) {
-	if t != nil {
-		_ = t.Cleanup()
-	}
+// BrowseRegistry 浏览会话的隧道注册表：锁保护并发（Final Review C2），
+// 幂等持有——同连接重复浏览复用已有引用，不重复 Acquire（Final Review C3）。
+type BrowseRegistry[T any] struct {
+	mu      sync.Mutex
+	tunnels map[string]T
 }
 
-// openFRPSource 供 app.go 调用：AcquireTunnel + NewFRPSource 组装（user 默认 root）。
-func openFRPSource(conn frp.Conn, server frp.Server, path string, tailLines int) (*stream.FRPSource, *frp.Tunnel, error) {
-	if _, _, err := frpBrowsePlan(conn, map[string]frp.Server{server.Name: server}); err != nil {
-		return nil, nil, err
+// NewBrowseRegistry 构造空注册表。
+func NewBrowseRegistry[T any]() *BrowseRegistry[T] {
+	return &BrowseRegistry[T]{tunnels: make(map[string]T)}
+}
+
+// Get 幂等取引用：已有则复用；无则 acquire 新建并登记（失败不登记）。
+func (r *BrowseRegistry[T]) Get(connName string, acquire func() (T, error)) (T, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if t, ok := r.tunnels[connName]; ok {
+		return t, nil
 	}
-	t, err := frp.AcquireTunnel(server, conn.SK, conn.Proxy)
+	t, err := acquire()
 	if err != nil {
-		return nil, nil, fmt.Errorf("建立隧道失败: %w", err)
+		var zero T
+		return zero, err
 	}
-	src := stream.NewFRPSource(conn.Name, t, conn.User, path, tailLines)
-	src.SetBufferLines(100000)
-	return src, t, nil
+	r.tunnels[connName] = t
+	return t, nil
+}
+
+// Release 释放并移除引用（cleanup 在锁外执行）。
+func (r *BrowseRegistry[T]) Release(connName string, cleanup func(T)) {
+	r.mu.Lock()
+	t, ok := r.tunnels[connName]
+	if ok {
+		delete(r.tunnels, connName)
+	}
+	r.mu.Unlock()
+	if ok && cleanup != nil {
+		cleanup(t)
+	}
 }

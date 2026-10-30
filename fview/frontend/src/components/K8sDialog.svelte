@@ -12,6 +12,7 @@
   let resources: K8sResource[] = []
   let loading = ''
   let error = ''
+  let loadSeq = 0 // 级联竞态守卫：旧响应不得覆盖新选择（Final Review I3）
 
   onMount(async () => {
     loading = 'contexts'
@@ -29,34 +30,44 @@
   })
 
   async function loadNamespaces() {
+    const seq = ++loadSeq
     loading = 'ns'
     error = ''
     try {
-      namespaces = await getK8sNamespaces(kubeCtx)
+      const ns = await getK8sNamespaces(kubeCtx)
+      if (seq !== loadSeq) return
+      namespaces = ns
       namespace = namespaces.includes('default') ? 'default' : (namespaces[0] ?? '')
       await loadResources()
     } catch (e) {
-      error = String(e)
+      if (seq === loadSeq) error = String(e)
     } finally {
-      loading = ''
+      if (seq === loadSeq) loading = ''
     }
   }
 
   async function openRes(kind: string, name: string) {
-    await openK8sTab(`${kind}/${name}`, namespace, kubeCtx, 0)
-    dispatch('close')
+    try {
+      await openK8sTab(`${kind}/${name}`, namespace, kubeCtx, 0)
+      dispatch('close')
+    } catch (e) {
+      error = String(e) // 开 tab 失败不留僵弹层（Final Review I2）
+    }
   }
 
   async function loadResources() {
     if (!namespace) return
+    const seq = ++loadSeq
     loading = 'res'
     error = ''
     try {
-      resources = await getK8sResources(kubeCtx, namespace)
+      const res = await getK8sResources(kubeCtx, namespace)
+      if (seq !== loadSeq) return
+      resources = res
     } catch (e) {
-      error = String(e)
+      if (seq === loadSeq) error = String(e)
     } finally {
-      loading = ''
+      if (seq === loadSeq) loading = ''
     }
   }
 </script>

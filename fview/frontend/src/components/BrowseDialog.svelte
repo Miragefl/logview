@@ -15,8 +15,12 @@
   let error = ''
   let password = ''
   let needPassword = false
+  let pwShow = false // 手动展开密码栏（错误正则未命中时也有入口，Final Review M2）
+  let inflight = false // 连按 Enter 的并发守卫
 
   async function load() {
+    if (inflight) return
+    inflight = true
     loading = true
     error = ''
     try {
@@ -31,6 +35,7 @@
       }
     } finally {
       loading = false
+      inflight = false
     }
   }
 
@@ -39,7 +44,9 @@
       path = path === '/' ? `/${name}` : `${path}/${name}`
       load()
     } else {
-      onPick(`${path}/${name}`, password)
+      // 根目录特判防 //name（Final Review M3）
+      const fp = path === '/' ? `/${name}` : `${path}/${name}`
+      onPick(fp, password)
     }
   }
 
@@ -62,8 +69,9 @@
       <button class="mini" on:click={goUp}>↑ 上级</button>
       <input bind:value={path} on:keydown={(e) => e.key === 'Enter' && load()} />
       <button class="mini" on:click={load}>刷新</button>
+      <button class="mini" on:click={() => (pwShow = !pwShow)}>{pwShow ? '隐藏密码' : '密码'}</button>
     </div>
-    {#if needPassword}
+    {#if needPassword || pwShow}
       <div class="pwbar">
         <input
           type="password"

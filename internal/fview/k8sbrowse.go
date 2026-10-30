@@ -73,7 +73,9 @@ func runKubectl(kubeCtx string, args ...string) (string, error) {
 	if kubeCtx != "" {
 		full = append([]string{"--context", kubeCtx}, args...)
 	}
-	out, err := exec.Command("kubectl", full...).Output()
+	// CombinedOutput：kubectl 失败时 stderr 携带真因（context 失效/集群不通/RBAC），
+	// 解析函数的 warning/表头容错可消化混入行（Final Review I5）
+	out, err := exec.Command("kubectl", full...).CombinedOutput()
 	return string(out), err
 }
 
@@ -95,7 +97,8 @@ func K8sNamespaces(kubeCtx string) ([]string, error) {
 	return ParseNamespaces(out), nil
 }
 
-// K8sResources 列出指定 namespace 的工作负载资源（deploy/sts/ds/pod）。
+// K8sResources 列出指定 namespace 的工作负载资源（deployments/statefulsets/pods——
+// 对齐 ParseK8sResource 支持面，daemonset 暂不支持）。
 func K8sResources(kubeCtx, namespace string) ([]ResourceDTO, error) {
 	out, err := runKubectl(kubeCtx, "-n", namespace, "get", "deployments,statefulsets,pods", "-o", "name")
 	if err != nil {

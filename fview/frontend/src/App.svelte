@@ -11,6 +11,7 @@
   import BrowseDialog from './components/BrowseDialog.svelte'
   import ConnectionPanel from './components/ConnectionPanel.svelte'
   import K8sDialog from './components/K8sDialog.svelte'
+  import ConfigDialog from './components/ConfigDialog.svelte'
   import {
     openFileViaDialog,
     setFollow,
@@ -56,6 +57,15 @@
   let detailLine: LineDTO | null = null
   let showRules = false
   let showK8s = false
+  let showConfig = false
+  let connPanel: ConnectionPanel
+
+  // 全局 UI 缩放（CSS zoom，WKWebView 等比重排整个界面；日志行字号另有 A± 独立调节）
+  let uiZoom = Number(localStorage.getItem('fview.ui-zoom')) || 1.0
+  $: {
+    ;(document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(uiZoom)
+    localStorage.setItem('fview.ui-zoom', String(uiZoom))
+  }
   let browseHost = '' // 非空即弹远程目录浏览
   let browseFRPConn: FrpConn | null = null
   let fontSize = Number(localStorage.getItem('fview.font-size')) || 12
@@ -145,17 +155,17 @@
       e.preventDefault()
       searchBar.focus()
     }
-    // 字号缩放：Cmd/Ctrl + =/-/0（输入框外）
+    // 全局缩放：Cmd/Ctrl + =/-/0（整个 UI 等比放大，输入框外）
     if ((e.metaKey || e.ctrlKey) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
-        fontSize = Math.min(24, fontSize + 1)
+        uiZoom = Math.min(1.6, Math.round((uiZoom + 0.05) * 100) / 100)
       } else if (e.key === '-') {
         e.preventDefault()
-        fontSize = Math.max(9, fontSize - 1)
+        uiZoom = Math.max(0.8, Math.round((uiZoom - 0.05) * 100) / 100)
       } else if (e.key === '0') {
         e.preventDefault()
-        fontSize = 12
+        uiZoom = 1.0
       }
     }
   }
@@ -164,10 +174,12 @@
 <svelte:window on:keydown={onKeydown} />
 <div class="app">
   <ConnectionPanel
+    bind:this={connPanel}
     on:openLocal={(e) => handleOpen(e.detail)}
     on:browseSSH={(e) => (browseHost = e.detail)}
     on:openFRP={(e) => (browseFRPConn = e.detail)}
     on:openK8s={() => (showK8s = true)}
+    on:openConfig={() => (showConfig = true)}
   />
   <div class="main-col">
   <header class="topbar">
@@ -242,12 +254,22 @@
   {#if showK8s}
     <K8sDialog on:close={() => (showK8s = false)} />
   {/if}
+  {#if showConfig}
+    <ConfigDialog
+      on:close={() => (showConfig = false)}
+      on:changed={() => connPanel?.refresh()}
+    />
+  {/if}
   {#if browseHost}
     <BrowseDialog
       host={browseHost}
       onPick={async (path, password) => {
-        const id = await openSSHTab(browseHost, path, 0, password)
-        if (id) browseHost = ''
+        try {
+          const id = await openSSHTab(browseHost, path, 0, password)
+          if (id) browseHost = ''
+        } catch (e) {
+          window.alert(`SSH 开 tab 失败：${e}`)
+        }
       }}
       onClose={() => (browseHost = '')}
     />
@@ -258,9 +280,14 @@
       frpConn={browseFRPConn}
       onPick={async (path, password) => {
         const name = browseFRPConn?.name ?? ''
-        const id = await openFRPTab(name, path, 0, password)
-        await releaseFRPBrowse(name) // 开 tab 后释放浏览侧引用（tab 持有自己那份）
-        if (id) browseFRPConn = null
+        try {
+          const id = await openFRPTab(name, path, 0, password)
+          if (id) browseFRPConn = null
+        } catch (e) {
+          window.alert(`FRP 开 tab 失败：${e}`)
+        } finally {
+          await releaseFRPBrowse(name).catch(() => {}) // 开 tab 成败都释放浏览侧引用
+        }
       }}
       onClose={async () => {
         if (browseFRPConn) await releaseFRPBrowse(browseFRPConn.name)

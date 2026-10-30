@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/fview"
@@ -21,11 +22,15 @@ const defaultBufSize = 100000
 type App struct {
 	ctx context.Context
 	mgr *fview.Manager
+	// browse FRP 浏览会话的幂等隧道注册表（Final Review C2/C3）
+	browse *fview.BrowseRegistry[*frp.Tunnel]
+	// storeMu 连接库 CRUD 串行化（frp.Store 的 Upsert/Delete/Find 裸操作非线程安全，Final Review I1）
+	storeMu sync.Mutex
 }
 
 // NewApp 构造后端绑定根（emit 直连 Wails EventsEmit）。
 func NewApp() *App {
-	a := &App{}
+	a := &App{browse: fview.NewBrowseRegistry[*frp.Tunnel]()}
 	a.mgr = fview.NewManager(func(event string, data any) {
 		if a.ctx != nil {
 			wruntime.EventsEmit(a.ctx, event, data)
@@ -223,6 +228,8 @@ func (a *App) FrpConns() []frp.Conn { return frp.LoadStore().Conns }
 
 // UpsertFrpServer 新增/更新 frps 服务器并落盘。
 func (a *App) UpsertFrpServer(s frp.Server) error {
+	a.storeMu.Lock()
+	defer a.storeMu.Unlock()
 	st := frp.LoadStore()
 	st.UpsertServer(s)
 	return st.Save()
@@ -230,6 +237,8 @@ func (a *App) UpsertFrpServer(s frp.Server) error {
 
 // UpsertFrpConn 新增/更新连接记录并落盘（确认日志路径也走这里）。
 func (a *App) UpsertFrpConn(c frp.Conn) error {
+	a.storeMu.Lock()
+	defer a.storeMu.Unlock()
 	st := frp.LoadStore()
 	st.UpsertConn(c)
 	return st.Save()
@@ -237,6 +246,8 @@ func (a *App) UpsertFrpConn(c frp.Conn) error {
 
 // DeleteFrpServer 删除服务器（仍被连接引用时返回错误）。
 func (a *App) DeleteFrpServer(name string) error {
+	a.storeMu.Lock()
+	defer a.storeMu.Unlock()
 	st := frp.LoadStore()
 	if err := st.DeleteServer(name); err != nil {
 		return err
@@ -246,6 +257,8 @@ func (a *App) DeleteFrpServer(name string) error {
 
 // DeleteFrpConn 删除连接记录。
 func (a *App) DeleteFrpConn(name string) error {
+	a.storeMu.Lock()
+	defer a.storeMu.Unlock()
 	st := frp.LoadStore()
 	st.DeleteConn(name)
 	return st.Save()
@@ -261,6 +274,8 @@ func (a *App) SSHHosts() []string {
 
 // AddSSHHost 新增 SSH 主机（去重）写回共享正本。
 func (a *App) AddSSHHost(host string) error {
+	a.storeMu.Lock()
+	defer a.storeMu.Unlock()
 	hosts := a.SSHHosts()
 	for _, h := range hosts {
 		if h == host {
@@ -272,6 +287,8 @@ func (a *App) AddSSHHost(host string) error {
 
 // RemoveSSHHost 移除 SSH 主机。
 func (a *App) RemoveSSHHost(host string) error {
+	a.storeMu.Lock()
+	defer a.storeMu.Unlock()
 	hosts := a.SSHHosts()
 	out := hosts[:0]
 	for _, h := range hosts {
@@ -326,27 +343,22 @@ func (a *App) OpenSSHTab(host, path string, tailLines int, password string) (str
 
 // ---- FRP 一键连接（AcquireTunnel 引用计数复用）----
 
-// browseTunnels 浏览会话持有的隧道（connName → tunnel）；
-// 开 tab 时 OpenFRPTab 再 Acquire 同 key 复用，ReleaseFRPBrowse 释放浏览侧引用。
-var browseTunnels = map[string]*frp.Tunnel{}
-
-// BrowseFRP 建隧道浏览远程目录；认证失败返回明确错误供前端弹密码。
+// BrowseFRP 建隧道浏览远程目录（幂等持有一份引用，重复浏览复用不累加——
+// Final Review C3；认证失败返回明确错误供前端弹密码）。
 func (a *App) BrowseFRP(connName, path, password string) ([]DirEntryDTO, error) {
 	st := frp.LoadStore()
-	conn, ok := st.FindConn(connName)
-	if !ok {
-		return nil, fmt.Errorf("连接 %s 不存在", connName)
+	conn, srv, err := fview.FRPLookup(st, connName)
+	if err != nil {
+		return nil, err
 	}
-	srv, ok := st.FindServer(conn.Server)
-	if !ok {
-		return nil, fmt.Errorf("连接 %s 引用的服务器 %s 不存在", connName, conn.Server)
-	}
-	t, err := frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
+	t, err := a.browse.Get(connName, func() (*frp.Tunnel, error) {
+		return frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("建立隧道失败: %w", err)
 	}
-	browseTunnels[connName] = t
-	entries, err := stream.SSHListDirWithPort("127.0.0.1", t.LocalPort(), path, password)
+	// 目标必须带连接用户名（Final Review C1：丢 user@ 会以本地用户名连远端 sshd）
+	entries, err := stream.SSHListDirWithPort(fview.FRPBrowseHost(conn), t.LocalPort(), path, password)
 	if err != nil {
 		return nil, err
 	}
@@ -357,12 +369,9 @@ func (a *App) BrowseFRP(connName, path, password string) ([]DirEntryDTO, error) 
 	return out, nil
 }
 
-// ReleaseFRPBrowse 释放浏览侧隧道引用（浏览未转化为 tab 时不泄漏 frpc，Review Focus 2）。
+// ReleaseFRPBrowse 释放浏览侧隧道引用（浏览未转化为 tab 时不泄漏 frpc）。
 func (a *App) ReleaseFRPBrowse(connName string) {
-	if t, ok := browseTunnels[connName]; ok {
-		_ = t.Cleanup()
-		delete(browseTunnels, connName)
-	}
+	a.browse.Release(connName, func(t *frp.Tunnel) { _ = t.Cleanup() })
 }
 
 // OpenFRPTab FRP 一键连接开 tab（同 key 隧道复用；tab 关闭时 FRPSource.Cleanup 减引用）。
@@ -371,13 +380,9 @@ func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) 
 		tailLines = defaultBufSize
 	}
 	st := frp.LoadStore()
-	conn, ok := st.FindConn(connName)
-	if !ok {
-		return "", fmt.Errorf("连接 %s 不存在", connName)
-	}
-	srv, ok := st.FindServer(conn.Server)
-	if !ok {
-		return "", fmt.Errorf("连接 %s 引用的服务器 %s 不存在", connName, conn.Server)
+	conn, srv, err := fview.FRPLookup(st, connName)
+	if err != nil {
+		return "", err
 	}
 	t, err := frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
 	if err != nil {
