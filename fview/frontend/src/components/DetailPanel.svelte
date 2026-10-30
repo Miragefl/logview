@@ -48,8 +48,8 @@
   .detail {
     width: 360px;
     flex-shrink: 0;
-    border-left: 1px solid #1c2836;
-    background: #0c1119;
+    border-left: 1px solid #e2e2d8;
+    background: #ebebe2;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
@@ -60,17 +60,17 @@
     justify-content: space-between;
     align-items: center;
     padding: 6px 10px;
-    color: #8b98a9;
-    border-bottom: 1px solid #1c2836;
+    color: #6b7280;
+    border-bottom: 1px solid #e2e2d8;
   }
   .head > div {
     display: flex;
     gap: 4px;
   }
   .mini {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
@@ -82,7 +82,7 @@
   }
   th {
     text-align: left;
-    color: #46586e;
+    color: #9aa0a8;
     padding: 4px 10px;
     width: 70px;
     vertical-align: top;
@@ -90,18 +90,18 @@
   }
   td {
     padding: 4px 10px 4px 0;
-    color: #c5cdd8;
+    color: #3a3f47;
     word-break: break-all;
   }
   tr {
-    border-bottom: 1px solid #141d29;
+    border-bottom: 1px solid #ecece4;
   }
   .raw {
     padding: 8px 10px;
     flex: 1;
   }
   .raw-label {
-    color: #46586e;
+    color: #9aa0a8;
     margin-bottom: 4px;
   }
   pre {
@@ -109,8 +109,8 @@
     white-space: pre-wrap;
     word-break: break-all;
     font-family: 'SF Mono', Menlo, monospace;
-    color: #c5cdd8;
-    background: #10161f;
+    color: #3a3f47;
+    background: #ffffff;
     padding: 8px;
     border-radius: 6px;
   }

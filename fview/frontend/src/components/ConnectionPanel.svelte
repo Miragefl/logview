@@ -22,7 +22,7 @@
   onMount(refresh)
 </script>
 
-<aside class="panel">
+<div class="sources">
   <section>
     <h3>本地文件</h3>
     <button class="act" on:click={() => dispatch('openLocal', false)}>打开文件</button>
@@ -63,25 +63,13 @@
   <div class="foot">
     <button class="cfg" on:click={() => dispatch('openConfig', 'conn')}>⚙ 设置</button>
   </div>
-</aside>
+</div>
 
 <style>
-  .panel {
-    width: 220px;
-    flex-shrink: 0;
-    background: #0c1119;
-    border-right: 1px solid #1c2836;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 10px 8px;
-    font-size: 15px;
-  }
   h3 {
     margin: 0 0 6px;
     font-size: 13px;
-    color: #46586e;
+    color: #9aa0a8;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -91,9 +79,9 @@
   .act {
     display: block;
     width: 100%;
-    background: #1c2836;
-    color: #c5cdd8;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #3a3f47;
+    border: 1px solid #c7c7bc;
     border-radius: 5px;
     padding: 6px 8px;
     cursor: pointer;
@@ -101,15 +89,15 @@
     margin-bottom: 4px;
     text-align: left;
   }
-  .act:hover { background: #243348; }
-  .act.follow { color: #7ee29a; }
+  .act:hover { background: #d8d8cd; }
+  .act.follow { color: #15803d; }
   .item { display: flex; }
   .link {
     flex: 1;
     min-width: 0;
     background: none;
     border: none;
-    color: #7cc0ff;
+    color: #2563eb;
     cursor: pointer;
     text-align: left;
     font-size: 15px;
@@ -119,27 +107,27 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .link:hover { background: #1a2534; }
+  .link:hover { background: #f0f0e7; }
   .mini {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 7px;
     font-size: 13px;
   }
-  .mini:hover { color: #e6e6e6; }
+  .mini:hover { color: #1a1d21; }
   .foot { margin-top: auto; }
   .cfg {
     width: 100%;
     background: none;
-    border: 1px dashed #2a3a4f;
+    border: 1px dashed #c7c7bc;
     border-radius: 5px;
-    color: #8b98a9;
+    color: #6b7280;
     cursor: pointer;
     font-size: 15px;
     padding: 6px;
   }
-  .cfg:hover { color: #e6e6e6; border-color: #3671cc; }
+  .cfg:hover { color: #1a1d21; border-color: #4a6fa5; }
 </style>

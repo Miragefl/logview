@@ -291,12 +291,12 @@
   .win {
     width: 780px;
     max-height: 84vh;
-    background: var(--popup-bg, #16202e);
-    border: 1px solid var(--popup-border, #2a3a4f);
+    background: var(--popup-bg, #ffffff);
+    border: 1px solid var(--popup-border, #c7c7bc);
     border-radius: 10px;
     display: flex;
     flex-direction: column;
-    color: var(--fg, #e6e6e6);
+    color: var(--fg, #1a1d21);
   }
   .head {
     display: flex;
@@ -312,14 +312,14 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #6b7f95;
+    color: #6b7280;
     cursor: pointer;
     font-size: 14px;
     padding: 8px 14px;
   }
   .tab.on {
-    color: #e6e6e6;
-    border-bottom-color: #2a5db0;
+    color: #1a1d21;
+    border-bottom-color: #3b5b8c;
   }
   .body {
     padding: 12px 18px 18px;
@@ -327,7 +327,7 @@
   }
   h4 {
     margin: 16px 0 8px;
-    color: #6b7f95;
+    color: #6b7280;
     font-size: 13px;
   }
   .addrow {
@@ -339,10 +339,10 @@
   .form input,
   .form select,
   .rulegrid input {
-    background: #10161f;
-    border: 1px solid #24354a;
+    background: #ffffff;
+    border: 1px solid #d5d5ca;
     border-radius: 4px;
-    color: #e6e6e6;
+    color: #1a1d21;
     padding: 5px 8px;
     font-size: 13px;
   }
@@ -356,21 +356,21 @@
   }
   th {
     text-align: left;
-    color: #46586e;
+    color: #9aa0a8;
     font-weight: normal;
     padding: 5px 6px;
-    border-bottom: 1px solid #1c2836;
+    border-bottom: 1px solid #e2e2d8;
   }
   td {
     padding: 5px 6px;
-    border-bottom: 1px solid #141d29;
+    border-bottom: 1px solid #ecece4;
   }
   td.ops {
     text-align: right;
     white-space: nowrap;
   }
   td.dim {
-    color: #46586e;
+    color: #9aa0a8;
   }
   .form {
     display: flex;
@@ -378,24 +378,24 @@
     align-items: center;
     margin: 10px 0;
     padding: 10px;
-    background: #10161f;
+    background: #ffffff;
     border-radius: 6px;
     flex-wrap: wrap;
   }
   .btn {
-    background: #1c2836;
-    color: #c5cdd8;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #3a3f47;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     padding: 5px 14px;
     cursor: pointer;
     font-size: 13px;
   }
   .btn:hover {
-    background: #243348;
+    background: #d8d8cd;
   }
   .btn.primary {
-    background: #2a5db0;
+    background: #3b5b8c;
     color: #fff;
     border: none;
   }
@@ -404,28 +404,28 @@
     cursor: default;
   }
   .mini {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 9px;
     font-size: 12px;
   }
   .mini.danger:hover {
-    color: #ff6b6b;
-    border-color: #8a3038;
+    color: #dc2626;
+    border-color: #eac4c4;
   }
   .hint {
-    color: #46586e;
+    color: #9aa0a8;
     font-size: 12px;
     margin: 8px 0 0;
   }
   .errbar {
     padding: 7px 18px;
-    color: #ff6b6b;
+    color: #dc2626;
     font-size: 13px;
-    border-bottom: 1px solid #8a3038;
+    border-bottom: 1px solid #eac4c4;
   }
   .rulegrid {
     display: grid;
@@ -436,7 +436,7 @@
     font-size: 13px;
   }
   .rulegrid.head-row {
-    color: #46586e;
+    color: #9aa0a8;
     font-size: 12px;
   }
   .rules-foot {
@@ -450,7 +450,7 @@
     text-align: right;
   }
   .ui-note {
-    color: #8fa1b8;
+    color: #5f6672;
     font-size: 13px;
     line-height: 2;
   }

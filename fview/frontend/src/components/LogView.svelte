@@ -169,34 +169,34 @@
   .lineno {
     flex: 0 0 64px;
     text-align: right;
-    color: #3d4f66;
+    color: #b8bdc4;
     user-select: none;
   }
   .row {
     cursor: pointer;
   }
   .row:hover {
-    background: #1a2534;
+    background: #f0f0e7;
   }
   .row.hit {
-    background: #3a3214;
+    background: #f3efd3;
   }
   .row.hit-current {
-    background: #5c4a1e;
-    outline: 1px solid #ffb84d;
+    background: #f6e8c8;
+    outline: 1px solid #b45309;
   }
   .col {
-    color: #8b98a9;
+    color: #6b7280;
     flex-shrink: 0;
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .col.time {
-    color: #46586e;
+    color: #9aa0a8;
   }
   .col.logger {
-    color: #6b7f95;
+    color: #6b7280;
   }
   .col.level {
     flex: 0 0 64px;
@@ -206,23 +206,23 @@
     padding: 0 2px;
   }
   .row.lv-error .col.level {
-    color: var(--level-error, #ff6b6b);
-    border: 1px solid var(--level-error, #5c1e24);
+    color: var(--level-error, #dc2626);
+    border: 1px solid var(--level-error, #fdeaea);
   }
   .row.lv-warn .col.level {
-    color: var(--level-warn, #ffb84d);
-    border: 1px solid var(--level-warn, #5c4a1e);
+    color: var(--level-warn, #b45309);
+    border: 1px solid var(--level-warn, #f6e8c8);
   }
   .row.lv-info .col.level {
-    color: var(--level-info, #6bb9ff);
-    border: 1px solid var(--level-info, #1e3a5c);
+    color: var(--level-info, #2563eb);
+    border: 1px solid var(--level-info, #e2ecf8);
   }
   .row.lv-debug .col.level {
-    color: var(--level-debug, #8b98a9);
-    border: 1px solid var(--level-debug, #2a2f36);
+    color: var(--level-debug, #6b7280);
+    border: 1px solid var(--level-debug, #eef0ea);
   }
   .row.lv-error .text {
-    color: #ff8585;
+    color: #dc2626;
   }
   .text {
     overflow: hidden;
@@ -233,13 +233,13 @@
     font-weight: 700;
   }
   .text :global(.hl-0) {
-    background: #5c4a1e;
-    color: #ffe066;
+    background: #f6e8c8;
+    color: #92670f;
     border-radius: 2px;
   }
   .text :global(.hl-1) {
-    background: #1e3a5c;
-    color: #7cc0ff;
+    background: #e2ecf8;
+    color: #2563eb;
     border-radius: 2px;
   }
   .text :global(.hl-2) {
@@ -248,37 +248,37 @@
     border-radius: 2px;
   }
   .text :global(.fg-red) {
-    color: #e05555;
+    color: #dc2626;
   }
   .text :global(.fg-green) {
-    color: #5cb878;
+    color: #15803d;
   }
   .text :global(.fg-yellow) {
-    color: #d8c04a;
+    color: #a16207;
   }
   .text :global(.fg-blue) {
-    color: #5a9bd8;
+    color: #2563eb;
   }
   .text :global(.fg-magenta) {
-    color: #c76bd8;
+    color: #9333ea;
   }
   .text :global(.fg-cyan) {
-    color: #4ec9c9;
+    color: #0e7490;
   }
   .text :global(.fg-white) {
-    color: #e6e6e6;
+    color: #1a1d21;
   }
   .text :global(.fg-bright-red) {
-    color: #ff6b6b;
+    color: #dc2626;
   }
   .text :global(.fg-bright-green) {
-    color: #7ee29a;
+    color: #15803d;
   }
   .text :global(.fg-bright-yellow) {
-    color: #ffe066;
+    color: #92670f;
   }
   .text :global(.fg-bright-blue) {
-    color: #7cc0ff;
+    color: #2563eb;
   }
   .text :global(.fg-bright-magenta) {
     color: #e89bf5;

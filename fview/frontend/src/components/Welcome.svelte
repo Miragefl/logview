@@ -12,12 +12,12 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #5c6b7f;
+    color: #8a9098;
     gap: 8px;
   }
   h1 {
     margin: 0;
     letter-spacing: 2px;
-    color: #8b98a9;
+    color: #6b7280;
   }
 </style>

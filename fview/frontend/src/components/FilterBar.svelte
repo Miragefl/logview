@@ -72,16 +72,16 @@
   .lv {
     width: 24px;
     height: 20px;
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 3px;
     cursor: pointer;
   }
   .lv.on {
-    background: #2a5db0;
+    background: #3b5b8c;
     color: #fff;
-    border-color: #3671cc;
+    border-color: #4a6fa5;
   }
   .hides {
     display: flex;
@@ -90,22 +90,22 @@
     flex: 1;
   }
   .lbl {
-    color: #46586e;
+    color: #9aa0a8;
   }
   .hides input {
-    background: #10161f;
-    border: 1px solid #24354a;
+    background: #ffffff;
+    border: 1px solid #d5d5ca;
     border-radius: 4px;
-    color: #e6e6e6;
+    color: #1a1d21;
     padding: 2px 8px;
     font-size: 13px;
     flex: 1;
     max-width: 320px;
   }
   .mini {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
@@ -118,8 +118,8 @@
     position: absolute;
     top: 26px;
     right: 0;
-    background: #16202e;
-    border: 1px solid #2a3a4f;
+    background: #ffffff;
+    border: 1px solid #c7c7bc;
     border-radius: 6px;
     padding: 8px 12px;
     display: flex;

@@ -129,39 +129,39 @@
   .dialog {
     width: 560px;
     height: 460px;
-    background: var(--popup-bg, #16202e);
-    border: 1px solid var(--popup-border, #2a3a4f);
+    background: var(--popup-bg, #ffffff);
+    border: 1px solid var(--popup-border, #c7c7bc);
     border-radius: 10px;
     display: flex;
     flex-direction: column;
-    color: var(--fg, #e6e6e6);
+    color: var(--fg, #1a1d21);
   }
   .head {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 8px 14px;
-    border-bottom: 1px solid #1c2836;
+    border-bottom: 1px solid #e2e2d8;
     font-size: 15px;
   }
   .bar {
     display: flex;
     gap: 6px;
     padding: 6px 14px;
-    border-bottom: 1px solid #1c2836;
+    border-bottom: 1px solid #e2e2d8;
   }
   .bar select {
     flex: 1;
-    background: #10161f;
-    border: 1px solid #24354a;
+    background: #ffffff;
+    border: 1px solid #d5d5ca;
     border-radius: 4px;
-    color: #e6e6e6;
+    color: #1a1d21;
     padding: 3px 6px;
     font-size: 14px;
   }
   .err {
     padding: 4px 14px;
-    color: #ff6b6b;
+    color: #dc2626;
     font-size: 13px;
   }
   .list {
@@ -170,7 +170,7 @@
     padding: 6px;
   }
   .hint {
-    color: #46586e;
+    color: #9aa0a8;
     padding: 8px 10px;
     font-size: 14px;
   }
@@ -185,16 +185,16 @@
     text-overflow: ellipsis;
   }
   .res:hover {
-    background: #1a2534;
+    background: #f0f0e7;
   }
   .kind {
-    color: #7cc0ff;
+    color: #2563eb;
     margin-right: 6px;
   }
   .mini {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;

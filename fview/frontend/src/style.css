@@ -3,8 +3,8 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg, #10161f);
-  color: var(--fg, #e6e6e6);
+  background: var(--bg, #ffffff);
+  color: var(--fg, #1a1d21);
   font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
   overflow: hidden;
 }

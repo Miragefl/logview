@@ -36,8 +36,8 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: #16202e;
-    color: #8b98a9;
+    background: #ffffff;
+    color: #6b7280;
     border: none;
     border-radius: 6px 6px 0 0;
     cursor: pointer;
@@ -46,8 +46,8 @@
     max-width: 220px;
   }
   .tab.active {
-    background: #1f2c3f;
-    color: #e6e6e6;
+    background: #e8e8de;
+    color: #1a1d21;
   }
   .label {
     overflow: hidden;
@@ -63,7 +63,7 @@
     padding: 0 3px;
   }
   .close:hover {
-    background: #3a4a61;
+    background: #d8d8cd;
     color: #fff;
   }
 </style>

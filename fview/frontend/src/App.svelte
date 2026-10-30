@@ -12,6 +12,7 @@
   import ConnectionPanel from './components/ConnectionPanel.svelte'
   import K8sDialog from './components/K8sDialog.svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
+  import SeverityPanel from './components/SeverityPanel.svelte'
   import {
     openFileViaDialog,
     setFollow,
@@ -171,6 +172,7 @@
 
 <svelte:window on:keydown={onKeydown} />
 <div class="app">
+  <aside class="sidebar">
   <ConnectionPanel
     bind:this={connPanel}
     on:openLocal={(e) => handleOpen(e.detail)}
@@ -182,6 +184,12 @@
       showSettings = true
     }}
   />
+  {#if current}
+    <div class="sev-wrap">
+      <SeverityPanel lines={current.lines} {levelMode} onLevel={(m) => (levelMode = m)} />
+    </div>
+  {/if}
+  </aside>
 
   <div class="main-col">
     <header class="topbar">
@@ -317,9 +325,24 @@
     width: 100vw;
     height: 100vh;
     display: flex;
-    background: var(--bg, #0d131c);
-    color: var(--fg, #dbe4ee);
+    background: var(--bg, #f7f7f2);
+    color: var(--fg, #1a1d21);
     font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  }
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: #ebebe2;
+    border-right: 1px solid #e2e2d8;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 10px 10px;
+  }
+  .sev-wrap {
+    border-top: 1px solid #e2e2d8;
+    padding-top: 10px;
   }
   .main-col {
     flex: 1;
@@ -333,29 +356,29 @@
     align-items: center;
     gap: 8px;
     padding: 4px 10px 0;
-    background: #0c1119;
-    border-bottom: 1px solid #1c2836;
+    background: #ebebe2;
+    border-bottom: 1px solid #e2e2d8;
     min-height: 34px;
   }
   .spacer { flex: 1; }
   .theme-select {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     padding: 3px 6px;
     font-size: 14px;
   }
   .top-btn {
-    background: #1c2836;
-    color: #c5cdd8;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #3a3f47;
+    border: 1px solid #c7c7bc;
     border-radius: 6px;
     padding: 4px 12px;
     cursor: pointer;
     font-size: 15px;
   }
-  .top-btn:hover { background: #243348; }
+  .top-btn:hover { background: #d8d8cd; }
   main { flex: 1; overflow: hidden; }
   .pane {
     width: 100%;
@@ -368,8 +391,8 @@
     align-items: stretch;
     gap: 8px;
     padding: 6px 10px;
-    background: #0c1119;
-    border-bottom: 1px solid #1c2836;
+    background: #ebebe2;
+    border-bottom: 1px solid #e2e2d8;
   }
   .pane-body { flex: 1; display: flex; overflow: hidden; }
   .statusbar {
@@ -377,40 +400,40 @@
     align-items: center;
     gap: 14px;
     padding: 3px 12px;
-    background: #0c1119;
-    border-top: 1px solid #1c2836;
+    background: #ebebe2;
+    border-top: 1px solid #e2e2d8;
     font-size: 14px;
-    color: #8fa1b8;
+    color: #5f6672;
     min-height: 26px;
   }
   .st-file {
     font-family: 'SF Mono', Menlo, monospace;
-    color: #c5cdd8;
+    color: #3a3f47;
     max-width: 320px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .st-follow {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     padding: 1px 10px;
     cursor: pointer;
     font-size: 14px;
   }
-  .st-follow.on { color: #7ee29a; border-color: #2f7d4f; }
+  .st-follow.on { color: #15803d; border-color: #15803d; }
   .zoom { display: flex; align-items: center; gap: 4px; }
   .zoom-val { min-width: 40px; text-align: center; }
   .st-btn {
-    background: #1c2836;
-    color: #8b98a9;
-    border: 1px solid #2a3a4f;
+    background: #e2e2d8;
+    color: #6b7280;
+    border: 1px solid #c7c7bc;
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 8px;
     font-size: 14px;
   }
-  .st-btn:hover { color: #e6e6e6; }
+  .st-btn:hover { color: #1a1d21; }
 </style>
