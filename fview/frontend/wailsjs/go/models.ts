@@ -26,6 +26,22 @@ export namespace fview {
 	        this.raw = source["raw"];
 	    }
 	}
+	export class QueryMeta {
+	    parseError: string;
+	    highlightKeywords: string[];
+	    timeRangeHint: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new QueryMeta(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.parseError = source["parseError"];
+	        this.highlightKeywords = source["highlightKeywords"];
+	        this.timeRangeHint = source["timeRangeHint"];
+	    }
+	}
 	export class TabInfo {
 	    id: string;
 	    label: string;

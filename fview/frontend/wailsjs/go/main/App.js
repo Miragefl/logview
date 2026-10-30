@@ -10,8 +10,16 @@ export function Lines(arg1, arg2, arg3) {
   return window['go']['main']['App']['Lines'](arg1, arg2, arg3);
 }
 
+export function MatchLines(arg1, arg2) {
+  return window['go']['main']['App']['MatchLines'](arg1, arg2);
+}
+
 export function OpenFileTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['OpenFileTab'](arg1, arg2, arg3);
+}
+
+export function ParseQuery(arg1) {
+  return window['go']['main']['App']['ParseQuery'](arg1);
 }
 
 export function PickAndOpenFile(arg1) {

@@ -6,7 +6,11 @@ export function CloseTab(arg1:string):Promise<void>;
 
 export function Lines(arg1:string,arg2:number,arg3:number):Promise<Array<fview.LineDTO>>;
 
+export function MatchLines(arg1:string,arg2:string):Promise<Array<number>>;
+
 export function OpenFileTab(arg1:Array<string>,arg2:number,arg3:boolean):Promise<string>;
+
+export function ParseQuery(arg1:string):Promise<fview.QueryMeta>;
 
 export function PickAndOpenFile(arg1:boolean):Promise<string>;
 

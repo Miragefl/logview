@@ -2,9 +2,17 @@
   // fview 主框架：顶栏（打开按钮 + tab 栏）+ 主区（欢迎页/虚拟滚动日志视图）。
   import { onMount } from 'svelte'
   import TabBar from './components/TabBar.svelte'
+  import SearchBar from './components/SearchBar.svelte'
   import Welcome from './components/Welcome.svelte'
   import LogView from './components/LogView.svelte'
-  import { openFileViaDialog, setFollow, subscribeTabEvents } from './lib/backend'
+  import {
+  openFileViaDialog,
+  setFollow,
+  subscribeTabEvents,
+  parseQuery,
+  matchLines,
+  type QueryMeta,
+} from './lib/backend'
   import {
     tabsStore,
     activeTab,
@@ -15,6 +23,41 @@
   } from './lib/stores/tabs'
 
   $: current = $tabsStore.find((t) => t.info.id === $activeTab)
+
+  let searchBar: SearchBar
+  let queryMeta: QueryMeta | null = null
+  let hits: number[] = []
+  let hitPos = -1
+
+  async function runSearch(q: string) {
+    if (!current || !q.trim()) {
+      queryMeta = null
+      hits = []
+      hitPos = -1
+      return
+    }
+    queryMeta = await parseQuery(q)
+    if (queryMeta.parseError) {
+      hits = []
+      hitPos = -1
+      return
+    }
+    hits = await matchLines(current.info.id, q)
+    hitPos = hits.length > 0 ? 0 : -1
+  }
+
+  function jumpHit(delta: number) {
+    if (hits.length === 0) return
+    hitPos = (hitPos + delta + hits.length) % hits.length
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    const tag = (e.target as HTMLElement).tagName
+    if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+      e.preventDefault()
+      searchBar.focus()
+    }
+  }
 
   onMount(() => {
     subscribeTabEvents({
@@ -37,6 +80,7 @@
   }
 </script>
 
+<svelte:window on:keydown={onKeydown} />
 <div class="app">
   <header class="topbar">
     <button class="open-btn" on:click={() => handleOpen(false)}>打开文件</button>
@@ -48,6 +92,14 @@
       <Welcome />
     {:else}
       <div class="pane">
+        <SearchBar
+          bind:this={searchBar}
+          meta={queryMeta}
+          hitsCount={hits.length}
+          hitPos={hitPos}
+          onSearch={runSearch}
+          onJump={jumpHit}
+        />
         <div class="pane-head">
           <span>{current.info.label} · {current.info.lines} 行</span>
           <button class="follow-toggle" class:on={current.info.follow} on:click={handleFollowToggle}>
@@ -58,6 +110,8 @@
           lines={current.lines}
           follow={current.info.follow}
           onFollowPause={() => current && current.info.follow && handleFollowToggle()}
+          {hits}
+          currentLine={hitPos >= 0 ? hits[hitPos] : -1}
         />
       </div>
     {/if}

@@ -9,6 +9,8 @@
   export let rowHeight = 20
   export let follow = false
   export let onFollowPause: (() => void) | undefined = undefined
+  export let hits: number[] = []
+  export let currentLine = -1
 
   let viewport: HTMLElement
   let scrollTop = 0
@@ -16,6 +18,8 @@
   let autoFollow = false
   const OVERSCAN = 20
   const NEAR_BOTTOM = 30 // 距底多少像素内视为"贴底"
+
+  $: hitSet = new Set(hits)
 
   $: first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
   $: visibleCount = Math.ceil(viewportH / rowHeight) + OVERSCAN * 2
@@ -28,6 +32,11 @@
   // 新行到达且自动跟随时贴底（在 DOM 更新后执行）
   $: if (autoFollow && lines.length && viewport) {
     viewport.scrollTop = totalH
+  }
+
+  // 当前命中变化：滚动定位到该行（视口中线）
+  $: if (currentLine >= 0 && viewport) {
+    viewport.scrollTop = Math.max(0, currentLine * rowHeight - viewportH / 2)
   }
 
   function onScroll(e: WheelEvent) {
@@ -46,8 +55,13 @@
 <div class="viewport" bind:this={viewport} bind:clientHeight={viewportH} on:scroll={onScroll}>
   <div class="spacer" style:height="{totalH}px">
     <div class="rows" style:transform="translateY({first * rowHeight}px)">
-      {#each slice as ln (ln.seq)}
-        <div class="row {levelClass(ln.level)}" style:height="{rowHeight}px">
+      {#each slice as ln, i (ln.seq)}
+        <div
+          class="row {levelClass(ln.level)}"
+          class:hit={hitSet.has(first + i)}
+          class:hit-current={first + i === currentLine}
+          style:height="{rowHeight}px"
+        >
           <span class="level">{ln.level}</span>
           <span class="text">{@html ansiToHtml(ln.raw)}</span>
         </div>
@@ -83,6 +97,13 @@
   }
   .row:hover {
     background: #1a2534;
+  }
+  .row.hit {
+    background: #3a3214;
+  }
+  .row.hit-current {
+    background: #5c4a1e;
+    outline: 1px solid #ffb84d;
   }
   .level {
     flex: 0 0 64px;

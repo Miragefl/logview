@@ -49,3 +49,19 @@ export function subscribeTabEvents(cb: TabEventCallbacks): void {
 }
 
 export type { LineDTO, TabInfo }
+
+export interface QueryMeta {
+  parseError: string
+  highlightKeywords: string[]
+  timeRangeHint: string
+}
+
+/** parseQuery 校验搜索语法（返回元信息；parseError 非空表示语法错误）。 */
+export function parseQuery(input: string): Promise<QueryMeta> {
+  return ParseQuery(input)
+}
+
+/** matchLines 全量匹配 tab 行，返回命中行索引数组。 */
+export function matchLines(tabId: string, query: string): Promise<number[]> {
+  return MatchLines(tabId, query)
+}
