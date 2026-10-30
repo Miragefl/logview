@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/justfun/logview/internal/usage"
 )
 
 // resetUsage 清空 usage 全局缓存(隔离跨测试污染,惯例同 frppicker_test)。
@@ -14,15 +16,8 @@ import (
 func resetUsage(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	usageMu.Lock()
-	usageData = map[string]usageEntry{}
-	usageDirty = false
-	usageMu.Unlock()
-	t.Cleanup(func() {
-		usageMu.Lock()
-		usageData = nil
-		usageMu.Unlock()
-	})
+	usage.ResetForTest()
+	t.Cleanup(usage.ResetForTest)
 }
 
 // scopedMock 带自定义 scope 的测试流(复用 mockStream 的其余方法)。
@@ -62,10 +57,9 @@ func TestSortedUsageWords(t *testing.T) {
 // 同分时 LastUsed 新的在前(直写 entry 伪造时间,衰减后同分)。
 func TestSortedUsageWordsTieLastUsed(t *testing.T) {
 	resetUsage(t)
-	usageMu.Lock()
-	loadUsage()["hl::a"] = usageEntry{Count: 1, LastUsed: 100}
-	loadUsage()["hl::b"] = usageEntry{Count: 1, LastUsed: 200}
-	usageMu.Unlock()
+	m := usage.Load()
+	m["hl::a"] = usage.Entry{Count: 1, LastUsed: 100}
+	m["hl::b"] = usage.Entry{Count: 1, LastUsed: 200}
 	got := sortedUsageWords(usageHighlight, "", 20)
 	if !reflect.DeepEqual(got, []string{"b", "a"}) {
 		t.Fatalf("同分 LastUsed 新在前 = %v, want [b a]", got)
@@ -78,11 +72,10 @@ func TestSortedUsageWordsTieLastUsed(t *testing.T) {
 // 衰减分不再全同,词序断言会跨秒 flake;钉死后断言与真实时钟解耦。
 func TestSortedUsageWordsLimit(t *testing.T) {
 	resetUsage(t)
-	usageMu.Lock()
+	m := usage.Load()
 	for i := 0; i < 25; i++ {
-		loadUsage()[fmt.Sprintf("hide::w%02d", i)] = usageEntry{Count: 1, LastUsed: 1000}
+		m[fmt.Sprintf("hide::w%02d", i)] = usage.Entry{Count: 1, LastUsed: 1000}
 	}
-	usageMu.Unlock()
 	got := sortedUsageWords(usageHide, "", 20)
 	if len(got) != 20 || got[0] != "w00" || got[19] != "w19" {
 		t.Fatalf("截断/词序错误: len=%d first=%q last=%q", len(got), got[0], got[19])
@@ -184,9 +177,7 @@ func TestKeywordHistScopeIsolation(t *testing.T) {
 func TestKeywordHistPersistAcrossRestart(t *testing.T) {
 	resetUsage(t)
 	BumpUsage("hl::err")
-	usageMu.Lock()
-	usageData = nil
-	usageMu.Unlock()
+	usage.ResetForTest()
 	app := newTestApp()
 	app.searchTab = 1
 	app.searchMode = true
