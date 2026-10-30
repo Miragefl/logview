@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/justfun/logview/internal/fview"
+	"github.com/justfun/logview/internal/logcore"
 	"github.com/justfun/logview/internal/parser"
 	"github.com/justfun/logview/internal/stream"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -150,6 +151,29 @@ func (a *App) Fields() []parser.FieldConfig {
 // SaveFields 写回字段显隐（共享正本）。
 func (a *App) SaveFields(fields []parser.FieldConfig) error {
 	return fview.UpdateFields(rulesPath(), fields)
+}
+
+// ThemeNames 内置主题名列表（logcore 单源）。
+func (a *App) ThemeNames() []string {
+	return logcore.ThemeNames()
+}
+
+// ThemeCSS 主题转 CSS 变量 KV（前端 :root 注入）。
+func (a *App) ThemeCSS(name string) map[string]string {
+	return fview.ThemeToCSS(logcore.ResolveTheme(name, nil))
+}
+
+// CurrentTheme 读共享 rules.yaml 当前主题名。
+func (a *App) CurrentTheme() string {
+	if res, err := parser.LoadRules(rulesPath()); err == nil {
+		return res.Theme
+	}
+	return ""
+}
+
+// SetTheme 写回主题（共享正本，TUI 下次启动生效）。
+func (a *App) SetTheme(name string) error {
+	return fview.UpdateTheme(rulesPath(), name)
 }
 
 // GetLine 取单行详情（七标准字段 + 原文 + Unix 毫秒），idx 越界返回 nil。

@@ -41,6 +41,18 @@
   let hides: string[] = []
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
+  let themes: string[] = []
+  let theme = ''
+
+  async function applyTheme(name: string) {
+    theme = name
+    const css = await themeCSS(name)
+    const root = document.documentElement
+    for (const [k, v] of Object.entries(css)) {
+      if (v) root.style.setProperty(k, v)
+    }
+    await setTheme(name)
+  }
 
   const DEFAULT_FIELDS = ['time', 'level', 'message']
   $: visibleFields = fields.length
@@ -55,6 +67,8 @@
     })
     getHides().then((v) => (hides = v))
     getFields().then((v) => (fields = v))
+    themeNames().then((v) => (themes = v))
+    currentTheme().then((v) => v && applyTheme(v))
   })
 
   async function handleOpen(follow: boolean) {
@@ -116,6 +130,14 @@
     <button class="open-btn" on:click={() => handleOpen(false)}>打开文件</button>
     <button class="open-btn follow" on:click={() => handleOpen(true)}>打开并跟踪</button>
     <TabBar />
+    <div class="spacer" />
+    {#if themes.length}
+      <select class="theme-select" value={theme} on:change={(e) => applyTheme(e.currentTarget.value)}>
+        {#each themes as tn (tn)}
+          <option value={tn}>{tn}</option>
+        {/each}
+      </select>
+    {/if}
   </header>
   <main>
     {#if !current}
@@ -172,8 +194,8 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background: #10161f;
-    color: #e6e6e6;
+    background: var(--bg, #10161f);
+    color: var(--fg, #e6e6e6);
     font-family: -apple-system, 'PingFang SC', sans-serif;
   }
   .topbar {
@@ -182,6 +204,18 @@
     gap: 8px;
     padding: 6px 8px 0;
     background: #0c1119;
+  }
+  .spacer {
+    flex: 1;
+  }
+  .theme-select {
+    align-self: center;
+    background: #1c2836;
+    color: #8b98a9;
+    border: 1px solid #2a3a4f;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
   }
   .open-btn {
     background: #2a5db0;

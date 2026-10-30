@@ -89,3 +89,16 @@ export function saveFields(fields: FieldConfig[]): Promise<void> {
 export function getLine(tabId: string, idx: number): Promise<Record<string, string>> {
   return GetLine(tabId, idx)
 }
+
+export function themeNames(): Promise<string[]> {
+  return ThemeNames()
+}
+export function themeCSS(name: string): Promise<Record<string, string>> {
+  return ThemeCSS(name)
+}
+export function currentTheme(): Promise<string> {
+  return CurrentTheme()
+}
+export function setTheme(name: string): Promise<void> {
+  return SetTheme(name)
+}

@@ -5,6 +5,8 @@ import {fview} from '../models';
 
 export function CloseTab(arg1:string):Promise<void>;
 
+export function CurrentTheme():Promise<string>;
+
 export function Fields():Promise<Array<parser.FieldConfig>>;
 
 export function GetLine(arg1:string,arg2:number):Promise<Record<string, string>>;
@@ -27,4 +29,10 @@ export function SaveHides(arg1:Array<string>):Promise<void>;
 
 export function SetFollow(arg1:string,arg2:boolean):Promise<void>;
 
+export function SetTheme(arg1:string):Promise<void>;
+
 export function Tabs():Promise<Array<fview.TabInfo>>;
+
+export function ThemeCSS(arg1:string):Promise<Record<string, string>>;
+
+export function ThemeNames():Promise<Array<string>>;

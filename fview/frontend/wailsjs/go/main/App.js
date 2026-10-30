@@ -6,6 +6,10 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function CurrentTheme() {
+  return window['go']['main']['App']['CurrentTheme']();
+}
+
 export function Fields() {
   return window['go']['main']['App']['Fields']();
 }
@@ -50,6 +54,18 @@ export function SetFollow(arg1, arg2) {
   return window['go']['main']['App']['SetFollow'](arg1, arg2);
 }
 
+export function SetTheme(arg1) {
+  return window['go']['main']['App']['SetTheme'](arg1);
+}
+
 export function Tabs() {
   return window['go']['main']['App']['Tabs']();
+}
+
+export function ThemeCSS(arg1) {
+  return window['go']['main']['App']['ThemeCSS'](arg1);
+}
+
+export function ThemeNames() {
+  return window['go']['main']['App']['ThemeNames']();
 }

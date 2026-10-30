@@ -189,20 +189,20 @@
     padding: 0 2px;
   }
   .row.lv-error .col.level {
-    background: #5c1e24;
-    color: #ff6b6b;
+    color: var(--level-error, #ff6b6b);
+    border: 1px solid var(--level-error, #5c1e24);
   }
   .row.lv-warn .col.level {
-    background: #5c4a1e;
-    color: #ffb84d;
+    color: var(--level-warn, #ffb84d);
+    border: 1px solid var(--level-warn, #5c4a1e);
   }
   .row.lv-info .col.level {
-    background: #1e3a5c;
-    color: #6bb9ff;
+    color: var(--level-info, #6bb9ff);
+    border: 1px solid var(--level-info, #1e3a5c);
   }
   .row.lv-debug .col.level {
-    background: #2a2f36;
-    color: #8b98a9;
+    color: var(--level-debug, #8b98a9);
+    border: 1px solid var(--level-debug, #2a2f36);
   }
   .row.lv-error .text {
     color: #ff8585;
