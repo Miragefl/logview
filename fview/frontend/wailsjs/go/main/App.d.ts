@@ -7,6 +7,8 @@ export function CloseTab(arg1:string):Promise<void>;
 
 export function Fields():Promise<Array<parser.FieldConfig>>;
 
+export function GetLine(arg1:string,arg2:number):Promise<Record<string, string>>;
+
 export function Hides():Promise<Array<string>>;
 
 export function Lines(arg1:string,arg2:number,arg3:number):Promise<Array<fview.LineDTO>>;

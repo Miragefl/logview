@@ -84,3 +84,8 @@ export function getFields(): Promise<FieldConfig[]> {
 export function saveFields(fields: FieldConfig[]): Promise<void> {
   return SaveFields(fields)
 }
+
+/** getLine 取单行详情（键值对：seq/time/level/thread/traceId/logger/message/raw）。 */
+export function getLine(tabId: string, idx: number): Promise<Record<string, string>> {
+  return GetLine(tabId, idx)
+}

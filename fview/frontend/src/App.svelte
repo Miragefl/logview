@@ -1,24 +1,25 @@
 <script lang="ts">
-  // fview 主框架：顶栏（打开按钮 + tab 栏）+ 主区（欢迎页/虚拟滚动日志视图）。
+  // fview 主框架：顶栏（打开/tab）+ 搜索栏 + 过滤栏 + 主区（日志视图 + 行详情侧板）。
   import { onMount } from 'svelte'
   import TabBar from './components/TabBar.svelte'
   import SearchBar from './components/SearchBar.svelte'
   import FilterBar from './components/FilterBar.svelte'
-  import Welcome from './components/Welcome.svelte'
   import LogView from './components/LogView.svelte'
+  import Welcome from './components/Welcome.svelte'
+  import DetailPanel from './components/DetailPanel.svelte'
   import {
-  openFileViaDialog,
-  setFollow,
-  subscribeTabEvents,
-  parseQuery,
-  matchLines,
-  type QueryMeta,
-  getHides,
-  saveHides,
-  getFields,
-  saveFields,
-  type FieldConfig,
-} from './lib/backend'
+    openFileViaDialog,
+    setFollow,
+    subscribeTabEvents,
+    parseQuery,
+    matchLines,
+    getHides,
+    saveHides,
+    getFields,
+    saveFields,
+    type QueryMeta,
+    type FieldConfig,
+  } from './lib/backend'
   import {
     tabsStore,
     activeTab,
@@ -26,6 +27,7 @@
     applyMetaEvent,
     applyClosedEvent,
     toggleFollow,
+    type LineDTO,
   } from './lib/stores/tabs'
   import type { LevelFilterMode } from './lib/filter'
 
@@ -38,24 +40,33 @@
   let levelMode: LevelFilterMode = 'A'
   let hides: string[] = []
   let fields: FieldConfig[] = []
+  let detailLine: LineDTO | null = null
+
   const DEFAULT_FIELDS = ['time', 'level', 'message']
   $: visibleFields = fields.length
       ? fields.filter((f) => f.visible).map((f) => f.name)
       : DEFAULT_FIELDS
 
-  onMount(async () => {
-    hides = await getHides()
-    fields = await getFields()
+  onMount(() => {
+    subscribeTabEvents({
+      onLines: applyLinesEvent,
+      onMeta: applyMetaEvent,
+      onClosed: applyClosedEvent,
+    })
+    getHides().then((v) => (hides = v))
+    getFields().then((v) => (fields = v))
   })
 
-  async function handleSaveHides(list: string[]) {
-    hides = list
-    await saveHides(list)
+  async function handleOpen(follow: boolean) {
+    const id = await openFileViaDialog(follow)
+    if (id) activeTab.set(id)
   }
 
-  async function handleToggleField(name: string) {
-    fields = fields.map((f) => (f.name === name ? { ...f, visible: !f.visible } : f))
-    await saveFields(fields)
+  async function handleFollowToggle() {
+    if (!current) return
+    const next = !current.info.follow
+    toggleFollow(current.info.id, next)
+    await setFollow(current.info.id, next)
   }
 
   async function runSearch(q: string) {
@@ -80,32 +91,22 @@
     hitPos = (hitPos + delta + hits.length) % hits.length
   }
 
+  async function handleSaveHides(list: string[]) {
+    hides = list
+    await saveHides(list)
+  }
+
+  async function handleToggleField(name: string) {
+    fields = fields.map((f) => (f.name === name ? { ...f, visible: !f.visible } : f))
+    await saveFields(fields)
+  }
+
   function onKeydown(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName
     if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       e.preventDefault()
       searchBar.focus()
     }
-  }
-
-  onMount(() => {
-    subscribeTabEvents({
-      onLines: applyLinesEvent,
-      onMeta: applyMetaEvent,
-      onClosed: applyClosedEvent,
-    })
-  })
-
-  async function handleOpen(follow: boolean) {
-    const id = await openFileViaDialog(follow)
-    if (id) activeTab.set(id)
-  }
-
-  async function handleFollowToggle() {
-    if (!current) return
-    const next = !current.info.follow
-    toggleFollow(current.info.id, next)
-    await setFollow(current.info.id, next)
   }
 </script>
 
@@ -121,14 +122,6 @@
       <Welcome />
     {:else}
       <div class="pane">
-        <FilterBar
-          {levelMode}
-          {hides}
-          {fields}
-          onLevel={(m) => (levelMode = m)}
-          onSaveHides={handleSaveHides}
-          onToggleField={handleToggleField}
-        />
         <SearchBar
           bind:this={searchBar}
           meta={queryMeta}
@@ -137,23 +130,37 @@
           onSearch={runSearch}
           onJump={jumpHit}
         />
+        <FilterBar
+          {levelMode}
+          {hides}
+          {fields}
+          onLevel={(m) => (levelMode = m)}
+          onSaveHides={handleSaveHides}
+          onToggleField={handleToggleField}
+        />
         <div class="pane-head">
           <span>{current.info.label} · {current.info.lines} 行</span>
           <button class="follow-toggle" class:on={current.info.follow} on:click={handleFollowToggle}>
             {current.info.follow ? '跟随中 ↓' : '已暂停'}
           </button>
         </div>
-        <LogView
-          lines={current.lines}
-          follow={current.info.follow}
-          onFollowPause={() => current && current.info.follow && handleFollowToggle()}
-          {hits}
-          currentLine={hitPos >= 0 ? hits[hitPos] : -1}
-          {levelMode}
-          hidesList={hides}
-          highlightWords={queryMeta?.highlightKeywords ?? []}
-          {visibleFields}
-        />
+        <div class="pane-body">
+          <LogView
+            lines={current.lines}
+            follow={current.info.follow}
+            onFollowPause={() => current && current.info.follow && handleFollowToggle()}
+            {hits}
+            currentLine={hitPos >= 0 ? hits[hitPos] : -1}
+            {levelMode}
+            hidesList={hides}
+            highlightWords={queryMeta?.highlightKeywords ?? []}
+            {visibleFields}
+            onLineClick={(ln) => (detailLine = ln)}
+          />
+          {#if detailLine}
+            <DetailPanel line={detailLine} onClose={() => (detailLine = null)} />
+          {/if}
+        </div>
       </div>
     {/if}
   </main>
@@ -188,6 +195,12 @@
   .open-btn:hover {
     background: #3671cc;
   }
+  .open-btn.follow {
+    background: #2f7d4f;
+  }
+  .open-btn.follow:hover {
+    background: #389760;
+  }
   main {
     flex: 1;
     overflow: hidden;
@@ -207,12 +220,6 @@
     color: #8b98a9;
     border-bottom: 1px solid #1c2836;
   }
-  .open-btn.follow {
-    background: #2f7d4f;
-  }
-  .open-btn.follow:hover {
-    background: #389760;
-  }
   .follow-toggle {
     background: #1c2836;
     color: #8b98a9;
@@ -225,5 +232,10 @@
   .follow-toggle.on {
     color: #7ee29a;
     border-color: #2f7d4f;
+  }
+  .pane-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
   }
 </style>

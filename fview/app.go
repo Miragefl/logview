@@ -151,3 +151,22 @@ func (a *App) Fields() []parser.FieldConfig {
 func (a *App) SaveFields(fields []parser.FieldConfig) error {
 	return fview.UpdateFields(rulesPath(), fields)
 }
+
+// GetLine 取单行详情（七标准字段 + 原文 + Unix 毫秒），idx 越界返回 nil。
+func (a *App) GetLine(tabID string, idx int) map[string]string {
+	ls := a.mgr.Lines(tabID, idx, idx+1)
+	if len(ls) != 1 {
+		return nil
+	}
+	ln := ls[0]
+	return map[string]string{
+		"seq":     fmt.Sprintf("%d", ln.Seq),
+		"time":    ln.Time,
+		"level":   ln.Level,
+		"thread":  ln.Thread,
+		"traceId": ln.TraceID,
+		"logger":  ln.Logger,
+		"message": ln.Message,
+		"raw":     ln.Raw,
+	}
+}

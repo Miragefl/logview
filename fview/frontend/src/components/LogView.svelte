@@ -16,6 +16,7 @@
   export let hidesList: string[] = []
   export let highlightWords: string[] = []
   export let visibleFields: string[] = ['time', 'level', 'message']
+  export let onLineClick: ((ln: LineDTO) => void) | undefined = undefined
 
   interface Row {
     ln: LineDTO
@@ -113,6 +114,7 @@
           class:hit={hitSet.has(r.idx)}
           class:hit-current={r.idx === currentLine}
           style:height="{rowHeight}px"
+          on:click={() => onLineClick?.(r.ln)}
         >
           {#if visibleFields.includes('time')}<span class="col time">{fieldVal(r.ln, 'time')}</span>{/if}
           {#if visibleFields.includes('level')}<span class="col level">{r.ln.level}</span>{/if}
@@ -152,6 +154,9 @@
     gap: 8px;
     padding: 0 10px;
     white-space: nowrap;
+  }
+  .row {
+    cursor: pointer;
   }
   .row:hover {
     background: #1a2534;

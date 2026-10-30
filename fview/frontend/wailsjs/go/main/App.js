@@ -10,6 +10,10 @@ export function Fields() {
   return window['go']['main']['App']['Fields']();
 }
 
+export function GetLine(arg1, arg2) {
+  return window['go']['main']['App']['GetLine'](arg1, arg2);
+}
+
 export function Hides() {
   return window['go']['main']['App']['Hides']();
 }
