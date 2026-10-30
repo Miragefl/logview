@@ -18,6 +18,7 @@ import {
   Rules,
   SaveRules,
   SSHBrowse,
+  OpenSSHTab,
 } from '../../wailsjs/go/main/App'
 import type { LineDTO, TabInfo } from './stores/tabs'
 
@@ -156,4 +157,8 @@ export function sshBrowse(
   password: string
 ): Promise<DirEntry[]> {
   return SSHBrowse(host, path, password)
+}
+
+export function openSSHTab(host: string, path: string, tailLines: number, password: string): Promise<string> {
+  return OpenSSHTab(host, path, tailLines, password)
 }

@@ -8,6 +8,7 @@
   import Welcome from './components/Welcome.svelte'
   import DetailPanel from './components/DetailPanel.svelte'
   import RulesPanel from './components/RulesPanel.svelte'
+  import BrowseDialog from './components/BrowseDialog.svelte'
   import {
     openFileViaDialog,
     setFollow,
@@ -48,6 +49,7 @@
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
   let showRules = false
+  let browseHost = '' // 非空即弹远程目录浏览
   let fontSize = Number(localStorage.getItem('fview.font-size')) || 12
   $: rowHeight = fontSize + 8
   $: localStorage.setItem('fview.font-size', String(fontSize))
@@ -223,6 +225,16 @@
   </main>
   {#if showRules}
     <RulesPanel onClose={() => (showRules = false)} />
+  {/if}
+  {#if browseHost}
+    <BrowseDialog
+      host={browseHost}
+      onPick={async (path, password) => {
+        const id = await openSSHTab(browseHost, path, 0, password)
+        if (id) browseHost = ''
+      }}
+      onClose={() => (browseHost = '')}
+    />
   {/if}
 </div>
 

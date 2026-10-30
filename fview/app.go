@@ -302,3 +302,24 @@ func (a *App) SSHBrowse(host, path, password string) ([]DirEntryDTO, error) {
 	}
 	return out, nil
 }
+
+// OpenSSHTab 打开 SSH 远程日志 tab（远程 tail 恒 follow；密码会话态直传不落盘）。
+func (a *App) OpenSSHTab(host, path string, tailLines int, password string) (string, error) {
+	if tailLines <= 0 {
+		tailLines = defaultBufSize
+	}
+	src := stream.NewSSHSource(host, path, tailLines)
+	src.SetBufferLines(defaultBufSize)
+	if password != "" {
+		src.SetPassword(password)
+	}
+	id, err := a.mgr.OpenTab(src)
+	if err != nil {
+		return "", err
+	}
+	// 远程 tail 命令内建 follow，恒跟随
+	if err := a.mgr.SetFollow(id, true); err != nil {
+		return id, err
+	}
+	return id, nil
+}

@@ -31,6 +31,8 @@ export function MatchLines(arg1:string,arg2:string):Promise<Array<number>>;
 
 export function OpenFileTab(arg1:Array<string>,arg2:number,arg3:boolean):Promise<string>;
 
+export function OpenSSHTab(arg1:string,arg2:string,arg3:number,arg4:string):Promise<string>;
+
 export function ParseQuery(arg1:string):Promise<fview.QueryMeta>;
 
 export function PickAndOpenFile(arg1:boolean):Promise<string>;

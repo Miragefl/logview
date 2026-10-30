@@ -5,7 +5,7 @@
 
   export let host: string
   export let initialPath = '/'
-  export let onPick: (path: string) => void = () => {}
+  export let onPick: (path: string, password: string) => void = () => {}
   export let onClose: () => void = () => {}
 
   let path = initialPath
@@ -36,7 +36,7 @@
       path = path === '/' ? `/${name}` : `${path}/${name}`
       load()
     } else {
-      onPick(`${path}/${name}`)
+      onPick(`${path}/${name}`, password)
     }
   }
 
