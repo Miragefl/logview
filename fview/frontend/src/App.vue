@@ -199,7 +199,9 @@ function dispatchKey(action: KeyAction, arg?: string) {
       }
       break
     }
-    // wrap(T10):后续任务实装,先占位
+    case 'wrap':
+      ui.wrap = !ui.wrap
+      break
     default:
       break
   }

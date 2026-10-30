@@ -27,7 +27,8 @@ function loadPersisted(): UiPersist {
 }
 
 export const useUiStore = defineStore('ui', {
-  state: () => loadPersisted(),
+  // wrap 为会话态开关(w 键),不持久化——loadPersisted 不含它
+  state: () => ({ ...loadPersisted(), wrap: false }),
   actions: {
     /** persist 落盘（调用方在修改后触发，或 App 挂载时 $subscribe 自动调用）。 */
     persist() {

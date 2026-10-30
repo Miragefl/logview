@@ -17,6 +17,7 @@ import { buildViewItems } from '../../lib/folds'
 import type { FoldRange, ViewItem } from '../../lib/folds'
 import { selectedSeqRange } from '../../lib/visualSel'
 import type { SeqRange } from '../../lib/visualSel'
+import { wrapSegments, HeightIndex, visibleRows } from '../../lib/wrap'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
 import { scopeOfLabel } from '../../lib/scope'
@@ -41,6 +42,7 @@ const ui = useUiStore()
 
 const scrollEl = ref<HTMLElement | null>(null)
 const viewportH = ref(400)
+const viewportW = ref(0)
 const scrollTop = ref(0)
 
 /** filteredLines 级别档位 + 行级隐藏后的可见行（虚拟滚动的数据底座）。 */
@@ -61,6 +63,85 @@ const viewItems = computed<ViewItem[]>(() => {
   return buildViewItems(filteredLines.value, t?.folds ?? [], t?.collapsed ?? [])
 })
 
+// ---- w 换行变高行引擎(验收反馈④,已拍板硬做) ----
+/** wrapRows seq→视觉行数缓存(增量维护;切 tab/宽度变时清)。 */
+const wrapRows = new Map<number, number>()
+const rowsVer = ref(0)
+const charPx = ref(7)
+
+/** measureChar 探针测单字符宽('0'×50 均值,字体/字号变化时重测)。 */
+function measureChar() {
+  const el = scrollEl.value
+  if (!el) return
+  const s = document.createElement('span')
+  s.style.cssText = 'position:absolute;visibility:hidden;white-space:pre'
+  s.style.font = getComputedStyle(el).font
+  s.textContent = '0'.repeat(50)
+  el.appendChild(s)
+  const w = s.getBoundingClientRect().width / 50
+  s.remove()
+  if (w > 0) charPx.value = w
+}
+
+/** msgWidthCh message 列可用显示宽(ch):容器宽 - gutter - 固定列 - padding,留 1 字符余量。 */
+const msgWidthCh = computed(() => {
+  if (!ui.wrap) return 0
+  const fixedCh = props.fields.reduce(
+    (s, f) => s + (f === 'message' ? 0 : (colsW.value[f] ?? 0) + 2),
+    0
+  )
+  const gutterCh = showLineNum.value ? 9 : 2
+  const avail = viewportW.value - (fixedCh + gutterCh) * charPx.value - 20
+  return Math.max(10, Math.floor(avail / charPx.value) - 1)
+})
+
+// 宽度变化(字号/字体/窗口/行号开关)→ 全量重算;行批到达只增量算新 seq
+watch([() => msgWidthCh.value, () => tabs.activeId], () => {
+  wrapRows.clear()
+  const lines = tabs.active?.lines
+  if (ui.wrap && lines) {
+    for (const l of lines) {
+      wrapRows.set(l.seq, Math.max(1, wrapSegments(l.message, msgWidthCh.value).length))
+    }
+  }
+  rowsVer.value++
+})
+watch(
+  () => tabs.active?.lines,
+  (lines) => {
+    if (!ui.wrap || !lines) return
+    let added = false
+    for (const l of lines) {
+      if (!wrapRows.has(l.seq)) {
+        wrapRows.set(l.seq, Math.max(1, wrapSegments(l.message, msgWidthCh.value).length))
+        added = true
+      }
+    }
+    if (added) rowsVer.value++
+  },
+  { immediate: true }
+)
+
+/** heightsArr 变高模型(wrap 关闭时 null = 等高路径零回退)。 */
+const heightsArr = computed<number[] | null>(() => {
+  void rowsVer.value
+  if (!ui.wrap) return null
+  return viewItems.value.map((it) =>
+    it.type === 'fold' ? 1 : wrapRows.get(it.ln.seq) ?? 1
+  )
+})
+const hi = computed(() => new HeightIndex(heightsArr.value ?? [], rowH.value))
+const totalH = computed(() =>
+  heightsArr.value ? hi.value.total() : viewItems.value.length * rowH.value
+)
+/** rowTop/rowHeightAt 统一行定位(等高与变高两态)。 */
+function rowTop(i: number): number {
+  return heightsArr.value ? hi.value.offsetOf(i) : i * rowH.value
+}
+function rowHeightAt(i: number): number {
+  return heightsArr.value ? hi.value.rowsAt(i) * rowH.value : rowH.value
+}
+
 /** colsW 生效列宽（分栏渲染,验收反馈②）。 */
 const colsW = computed<Record<string, number>>(() => props.widths ?? DEFAULT_WIDTHS)
 /** headCells 表头行（与数据列同宽对齐,sticky 置顶）。 */
@@ -74,9 +155,11 @@ function cellW(field: string): Record<string, string> | undefined {
   if (field === 'message') return undefined
   return { width: `${colsW.value[field] ?? 0}ch` }
 }
-/** range 可视行区间 [start, end)（响应式，随滚动/裁剪/字号联动;viewItems 域）。 */
+/** range 可视行区间 [start, end)（响应式;等高走 visibleRange,变高走 visibleRows）。 */
 const range = computed<[number, number]>(() =>
-  visibleRange(scrollTop.value, viewportH.value, rowH.value, viewItems.value.length)
+  heightsArr.value
+    ? visibleRows(hi.value, scrollTop.value, viewportH.value)
+    : visibleRange(scrollTop.value, viewportH.value, rowH.value, viewItems.value.length)
 )
 const visItems = computed(() => viewItems.value.slice(range.value[0], range.value[1]))
 
@@ -103,12 +186,22 @@ onMounted(() => {
   const el = scrollEl.value
   if (!el) return
   viewportH.value = el.clientHeight
+  viewportW.value = el.clientWidth
+  measureChar()
   ro = new ResizeObserver(() => {
     viewportH.value = el.clientHeight
+    viewportW.value = el.clientWidth
   })
   ro.observe(el)
 })
 onBeforeUnmount(() => ro?.disconnect())
+// 字体/字号变化重测字符宽(驱动 msgWidthCh → wrap 行高全量重算)
+watch(
+  () => [ui.fontSize, ui.fontFamily],
+  () => {
+    nextTick(measureChar)
+  }
+)
 
 // 新行批到达（lines 引用变化）：
 // ① follow 开 → 贴底（不能依赖行数——10 万稳态裁头时行数恒定）
@@ -127,7 +220,16 @@ watch(
     if (t.info.id === lastTabId && lastFirstSeq >= 0 && !atBottom) {
       const delta = lines[0].seq - lastFirstSeq
       if (delta > 0 && scrollEl.value) {
-        scrollEl.value.scrollTop -= delta * rowH.value
+        if (heightsArr.value) {
+          // 变高行:补偿 = 被裁行总高(镜像 seq 连续,逐 seq 累计缓存行数)
+          let off = 0
+          for (let s = lastFirstSeq; s < lines[0].seq; s++) {
+            off += (wrapRows.get(s) ?? 1) * rowH.value
+          }
+          scrollEl.value.scrollTop -= off
+        } else {
+          scrollEl.value.scrollTop -= delta * rowH.value
+        }
       }
     }
     lastTabId = t.info.id
@@ -139,16 +241,13 @@ watch(
     }
   }
 )
-// 镜像裁头后 scrollTop 出界修正
-watch(
-  () => viewItems.value.length,
-  (total) => {
-    const el = scrollEl.value
-    if (!el) return
-    const maxScroll = Math.max(0, total * rowH.value - viewportH.value)
-    if (el.scrollTop > maxScroll) el.scrollTop = maxScroll
-  }
-)
+// 镜像裁头后 scrollTop 出界修正(等高/变高统一走 totalH)
+watch(totalH, (th) => {
+  const el = scrollEl.value
+  if (!el) return
+  const maxScroll = Math.max(0, th - viewportH.value)
+  if (el.scrollTop > maxScroll) el.scrollTop = maxScroll
+})
 
 // ---- 右键隐藏菜单 ----
 const ctxMenu = ref({ show: false, x: 0, y: 0, line: null as LineDTO | null })
@@ -219,15 +318,33 @@ function stopFollow() {
   }
 }
 
-/** setCursor 置光标到视图项 idx(line 项),可选滚动保可视（scrolloff=3）。 */
+/** ensureVisiblePx 变高行态:光标行保持 scrolloff(≈3 行)余量可见(px 语义)。 */
+function ensureVisiblePx(idx: number) {
+  const el = scrollEl.value
+  if (!el) return
+  const top = rowTop(idx)
+  const h = rowHeightAt(idx)
+  const so = 3 * rowH.value
+  if (top < el.scrollTop + so) {
+    el.scrollTop = Math.max(0, top - so)
+  } else if (top + h > el.scrollTop + viewportH.value - so) {
+    el.scrollTop = top + h - viewportH.value + so
+  }
+}
+
+/** setCursor 置光标到视图项 idx(line 项),可选滚动保可视（scrolloff=3;等高/变高两态）。 */
 function setCursor(idx: number, scroll = true) {
   const arr = viewItems.value
   const it = arr[idx]
   if (idx < 0 || !it || it.type !== 'line') return
   cursorSeq.value = it.ln.seq
   if (scroll && scrollEl.value) {
-    const first = ensureVisible(idx, range.value[0], rowsInView.value, arr.length)
-    scrollEl.value.scrollTop = first * rowH.value
+    if (heightsArr.value) {
+      ensureVisiblePx(idx)
+    } else {
+      const first = ensureVisible(idx, range.value[0], rowsInView.value, arr.length)
+      scrollEl.value.scrollTop = first * rowH.value
+    }
   }
 }
 
@@ -256,18 +373,20 @@ function cursorToSeq(seq: number) {
   if (idx >= 0) setCursor(idx)
 }
 
-/** anchorCursor zt/zz/zb:滚动使光标行置顶/居中/置底（关 follow,对齐 TUI）。 */
+/** anchorCursor zt/zz/zb:滚动使光标行置顶/居中/置底（关 follow,对齐 TUI;两态行定位）。 */
 function anchorCursor(pos: 't' | 'z' | 'b') {
   const ci = cursorIdx.value
   const el = scrollEl.value
   if (ci < 0 || !el) return
   stopFollow()
+  const top = rowTop(ci)
+  const h = rowHeightAt(ci)
   if (pos === 't') {
-    el.scrollTop = ci * rowH.value
+    el.scrollTop = top
   } else if (pos === 'z') {
-    el.scrollTop = Math.max(0, ci * rowH.value - viewportH.value / 2)
+    el.scrollTop = Math.max(0, top - (viewportH.value - h) / 2)
   } else {
-    el.scrollTop = Math.max(0, (ci + 1) * rowH.value - viewportH.value)
+    el.scrollTop = Math.max(0, top + h - viewportH.value)
   }
 }
 
@@ -294,7 +413,7 @@ function cursorToHit(dir: 1 | -1) {
   cursorToSeq(targetSeq)
   const idx = cursorIdx.value
   if (idx >= 0 && scrollEl.value) {
-    scrollEl.value.scrollTop = Math.max(0, idx * rowH.value - viewportH.value / 2)
+    scrollEl.value.scrollTop = Math.max(0, rowTop(idx) - (viewportH.value - rowHeightAt(idx)) / 2)
   }
 }
 
@@ -432,7 +551,7 @@ function gotoBookmark(seq: number) {
   cursorToSeq(seq)
   const idx = cursorIdx.value
   if (idx >= 0 && scrollEl.value) {
-    scrollEl.value.scrollTop = Math.max(0, idx * rowH.value - viewportH.value / 2)
+    scrollEl.value.scrollTop = Math.max(0, rowTop(idx) - (viewportH.value - rowHeightAt(idx)) / 2)
   }
 }
 
@@ -476,17 +595,14 @@ defineExpose({
         >{{ c.text }}</span
       >
     </div>
-    <div class="spacer" :style="{ height: viewItems.length * rowH + 'px' }"></div>
-    <div
-      class="rows"
-      :style="{ transform: `translateY(${range[0] * rowH}px)`, height: viewItems.length * rowH + 'px' }"
-    >
+    <div class="spacer" :style="{ height: totalH + 'px' }"></div>
+    <div class="rows" :style="{ transform: `translateY(${rowTop(range[0])}px)`, height: totalH + 'px' }">
       <template v-for="(item, i) in visItems" :key="item.type === 'line' ? item.ln.seq : 'f' + item.range.startSeq">
         <!-- 折叠占位行(点击展开) -->
         <div
           v-if="item.type === 'fold'"
           class="row fold-row"
-          :style="{ top: i * rowH + 'px' }"
+          :style="{ top: rowTop(range[0] + i) + 'px', height: rowHeightAt(range[0] + i) + 'px' }"
           @click="unfoldAt(item.range)"
         >
           ▸ {{ item.range.endSeq - item.range.startSeq + 1 }} 行堆栈: {{ item.range.leader }}
@@ -495,7 +611,7 @@ defineExpose({
           v-else
           class="row"
           :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq, vis: inVisual(item.ln.seq) }"
-          :style="{ top: i * rowH + 'px' }"
+          :style="{ top: rowTop(range[0] + i) + 'px', height: rowHeightAt(range[0] + i) + 'px' }"
           @contextmenu="onContext($event, item.ln)"
           @dblclick="openDetail(item.ln)"
         >
@@ -507,7 +623,7 @@ defineExpose({
           >
         </span>
         <template v-for="c in cellsOf(item.ln)" :key="c.field">
-          <span v-if="c.field === 'message'" class="cell f-msg">
+          <span v-if="c.field === 'message'" class="cell f-msg" :class="{ wrapping: ui.wrap }">
             <template v-for="(s, si) in renderSpans(item.ln.message)" :key="si">
               <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
               <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
@@ -636,6 +752,11 @@ defineExpose({
   min-width: 0;
   overflow: visible;
   white-space: pre;
+}
+/* w 换行:message 列 CSS 软换行,续行自然对齐列起点 */
+.f-msg.wrapping {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 /* 行首 gutter:书签 ▸ / 行号(TUI 前缀风格) */
 .gutter {
