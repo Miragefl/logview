@@ -18,9 +18,16 @@
     type FrpConn,
   } from '../lib/backend'
 
-  const dispatch = createEventDispatcher<{ close: void; changed: void }>()
+  const dispatch = createEventDispatcher<{
+    close: void
+    changed: void
+    menuZoom: number
+    logFontSize: number
+  }>()
 
   export let tab: 'conn' | 'rules' | 'ui' = 'conn'
+  export let menuZoom = 1.05
+  export let logFontSize = 13
 
   let sshHosts: string[] = []
   let servers: FrpServer[] = []
@@ -268,11 +275,31 @@
         </div>
 
       {:else if tab === 'ui'}
-        <div class="ui-note">
-          <p>全局缩放：Cmd/Ctrl + = / - / 0（整个界面等比缩放并记忆），也可用底部状态栏的「界面 −/＋」。</p>
-          <p>日志行字号：底部状态栏 A- / A+（仅日志行）。</p>
-          <p>主题：顶栏右侧下拉切换，写回共享 rules.yaml（TUI 下次启动同主题）。</p>
+        <div class="fontctl">
+          <div class="fc-row">
+            <div class="fc-label">
+              <span class="fc-name">菜单界面字号</span>
+              <span class="fc-desc">侧栏/工具栏/弹窗等 UI 文字（快捷键 Cmd ±，状态栏「界面 −/＋」）</span>
+            </div>
+            <div class="fc-ctrl">
+              <button class="mini" on:click={() => dispatch('menuZoom', Math.max(0.8, Math.round((menuZoom - 0.05) * 100) / 100))}>−</button>
+              <span class="fc-val">{Math.round(menuZoom * 100)}%</span>
+              <button class="mini" on:click={() => dispatch('menuZoom', Math.min(1.6, Math.round((menuZoom + 0.05) * 100) / 100))}>＋</button>
+            </div>
+          </div>
+          <div class="fc-row">
+            <div class="fc-label">
+              <span class="fc-name">日志文本字号</span>
+              <span class="fc-desc">日志行文字（快捷键状态栏 A− / A＋，仅影响日志区）</span>
+            </div>
+            <div class="fc-ctrl">
+              <button class="mini" on:click={() => dispatch('logFontSize', Math.max(10, logFontSize - 1))}>−</button>
+              <span class="fc-val">{logFontSize}px</span>
+              <button class="mini" on:click={() => dispatch('logFontSize', Math.min(26, logFontSize + 1))}>＋</button>
+            </div>
+          </div>
         </div>
+        <p class="hint">主题：顶栏右侧下拉切换，写回共享 rules.yaml（TUI 下次启动同主题）。</p>
       {/if}
     </div>
   </div>

@@ -49,6 +49,7 @@
   $: current = $tabsStore.find((t) => t.info.id === $activeTab)
 
   let searchBar: SearchBar
+  let logView: LogView
   let queryMeta: QueryMeta | null = null
   let hits: number[] = []
   let hitPos = -1
@@ -56,6 +57,7 @@
   let hides: string[] = []
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
+  let toolbarOpen = true // 工具栏展开态（f 或按钮收起）
   let showK8s = false
   let showSettings = false
   let settingsTab: 'conn' | 'rules' | 'ui' = 'conn'
@@ -67,10 +69,10 @@
   let fontSize = Number(localStorage.getItem('fview.font-size')) || 13
   $: rowHeight = fontSize + 8
   $: localStorage.setItem('fview.font-size', String(fontSize))
-  let uiZoom = Number(localStorage.getItem('fview.ui-zoom')) || 1.05
+  let menuZoom = Number(localStorage.getItem('fview.menu-zoom')) || 1.05
   $: {
-    ;(document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(uiZoom)
-    localStorage.setItem('fview.ui-zoom', String(uiZoom))
+    ;(document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(menuZoom)
+    localStorage.setItem('fview.menu-zoom', String(menuZoom))
   }
 
   let themes: string[] = []
@@ -151,20 +153,72 @@
 
   function onKeydown(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName
-    if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+    const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+    if (e.key === '/' && !inInput) {
       e.preventDefault()
       searchBar.focus()
     }
-    if ((e.metaKey || e.ctrlKey) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+    if ((e.metaKey || e.ctrlKey) && !inInput) {
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
-        uiZoom = Math.min(1.6, Math.round((uiZoom + 0.05) * 100) / 100)
+        menuZoom = Math.min(1.6, Math.round((menuZoom + 0.05) * 100) / 100)
       } else if (e.key === '-') {
         e.preventDefault()
-        uiZoom = Math.max(0.8, Math.round((uiZoom - 0.05) * 100) / 100)
+        menuZoom = Math.max(0.8, Math.round((menuZoom - 0.05) * 100) / 100)
       } else if (e.key === '0') {
         e.preventDefault()
-        uiZoom = 1.05
+        menuZoom = 1.05
+      }
+      return
+    }
+    // vim 风格导航（对齐 TUI 习惯；输入框内不触发）
+    if (!inInput) {
+      switch (e.key) {
+        case 'n':
+          jumpHit(1)
+          break
+        case 'N':
+          jumpHit(-1)
+          break
+        case 'j':
+          logView?.scrollLines(3)
+          break
+        case 'k':
+          logView?.scrollLines(-3)
+          break
+        case 'g':
+          logView?.scrollToRatio(0)
+          break
+        case 'G':
+          logView?.scrollToRatio(1)
+          break
+        case 'e':
+        case 'E':
+          levelMode = levelMode === 'E' ? 'A' : 'E'
+          break
+        case 'w':
+        case 'W':
+          levelMode = levelMode === 'W' ? 'A' : 'W'
+          break
+        case 'i':
+        case 'I':
+          levelMode = levelMode === 'I' ? 'A' : 'I'
+          break
+        case 'a':
+        case 'A':
+          levelMode = 'A'
+          break
+        case 'd':
+        case 'D':
+          if (hitPos >= 0 && current) {
+            const idx = hits[hitPos]
+            detailLine = current.lines[idx] ?? null
+          }
+          break
+        case 'f':
+        case 'F':
+          toolbarOpen = !toolbarOpen
+          break
       }
     }
   }
@@ -202,7 +256,6 @@
           {/each}
         </select>
       {/if}
-      <button class="top-btn" title="设置（连接 / 解析规则 / 界面）" on:click={() => (showSettings = true)}>⚙ 设置</button>
     </header>
 
     <main>
@@ -219,18 +272,25 @@
               onSearch={runSearch}
               onJump={jumpHit}
             />
-            <FilterBar
-              {levelMode}
-              {hides}
-              {fields}
-              onLevel={(m) => (levelMode = m)}
-              onSaveHides={handleSaveHides}
-              onToggleField={handleToggleField}
-            />
+            <button class="fold-btn" title="收起/展开过滤行（f）" on:click={() => (toolbarOpen = !toolbarOpen)}>
+              {toolbarOpen ? '▾' : '▸'}
+            </button>
           </div>
+          {#if toolbarOpen}
+            <div class="toolbar sub">
+              <FilterBar
+                {hides}
+                {fields}
+                onSaveHides={handleSaveHides}
+                onToggleField={handleToggleField}
+              />
+            </div>
+          {/if}
           <div class="pane-body">
             <LogView
+              bind:this={logView}
               lines={current.lines}
+              uiZoom={menuZoom}
               follow={current.info.follow}
               onFollowPause={() => current && current.info.follow && handleFollowToggle()}
               {hits}
@@ -263,9 +323,9 @@
               <button class="st-btn" title="放大 (Cmd+=)" on:click={() => (fontSize = Math.min(26, fontSize + 1))}>A+</button>
             </span>
             <span class="zoom">
-              <button class="st-btn" title="缩小整个界面 (Cmd+-)" on:click={() => (uiZoom = Math.max(0.8, Math.round((uiZoom - 0.05) * 100) / 100))}>界面 -</button>
-              <span class="zoom-val">{Math.round(uiZoom * 100)}%</span>
-              <button class="st-btn" title="放大整个界面 (Cmd+=)" on:click={() => (uiZoom = Math.min(1.6, Math.round((uiZoom + 0.05) * 100) / 100))}>界面 +</button>
+              <button class="st-btn" title="缩小菜单界面 (Cmd+-)" on:click={() => (menuZoom = Math.max(0.8, Math.round((menuZoom - 0.05) * 100) / 100))}>界面 -</button>
+              <span class="zoom-val">{Math.round(menuZoom * 100)}%</span>
+              <button class="st-btn" title="放大菜单界面 (Cmd+=)" on:click={() => (menuZoom = Math.min(1.6, Math.round((menuZoom + 0.05) * 100) / 100))}>界面 +</button>
             </span>
           </footer>
         </div>
@@ -279,6 +339,10 @@
   {#if showSettings}
     <SettingsDialog
       tab={settingsTab}
+      menuZoom={menuZoom}
+      logFontSize={fontSize}
+      on:menuZoom={(e) => (menuZoom = e.detail)}
+      on:logFontSize={(e) => (fontSize = e.detail)}
       on:close={() => (showSettings = false)}
       on:changed={() => connPanel?.refresh()}
     />
@@ -369,16 +433,6 @@
     padding: 3px 6px;
     font-size: 14px;
   }
-  .top-btn {
-    background: #e2e2d8;
-    color: #3a3f47;
-    border: 1px solid #c7c7bc;
-    border-radius: 6px;
-    padding: 4px 12px;
-    cursor: pointer;
-    font-size: 15px;
-  }
-  .top-btn:hover { background: #d8d8cd; }
   main { flex: 1; overflow: hidden; }
   .pane {
     width: 100%;
@@ -390,9 +444,21 @@
     display: flex;
     align-items: stretch;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 6px 10px 2px;
     background: #ebebe2;
+  }
+  .toolbar.sub {
+    padding: 2px 10px 6px;
     border-bottom: 1px solid #e2e2d8;
+  }
+  .fold-btn {
+    background: #e2e2d8;
+    color: #5f6672;
+    border: 1px solid #c7c7bc;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0 10px;
+    font-size: 13px;
   }
   .pane-body { flex: 1; display: flex; overflow: hidden; }
   .statusbar {

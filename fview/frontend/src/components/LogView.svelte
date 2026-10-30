@@ -7,7 +7,8 @@
 
   export let lines: LineDTO[] = []
   export let rowHeight = 20
-  export let fontSize = 12 // 字号（App 统一调节，行高=字号+8）
+  export let fontSize = 13 // 日志字号（与菜单字号独立调节）
+  export let uiZoom = 1 // 菜单/UI 缩放（日志区反向抵消，日志显示只由 fontSize 决定）
   export let follow = false
   export let onFollowPause: (() => void) | undefined = undefined
   export let hits: number[] = []
@@ -49,6 +50,19 @@
   }
   $: if (currentRowPos >= 0 && viewport) {
     viewport.scrollTop = Math.max(0, currentRowPos * rowHeight - viewportH / 2)
+  }
+
+  // vim 滚动控制（App 快捷键调用）
+  export function scrollLines(n: number) {
+    if (viewport) viewport.scrollTop += n * rowHeight
+  }
+
+  export function scrollToRatio(t: number) {
+    if (viewport) viewport.scrollTop = Math.max(0, (totalH - viewport.clientHeight) * t)
+  }
+
+  export function lineHeight() {
+    return rowHeight
   }
 
   function onScroll(e: Event) {
@@ -112,6 +126,7 @@
   bind:clientHeight={viewportH}
   on:scroll={onScroll}
   style:font-size="{fontSize}px"
+  style:zoom={String(1 / uiZoom)}
 >
   <div class="spacer" style:height="{totalH}px">
     <div class="rows" style:transform="translateY({first * rowHeight}px)">
@@ -182,8 +197,8 @@
     background: #f3efd3;
   }
   .row.hit-current {
-    background: #f6e8c8;
-    outline: 1px solid #b45309;
+    background: #f5d76e;
+    outline: 2px solid #b45309;
   }
   .col {
     color: #6b7280;
