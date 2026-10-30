@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // fview 主壳：顶栏 tab 条 + 图标条（Task 9 接入源面板）+ 主区（工具栏/日志区/状态栏）。
 // 搜索态/级别档位/字段显隐在此接线并下传；vim 键（j/k///n/N）挂 document 键盘层。
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useThemeStore } from './themes'
 import { useTabsStore } from './stores/tabs'
 import { useUiStore } from './stores/ui'
 import { getFields, subscribeTabEvents } from './lib/backend'
+import type { FieldConfig } from './lib/backend'
+import { fieldsWidths } from './lib/columns'
 import type { LevelFilterMode } from './lib/filter'
 import TabBar from './components/tabs/TabBar.vue'
 import Welcome from './components/Welcome.vue'
@@ -25,6 +27,9 @@ const search = reactive({ hitSeqs: [] as number[], words: [] as string[] })
 const hitSeqSet = ref(new Set<number>())
 const levelMode = ref<LevelFilterMode>('A')
 const fields = ref<string[]>([...ALL_FIELDS])
+/** allFieldsCfg 字段全量配置(含 rules.yaml 列宽覆盖),分栏 widths 数据源。 */
+const allFieldsCfg = ref<FieldConfig[]>([])
+const colWidths = computed(() => fieldsWidths(allFieldsCfg.value, fields.value))
 
 const logviewRef = ref<InstanceType<typeof LogView> | null>(null)
 const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
@@ -101,6 +106,7 @@ onMounted(async () => {
   // 字段显隐按 rules.yaml 的 fields.Visible 校正（与 TUI 同源；hides 是行级隐藏词不得混用）
   try {
     const fs = (await getFields()) ?? []
+    allFieldsCfg.value = fs
     const visible = new Set(fs.filter((f) => f.visible).map((f) => f.name))
     if (visible.size > 0) {
       fields.value = ALL_FIELDS.filter((f) => visible.has(f))
@@ -137,6 +143,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               :hit-words="search.words"
               :level-mode="levelMode"
               :fields="fields"
+              :widths="colWidths"
             />
             <StatusBar :hit-count="search.hitSeqs.length" />
           </template>

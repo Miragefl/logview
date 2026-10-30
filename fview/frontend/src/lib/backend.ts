@@ -122,6 +122,8 @@ export function matchLines(tabId: string, query: string): Promise<number[]> {
 export interface FieldConfig {
   name: string
   visible: boolean
+  /** 列宽覆盖(rules.yaml fields[].width,0/缺省用默认;分栏渲染数据源) */
+  width?: number
 }
 
 export function getHides(): Promise<string[]> {
@@ -132,10 +134,10 @@ export function saveHides(list: string[]): Promise<void> {
 }
 export async function getFields(): Promise<FieldConfig[]> {
   const raw = await Fields()
-  return (raw ?? []).map((f) => ({ name: f.Name, visible: f.Visible }))
+  return (raw ?? []).map((f) => ({ name: f.Name, visible: f.Visible, width: f.Width }))
 }
 export function saveFields(fields: FieldConfig[]): Promise<void> {
-  return SaveFields(fields.map((f) => ({ Name: f.name, Visible: f.visible, Width: 0 })))
+  return SaveFields(fields.map((f) => ({ Name: f.name, Visible: f.visible, Width: f.width ?? 0 })))
 }
 
 /** getLine 取单行详情（键值对：seq/time/level/thread/traceId/logger/message/raw）。 */

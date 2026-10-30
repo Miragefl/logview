@@ -9,6 +9,7 @@ import { useUiStore } from '../../stores/ui'
 import type { LevelFilterMode } from '../../lib/filter'
 import { levelFilter } from '../../lib/filter'
 import { levelClass } from '../../lib/levelColor'
+import { DEFAULT_WIDTHS, headerCells, layoutLine } from '../../lib/columns'
 import { visibleRange } from '../../lib/virtual'
 import { splitSpans } from '../../lib/hlSpan'
 import { getLine, setFollow } from '../../lib/backend'
@@ -23,6 +24,8 @@ const props = defineProps<{
   levelMode: LevelFilterMode
   /** 显示中的字段名列表（rules.yaml hides 控制） */
   fields: string[]
+  /** 列宽覆盖（rules.yaml fields[].width;缺省用 DEFAULT_WIDTHS） */
+  widths?: Record<string, number>
 }>()
 
 const tabs = useTabsStore()
@@ -44,6 +47,20 @@ const filteredLines = computed<LineDTO[]>(() => {
 })
 
 const rowH = computed(() => ui.rowPx())
+
+/** colsW 生效列宽（分栏渲染,验收反馈②）。 */
+const colsW = computed<Record<string, number>>(() => props.widths ?? DEFAULT_WIDTHS)
+/** headCells 表头行（与数据列同宽对齐,sticky 置顶）。 */
+const headCells = computed(() => headerCells(props.fields, colsW.value))
+/** cellsOf 行分栏（可视区内逐行调用,纯函数）。 */
+function cellsOf(ln: LineDTO) {
+  return layoutLine(ln, props.fields, colsW.value)
+}
+/** cellW 固定列宽样式（等宽字体 ch 单位;message 弹性不限宽）。 */
+function cellW(field: string): Record<string, string> | undefined {
+  if (field === 'message') return undefined
+  return { width: `${colsW.value[field] ?? 0}ch` }
+}
 /** range 可视行区间 [start, end)（响应式，随滚动/裁剪/字号联动）。 */
 const range = computed<[number, number]>(() =>
   visibleRange(scrollTop.value, viewportH.value, rowH.value, filteredLines.value.length)
@@ -210,6 +227,17 @@ defineExpose({ scrollLines, jumpHit, scrollToEnd })
 
 <template>
   <div ref="scrollEl" class="logview" @scroll="onScroll">
+    <!-- 分栏表头（sticky 置顶,与数据列同宽对齐,验收反馈②） -->
+    <div v-if="filteredLines.length" class="row header">
+      <span
+        v-for="c in headCells"
+        :key="c.field"
+        class="cell"
+        :class="'f-' + c.field"
+        :style="cellW(c.field)"
+        >{{ c.text }}</span
+      >
+    </div>
     <div class="spacer" :style="{ height: filteredLines.length * rowH + 'px' }"></div>
     <div
       class="rows"
@@ -224,20 +252,22 @@ defineExpose({ scrollLines, jumpHit, scrollToEnd })
         @contextmenu="onContext($event, ln)"
         @dblclick="openDetail(ln)"
       >
-        <span v-if="fields.includes('time')" class="f-time">{{ ln.time }}</span>
-        <span v-if="fields.includes('level')" class="f-level" :class="levelClass(ln.level)">{{
-          ln.level
-        }}</span>
-        <span v-if="fields.includes('thread') && ln.thread" class="f-thread">[{{ ln.thread }}]</span>
-        <span v-if="fields.includes('traceId') && ln.traceId" class="f-trace">{{ ln.traceId }}</span>
-        <span v-if="fields.includes('logger') && ln.logger" class="f-logger">{{ ln.logger }}</span>
-        <span v-if="fields.includes('message')" class="f-msg">
-          <template v-for="(s, si) in renderSpans(ln.message)" :key="si">
-            <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
-            <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
-            <template v-else>{{ s.text }}</template>
-          </template>
-        </span>
+        <template v-for="c in cellsOf(ln)" :key="c.field">
+          <span v-if="c.field === 'message'" class="cell f-msg">
+            <template v-for="(s, si) in renderSpans(ln.message)" :key="si">
+              <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
+              <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
+              <template v-else>{{ s.text }}</template>
+            </template>
+          </span>
+          <span
+            v-else
+            class="cell"
+            :class="['f-' + c.field, c.field === 'level' ? levelClass(ln.level) : '']"
+            :style="cellW(c.field)"
+            >{{ c.text }}</span
+          >
+        </template>
       </div>
     </div>
 
@@ -310,6 +340,35 @@ defineExpose({ scrollLines, jumpHit, scrollToEnd })
 }
 .row.hit {
   background: var(--hit-row-bg, rgba(122, 162, 214, 0.12));
+}
+/* 分栏:固定列定宽 + 两空格分隔;message 弹性 */
+.cell {
+  display: inline-block;
+  overflow: hidden;
+  white-space: pre;
+  vertical-align: bottom;
+}
+.cell + .cell {
+  margin-left: 2ch;
+}
+.f-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  white-space: pre;
+}
+/* 表头行:sticky 置顶 */
+.row.header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg, #10161f);
+  color: var(--dim, #8b98a9);
+  border-bottom: 1px solid var(--popup-border, #1e2837);
+  cursor: default;
+}
+.row.header .cell {
+  white-space: pre;
 }
 .f-time {
   color: var(--time, #5d7292);
