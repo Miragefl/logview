@@ -29,11 +29,14 @@ export const useAnnotationsStore = defineStore('annotations', {
     hideRules: [] as string[],
   }),
   getters: {
-    /** hidden 判断行是否命中任一隐藏规则（message 或 raw 的子串）。 */
+    /** hidden 判断行是否命中任一隐藏规则（message 或 raw 的子串,忽略大小写——对齐 TUI matchHides）。 */
     hidden(state) {
       return (line: LineDTO): boolean =>
         state.hideRules.some(
-          (r) => r !== '' && (line.message.includes(r) || line.raw.includes(r))
+          (r) =>
+            r !== '' &&
+            (line.message.toLowerCase().includes(r.toLowerCase()) ||
+              line.raw.toLowerCase().includes(r.toLowerCase()))
         )
     },
   },

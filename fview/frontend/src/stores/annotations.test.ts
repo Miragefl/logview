@@ -27,6 +27,13 @@ describe('useAnnotationsStore', () => {
     expect(s.hidden(ln('', 'plain raw-token line'))).toBe(true)
   })
 
+  it('hidden：忽略大小写（对齐 TUI matchHides）', () => {
+    const s = useAnnotationsStore()
+    s.addHideRule('Health-Check')
+    expect(s.hidden(ln('GET /health-check 200'))).toBe(true)
+    expect(s.hidden(ln('INFO Health-Check done'))).toBe(true)
+  })
+
   it('addHighlight 10 色轮换：第 11 个词回到第 1 色；重复词不重复加', () => {
     const s = useAnnotationsStore()
     for (let i = 0; i < 11; i++) {

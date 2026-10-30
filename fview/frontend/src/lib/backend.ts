@@ -10,6 +10,8 @@ import {
   SystemFonts,
   UsageRecent,
   UsageTouch,
+  UsageKeywords,
+  BumpKeyword,
   CloseTab,
   SetFollow,
   ParseQuery,
@@ -290,6 +292,16 @@ export function usageRecent(): Promise<string[]> {
 /** usageTouch 记录一次源使用（本地文件传 'file:' + 绝对路径）。 */
 export function usageTouch(key: string): Promise<void> {
   return UsageTouch(key)
+}
+
+/** usageKeywords 高亮/隐藏词频 top20（与 TUI 共享 usage.json，scope 空即全局）。 */
+export function usageKeywords(scope: string, kind: 'hl' | 'hide'): Promise<string[]> {
+  return UsageKeywords(scope, kind)
+}
+
+/** bumpKeyword 记一次关键词使用（与 TUI 同一份词频，验收反馈③）。 */
+export function bumpKeyword(scope: string, kind: 'hl' | 'hide', word: string): Promise<void> {
+  return BumpKeyword(scope, kind, word)
 }
 
 /** getMemStats 状态栏内存徽章：Sys-HeapReleased 字节数，前端换算 MB。 */

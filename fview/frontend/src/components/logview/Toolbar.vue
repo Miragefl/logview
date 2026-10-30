@@ -1,23 +1,21 @@
 <script setup lang="ts">
-// 日志工具栏：搜索（time:/level: 语法）/高亮/隐藏指示/字段显隐/级别档位/Follow/字号。
+// 日志工具栏:统一搜索入口(搜索/高亮/隐藏三合一弹窗,验收反馈③)+
+// 字段显隐/级别档位/Follow/字号。搜索输入与历史全部收进 SearchPopup。
 import { computed, onMounted, ref } from 'vue'
-import { NBadge, NButton, NDropdown, NInput, NPopover, NSelect } from 'naive-ui'
+import { NBadge, NButton, NDropdown, NSelect } from 'naive-ui'
 import { useTabsStore } from '../../stores/tabs'
 import { useAnnotationsStore } from '../../stores/annotations'
+import { useSearchStore } from '../../stores/searchStore'
 import { useUiStore } from '../../stores/ui'
 import type { LevelFilterMode } from '../../lib/filter'
-import HighlightMenu from './HighlightMenu.vue'
 import {
   getFields,
-  matchLines,
-  parseQuery,
   saveFields,
   setFollow,
 } from '../../lib/backend'
 import type { FieldConfig } from '../../lib/backend'
 
 const emit = defineEmits<{
-  (e: 'search', payload: { hitSeqs: number[]; words: string[] }): void
   (e: 'update:levelMode', mode: LevelFilterMode): void
   (e: 'update:fields', fields: string[]): void
 }>()
@@ -26,40 +24,16 @@ const props = defineProps<{ levelMode: LevelFilterMode; fields: string[] }>()
 
 const tabs = useTabsStore()
 const ann = useAnnotationsStore()
+const search = useSearchStore()
 const ui = useUiStore()
 
-const query = ref('')
-const searchErr = ref('')
-const searchInput = ref<InstanceType<typeof NInput> | null>(null)
-
-/** focusSearch 供 vim 键 `/` 聚焦。 */
-function focusSearch() {
-  searchInput.value?.focus()
+/** openSearch 供 vim 键 /、f、h、x 打开统一弹窗并定位分区(0/1/2)。 */
+function openSearch(tab = 0) {
+  search.open(tab)
 }
-defineExpose({ focusSearch })
+defineExpose({ openSearch })
 
-async function runSearch() {
-  const t = tabs.active
-  if (!t) return
-  searchErr.value = ''
-  try {
-    const meta = await parseQuery(query.value)
-    if (meta.parseError) {
-      searchErr.value = meta.parseError
-      return
-    }
-    // MatchLines 返回 buffer 索引域（0..n-1）——镜像与后端同裁稳态对齐，
-    // 在此换算为 seq 域下发（渲染/跳转/详情统一 seq 域）
-    const idxs = query.value.trim() ? await matchLines(t.info.id, query.value) : []
-    const lines = t.lines
-    const seqs = idxs.map((i) => lines[i]?.seq).filter((s): s is number => s !== undefined)
-    emit('search', { hitSeqs: seqs, words: meta.highlightKeywords ?? [] })
-  } catch (e) {
-    searchErr.value = String(e)
-  }
-}
-
-// ---- 字段显隐（rules.yaml hides 同源） ----
+// ---- 字段显隐（rules.yaml fields 同源） ----
 const allFields = ref<FieldConfig[]>([])
 onMounted(async () => {
   try {
@@ -117,43 +91,9 @@ function zoom(delta: number) {
 
 <template>
   <div class="toolbar">
-    <NInput
-      ref="searchInput"
-      v-model:value="query"
-      size="tiny"
-      clearable
-      class="search"
-      :placeholder="searchErr ? searchErr : '搜索（time:/level: 语法），Enter 执行'"
-      :status="searchErr ? 'error' : undefined"
-      @keyup.enter="runSearch"
-    />
-    <NPopover trigger="click" placement="bottom-start">
-      <template #trigger>
-        <NBadge :value="ann.highlights.length" :max="99" type="info">
-          <NButton size="tiny" quaternary>🏷 高亮</NButton>
-        </NBadge>
-      </template>
-      <HighlightMenu />
-    </NPopover>
-    <NPopover trigger="click" placement="bottom-start">
-      <template #trigger>
-        <NBadge :value="ann.hideRules.length" :max="99" type="warning">
-          <NButton size="tiny" quaternary>🙈 隐藏</NButton>
-        </NBadge>
-      </template>
-      <div class="hide-menu">
-        <p class="hint">行级隐藏（会话级，右键日志行可加）</p>
-        <ul v-if="ann.hideRules.length">
-          <li v-for="r in ann.hideRules" :key="r">
-            <span class="rule">{{ r }}</span>
-            <span class="del" @click="ann.removeHideRule(r)">&times;</span>
-          </li>
-        </ul>
-        <NButton v-if="ann.hideRules.length" size="tiny" quaternary type="warning" @click="ann.clearHideRules()">
-          清空全部
-        </NButton>
-      </div>
-    </NPopover>
+    <NBadge :value="ann.highlights.length + ann.hideRules.length" :max="99" type="info">
+      <NButton size="tiny" quaternary @click="openSearch(0)">🔍 搜索</NButton>
+    </NBadge>
     <NDropdown
       trigger="click"
       placement="bottom-start"
@@ -192,10 +132,6 @@ function zoom(delta: number) {
   padding: 6px 10px;
   border-bottom: 1px solid var(--popup-border, #1e2837);
 }
-.search {
-  max-width: 320px;
-  min-width: 200px;
-}
 .level {
   width: 100px;
 }
@@ -207,43 +143,5 @@ function zoom(delta: number) {
   color: var(--dim, #8b98a9);
   min-width: 18px;
   text-align: center;
-}
-.hide-menu {
-  width: 240px;
-  font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.hint {
-  color: var(--dim, #8b98a9);
-  font-size: 11px;
-  margin: 0;
-}
-.hide-menu ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 180px;
-  overflow-y: auto;
-}
-.hide-menu li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-}
-.rule {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.del {
-  cursor: pointer;
-  color: var(--dim, #8b98a9);
-}
-.del:hover {
-  color: var(--fg, #fff);
 }
 </style>

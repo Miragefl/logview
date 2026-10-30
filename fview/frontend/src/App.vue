@@ -16,10 +16,13 @@ import SettingsDialog from './components/dialogs/SettingsDialog.vue'
 import Toolbar from './components/logview/Toolbar.vue'
 import LogView from './components/logview/LogView.vue'
 import StatusBar from './components/logview/StatusBar.vue'
+import SearchPopup from './components/logview/SearchPopup.vue'
+import { useSearchStore } from './stores/searchStore'
 
 const theme = useThemeStore()
 const tabs = useTabsStore()
 const ui = useUiStore()
+const searchStore = useSearchStore()
 
 // ---- 跨组件交互状态（App 为接线员） ----
 const ALL_FIELDS = ['time', 'level', 'thread', 'traceId', 'logger', 'message']
@@ -32,7 +35,6 @@ const allFieldsCfg = ref<FieldConfig[]>([])
 const colWidths = computed(() => fieldsWidths(allFieldsCfg.value, fields.value))
 
 const logviewRef = ref<InstanceType<typeof LogView> | null>(null)
-const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
 
 // 设置中心（Task 10 接入对话框，先占位开关）
 const settingsShow = ref(false)
@@ -75,9 +77,16 @@ function onKeydown(e: KeyboardEvent) {
     logviewRef.value?.scrollToEnd(true)
   } else if (e.key === 'G') {
     logviewRef.value?.scrollToEnd(false)
-  } else if (e.key === '/') {
+  } else if (e.key === '/' || e.key === 'f') {
+    // 统一搜索弹窗·搜索分区(TUI /、f 同款;h 高亮、x 隐藏,验收反馈③④)
     e.preventDefault()
-    toolbarRef.value?.focusSearch()
+    searchStore.open(0)
+  } else if (e.key === 'h') {
+    e.preventDefault()
+    searchStore.open(1)
+  } else if (e.key === 'x') {
+    e.preventDefault()
+    searchStore.open(2)
   } else if (e.key === 'n' && !e.shiftKey) {
     logviewRef.value?.jumpHit(1)
   } else if (e.key === 'N' || (e.key === 'n' && e.shiftKey)) {
@@ -131,10 +140,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <Welcome v-if="tabs.tabs.length === 0" />
           <template v-else>
             <Toolbar
-              ref="toolbarRef"
               v-model:level-mode="levelMode"
               :fields="fields"
-              @search="onSearch"
               @update:fields="(f: string[]) => (fields = f)"
             />
             <LogView
@@ -151,6 +158,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
       </div>
     </div>
     <SettingsDialog v-model:show="settingsShow" />
+    <SearchPopup v-if="tabs.tabs.length" @search="onSearch" />
   </n-config-provider>
 </template>
 

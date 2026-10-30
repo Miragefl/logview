@@ -12,7 +12,8 @@ import { levelClass } from '../../lib/levelColor'
 import { DEFAULT_WIDTHS, headerCells, layoutLine } from '../../lib/columns'
 import { visibleRange } from '../../lib/virtual'
 import { splitSpans } from '../../lib/hlSpan'
-import { getLine, setFollow } from '../../lib/backend'
+import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
+import { scopeOfLabel } from '../../lib/scope'
 import type { LineDTO } from '../../lib/types'
 
 const props = defineProps<{
@@ -155,7 +156,9 @@ function onCtxSelect(key: string) {
   ctxMenu.value.show = false
   if (!ln) return
   if (key === 'hide-line') {
-    ann.addHideRule(ln.message || ln.raw) // 按内容隐藏（同内容行全隐藏）
+    const w = ln.message || ln.raw
+    ann.addHideRule(w) // 按内容隐藏（同内容行全隐藏）
+    bumpKeyword(scopeOfLabel(tabs.active?.info.label ?? ''), 'hide', w).catch(() => {})
   } else {
     // 预填该行 message 首个空格分词
     kwModal.value = { show: true, word: (ln.message || ln.raw).split(/\s+/)[0] ?? '' }
@@ -163,7 +166,9 @@ function onCtxSelect(key: string) {
 }
 
 function confirmHideKw() {
-  ann.addHideRule(kwModal.value.word.trim())
+  const w = kwModal.value.word.trim()
+  ann.addHideRule(w)
+  bumpKeyword(scopeOfLabel(tabs.active?.info.label ?? ''), 'hide', w).catch(() => {})
   kwModal.value.show = false
 }
 

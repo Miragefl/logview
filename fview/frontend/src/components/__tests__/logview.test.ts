@@ -28,11 +28,15 @@ vi.mock('../../lib/backend', () => ({
   setTheme: vi.fn().mockResolvedValue(undefined),
   usageRecent: vi.fn().mockResolvedValue([]),
   closeTab: vi.fn().mockResolvedValue(undefined),
+  bumpKeyword: vi.fn().mockResolvedValue(undefined),
+  usageKeywords: vi.fn().mockResolvedValue([]),
 }))
 
 import * as backend from '../../lib/backend'
 import Toolbar from '../logview/Toolbar.vue'
+import SearchPopup from '../logview/SearchPopup.vue'
 import { useTabsStore } from '../../stores/tabs'
+import { useSearchStore } from '../../stores/searchStore'
 
 function mountC(c: Parameters<typeof mount>[0], props?: Record<string, unknown>) {
   return mount(c as never, { props: props as never, global: { plugins: [naive] } })
@@ -51,10 +55,19 @@ describe('Critical 修复回归', () => {
     // 镜像 seq 从 100 起（模拟裁头后稳态：seq≠索引）
     tabs.applyLines({ tabId: 't1', lines: makeLines(100, 3) })
 
-    const w = mountC(Toolbar, { levelMode: 'A', fields: ['time', 'level', 'message'] })
-    const input = w.find('input')
-    await input.setValue('err')
-    await input.trigger('keyup.enter')
+    // 搜索逻辑已迁统一弹窗 SearchPopup(验收反馈③);NModal teleport 到 body,
+    // 直接从 body 取原生 input 驱动事件
+    const search = useSearchStore()
+    search.open(0)
+    const w = mount(SearchPopup, { global: { plugins: [naive] } })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('input')
+    expect(input).toBeTruthy()
+    input!.value = 'err'
+    input!.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    input!.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
 
     const emitted = w.emitted('search')

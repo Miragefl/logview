@@ -10,6 +10,10 @@ export function BrowseFRP(arg1, arg2, arg3) {
   return window['go']['main']['App']['BrowseFRP'](arg1, arg2, arg3);
 }
 
+export function BumpKeyword(arg1, arg2, arg3) {
+  return window['go']['main']['App']['BumpKeyword'](arg1, arg2, arg3);
+}
+
 export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
@@ -164,6 +168,10 @@ export function UpsertFrpConn(arg1) {
 
 export function UpsertFrpServer(arg1) {
   return window['go']['main']['App']['UpsertFrpServer'](arg1);
+}
+
+export function UsageKeywords(arg1, arg2) {
+  return window['go']['main']['App']['UsageKeywords'](arg1, arg2);
 }
 
 export function UsageRecent() {

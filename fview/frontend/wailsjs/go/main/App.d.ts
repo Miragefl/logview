@@ -9,6 +9,8 @@ export function AddSSHHost(arg1:string):Promise<void>;
 
 export function BrowseFRP(arg1:string,arg2:string,arg3:string):Promise<Array<main.DirEntryDTO>>;
 
+export function BumpKeyword(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function CloseTab(arg1:string):Promise<void>;
 
 export function CurrentTheme():Promise<string>;
@@ -86,6 +88,8 @@ export function ThemeNames():Promise<Array<string>>;
 export function UpsertFrpConn(arg1:frp.Conn):Promise<void>;
 
 export function UpsertFrpServer(arg1:frp.Server):Promise<void>;
+
+export function UsageKeywords(arg1:string,arg2:string):Promise<Array<string>>;
 
 export function UsageRecent():Promise<Array<string>>;
 

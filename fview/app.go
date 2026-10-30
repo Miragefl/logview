@@ -442,6 +442,12 @@ func (a *App) UsageRecent() []string { return fview.UsageRecent() }
 // UsageTouch 记录一次源使用（key 由前端按前缀规范拼接，如 file:/path/app.log）。
 func (a *App) UsageTouch(key string) { fview.UsageTouch(key) }
 
+// UsageKeywords 高亮/隐藏词频 top20（共享 usage.json，kind ∈ hl|hide，scope 空即全局）。
+func (a *App) UsageKeywords(scope, kind string) []string { return fview.Keywords(scope, kind) }
+
+// BumpKeyword 记一次关键词使用（与 TUI 同一份词频，验收反馈③）。
+func (a *App) BumpKeyword(scope, kind, word string) { fview.BumpKeyword(scope, kind, word) }
+
 // GetMemStats 状态栏内存徽章：Sys-HeapReleased 字节数（口径对齐 TUI）。
 func (a *App) GetMemStats() uint64 { return fview.MemStatsBytes() }
 
