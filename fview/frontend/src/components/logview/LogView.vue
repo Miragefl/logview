@@ -596,7 +596,8 @@ defineExpose({
       >
     </div>
     <div class="spacer" :style="{ height: totalH + 'px' }"></div>
-    <div class="rows" :style="{ transform: `translateY(${rowTop(range[0])}px)`, height: totalH + 'px' }">
+    <!-- 行用全局 top 定位;.rows 不再做 translateY(双重补偿会让滚动一屏后花屏,Final #1) -->
+    <div class="rows" :style="{ height: totalH + 'px' }">
       <template v-for="(item, i) in visItems" :key="item.type === 'line' ? item.ln.seq : 'f' + item.range.startSeq">
         <!-- 折叠占位行(点击展开) -->
         <div
@@ -852,7 +853,7 @@ defineExpose({
 .f-thread {
   color: var(--thread, #9e9e9e);
 }
-.f-trace {
+.f-traceId {
   color: var(--trace, #87ffff);
 }
 .f-logger {

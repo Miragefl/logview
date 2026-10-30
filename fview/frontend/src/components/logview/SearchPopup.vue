@@ -3,7 +3,7 @@
 // - Tab 键轮换分区;Enter 确认当前分区;ctrl+R 呼出关键词历史
 // - 搜索=整句查询(ParseQuery 语法)会话级历史;高亮/隐藏=逗号词表,词频进
 //   共享 usage.json(7 天半衰期,scope 隔离,与 TUI 同读写)
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { NButton, NInput } from 'naive-ui'
 import { useTabsStore } from '../../stores/tabs'
 import { useAnnotationsStore } from '../../stores/annotations'
@@ -49,6 +49,8 @@ watch(
   () => {
     histShow.value = false
     qErr.value = ''
+    // 分区切换后新输入框重新聚焦(Final #5:否则键盘流断裂,Esc/j 落回全局键位)
+    nextTick(() => inputEl.value?.focus())
   }
 )
 

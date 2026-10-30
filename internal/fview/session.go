@@ -104,6 +104,8 @@ type tab struct {
 	fold        foldDetector // 堆栈折叠尾窗检测（持 mu 访问）
 	lastFolds   []FoldRange  // 最近一次检测结果（FoldRanges 懒拉数据源）
 	lastFoldSig string       // 变更签名（len+末组区间），决定是否 emit tab:folds
+	foldScanAt  time.Time    // 上次折叠扫描时刻（节流基准,Final #4）
+	foldPending int          // 距上次扫描累计行数（节流基准）
 }
 
 func (t *tab) toDTO(pl *model.ParsedLine) LineDTO {
@@ -433,12 +435,20 @@ func (t *tab) flush(m *Manager) {
 	batch := t.pend
 	t.pend = nil
 	t.lastFlush = time.Now()
-	// 尾窗折叠检测:缓冲无锁须持 mu;签名变化才广播,避免每批重发全量组
-	ranges := t.fold.update(t.buf)
-	sig := foldSignature(ranges)
-	foldChanged := sig != t.lastFoldSig
-	t.lastFoldSig = sig
-	t.lastFolds = ranges
+	// 尾窗折叠检测(节流,Final #4):缓冲无锁须持 mu;签名变化才广播
+	now := time.Now()
+	t.foldPending += len(batch)
+	var ranges []FoldRange
+	foldChanged := false
+	if shouldFoldScan(t.foldScanAt, now, t.foldPending) {
+		ranges = t.fold.update(t.buf)
+		sig := foldSignature(ranges)
+		foldChanged = sig != t.lastFoldSig
+		t.lastFoldSig = sig
+		t.lastFolds = ranges
+		t.foldScanAt = now
+		t.foldPending = 0
+	}
 	t.mu.Unlock()
 	if len(batch) == 0 {
 		if foldChanged {

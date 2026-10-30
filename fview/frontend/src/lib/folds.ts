@@ -31,17 +31,20 @@ export function buildViewItems(
   if (!active.length) {
     return lines.map((ln) => ({ type: 'line', ln }) as ViewItem)
   }
-  // 第一遍:数每个折叠组在过滤视图中的可见行数(决定折叠 or 自然展开)
+  // 第一遍:数每个折叠组在过滤视图中的可见行数 + leader 是否可见
+  // (Final #3:leader 被过滤时按 spec 自然展开,不得吞掉可见成员)
   const counts = new Map<number, number>()
+  const leaderVisible = new Set<number>()
   let fi = 0
   for (const ln of lines) {
     while (fi < active.length && ln.seq > active[fi].endSeq) fi++
     const f = active[fi]
     if (f && ln.seq >= f.startSeq) {
       counts.set(f.startSeq, (counts.get(f.startSeq) ?? 0) + 1)
+      if (ln.seq === f.startSeq) leaderVisible.add(f.startSeq)
     }
   }
-  // 第二遍:leader 位置出占位(可见行>1 时),成员跳过;其余行直出
+  // 第二遍:leader 位置出占位(可见行>1 且 leader 可见),成员跳过;其余行直出
   const out: ViewItem[] = []
   let fj = 0
   for (const ln of lines) {
@@ -51,8 +54,8 @@ export function buildViewItems(
       out.push({ type: 'line', ln })
       continue
     }
-    if ((counts.get(f.startSeq) ?? 0) <= 1) {
-      out.push({ type: 'line', ln }) // 孤行自然展开
+    if ((counts.get(f.startSeq) ?? 0) <= 1 || !leaderVisible.has(f.startSeq)) {
+      out.push({ type: 'line', ln }) // 孤行/leader 不可见 → 自然展开
       continue
     }
     if (ln.seq === f.startSeq) {

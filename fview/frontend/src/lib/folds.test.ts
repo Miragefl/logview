@@ -41,6 +41,15 @@ describe('buildViewItems', () => {
     expect(items).toHaveLength(3)
   })
 
+  it('leader 被过滤但成员 ≥2 可见 → 自然展开,成员直出不消失(Final #3)', () => {
+    // leader(seq2)被隐藏词滤掉,帧 seq3/5 可见(seq4 也被滤)
+    const filtered = [LINES[0], LINES[2], LINES[4], LINES[5]]
+    const items = buildViewItems(filtered, [FOLD], [2])
+    expect(items.every((i) => i.type === 'line')).toBe(true)
+    expect(items).toHaveLength(4) // 成员一个不丢
+    expect(items.some((i) => i.type === 'fold')).toBe(false)
+  })
+
   it('repaint 场景:lines 换成同内容新数组,输出 seq 序列不变(Review Focus ②)', () => {
     const a = buildViewItems(LINES, [FOLD], [2])
     const b = buildViewItems(LINES.map((l) => ({ ...l })), [FOLD], [2])

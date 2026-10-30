@@ -5,13 +5,32 @@
 package fview
 
 import (
+	"time"
+
 	"github.com/justfun/logview/internal/buffer"
 	"github.com/justfun/logview/internal/stacktrace"
 )
 
-// foldWindow 尾窗行数:每轮 flush 间隔增量 ≤1000 行,窗口远大于增量保证连续;
-// 未终局长组由"窗口起点回退到上轮末组 leader"兜住(跨窗不断裂)。
-const foldWindow = 16384
+// foldWindow 尾窗行数:窗口越小单轮重扫越便宜(4096 行 Detect ≈1ms);
+// 连续性由"窗口起点回退到所有跨窗组 leader"兜住(跨窗不断裂)。
+// 大文件加载的高频重扫由 shouldFoldScan 节流(500ms 或 8192 行增量)。
+const foldWindow = 4096
+
+// foldScanMinInterval / foldScanMinLines 节流阈值:任一满足才真正重扫。
+const (
+	foldScanMinInterval = 500 * time.Millisecond
+	foldScanMinLines    = 8192
+)
+
+// shouldFoldScan 节流判定:距上次扫描满 500ms,或累计待扫行数 ≥8192。
+// (Final Review #4:每 1000 行 flush 全量重扫 16k 窗口,664 万行加载额外
+// 20-30s CPU;节流后加载期 ~2 扫/秒,follow 稳态 500ms 一扫,折叠出现延迟无感。)
+func shouldFoldScan(lastScan time.Time, now time.Time, pendingLines int) bool {
+	if pendingLines >= foldScanMinLines {
+		return true
+	}
+	return now.Sub(lastScan) >= foldScanMinInterval
+}
 
 // FoldRange 折叠组(seq 域,含端点;Leader 为异常首行)。
 type FoldRange struct {
@@ -44,10 +63,11 @@ func (d *foldDetector) update(buf *buffer.RingBuffer) []FoldRange {
 	if start < 0 {
 		start = 0
 	}
-	// 回退:上轮末组 leader 仍在缓冲但已落标准窗口之前 → 窗口扩到它,跨窗不断裂
-	if len(d.window) > 0 {
-		if idx := seqIndex(buf, d.window[len(d.window)-1].StartSeq); idx >= 0 && idx < start {
-			start = idx
+	// 回退:遍历上轮所有组,凡 leader 仍在缓冲但落标准窗口之前的都拉回窗口
+	// (Final Review #2:只查末组时,跨窗巨组后紧跟新组会让巨组 leader 出窗整组丢失)
+	for _, g := range d.window {
+		if si := seqIndex(buf, g.StartSeq); si >= 0 && si < start {
+			start = si
 		}
 	}
 	lines := buf.Slice(start, n)

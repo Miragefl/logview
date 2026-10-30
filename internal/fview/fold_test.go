@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/justfun/logview/internal/buffer"
 	"github.com/justfun/logview/internal/model"
@@ -103,5 +104,55 @@ func TestFoldGiantGroupAcrossWindow(t *testing.T) {
 	rs := d.update(buf)
 	if len(rs) != 1 || rs[0].StartSeq != 1 || rs[0].EndSeq != 11 {
 		t.Fatalf("巨组断裂: %+v", rs)
+	}
+}
+
+// TestShouldFoldScan 节流判定(Final #4):满 500ms 或增量 ≥8192 才重扫。
+func TestShouldFoldScan(t *testing.T) {
+	now := time.Now()
+	if !shouldFoldScan(now.Add(-time.Second), now, 0) {
+		t.Error("间隔 ≥500ms 应触发扫描")
+	}
+	if shouldFoldScan(now, now, 100) {
+		t.Error("间隔 0 且增量 100 不应扫描")
+	}
+	if !shouldFoldScan(now, now, 8192) {
+		t.Error("增量 ≥8192 应立即扫描")
+	}
+	if shouldFoldScan(now.Add(-time.Millisecond*100), now, 100) {
+		t.Error("间隔 100ms 且增量 100 不应扫描")
+	}
+}
+
+// TestFoldTwoGroupsAcrossWindow 双组场景(Final Review #2):G1 跨标准窗口起点、
+// G2 完整落窗内——旧实现只回退最后一组(G2),G1 leader 出窗整组丢失。
+func TestFoldTwoGroupsAcrossWindow(t *testing.T) {
+	d := &foldDetector{win: 6}
+	buf := buffer.NewRingBuffer(1000)
+	// G1 = seq1 leader + seq2-8 帧;G2 = seq9 leader + seq10 帧;seq11-15 普通行
+	texts := []string{"java.lang.Exception: first"}
+	for i := 0; i < 7; i++ {
+		texts = append(texts, "\tat a.B"+strconv.Itoa(i)+"(C.java:1)")
+	}
+	texts = append(texts, "java.lang.Exception: second", "\tat d.E(F.java:1)")
+	for i := 0; i < 5; i++ {
+		texts = append(texts, "plain "+strconv.Itoa(i))
+	}
+	var seq uint64 = 1
+	for i := 0; i < len(texts); i += 3 {
+		end := min(i+3, len(texts))
+		push(buf, seq, texts[i:end])
+		seq += uint64(end - i)
+		d.update(buf)
+	}
+	rs := d.update(buf)
+	if len(rs) != 2 {
+		t.Fatalf("应检出 2 组,得到 %d 组: %+v", len(rs), rs)
+	}
+	if rs[0].StartSeq != 1 || rs[0].EndSeq != 8 {
+		t.Errorf("G1 = [%d,%d],期望 [1,8]", rs[0].StartSeq, rs[0].EndSeq)
+	}
+	if rs[1].StartSeq != 9 || rs[1].EndSeq != 10 {
+		t.Errorf("G2 = [%d,%d],期望 [9,10]", rs[1].StartSeq, rs[1].EndSeq)
 	}
 }
