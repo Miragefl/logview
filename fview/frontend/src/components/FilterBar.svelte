@@ -46,7 +46,7 @@
   }
   .lbl {
     color: #9aa0a8;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .filterrow input {
     background: #ffffff;
@@ -54,7 +54,7 @@
     border-radius: 4px;
     color: #1a1d21;
     padding: 3px 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     width: 300px;
   }
   .mini {
@@ -64,7 +64,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 3px 10px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     white-space: nowrap;
   }
   .mini:hover {
@@ -86,7 +86,7 @@
     gap: 4px;
     z-index: 10;
     min-width: 110px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
 </style>

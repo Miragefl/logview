@@ -23,11 +23,15 @@
     changed: void
     menuZoom: number
     logFontSize: number
+    uiFontFamily: string
+    uiFontSize: number
   }>()
 
   export let tab: 'conn' | 'rules' | 'ui' = 'conn'
   export let menuZoom = 1.05
   export let logFontSize = 13
+  export let uiFontFamily = ''
+  export let uiFontSize = 14
 
   let sshHosts: string[] = []
   let servers: FrpServer[] = []
@@ -278,8 +282,36 @@
         <div class="fontctl">
           <div class="fc-row">
             <div class="fc-label">
-              <span class="fc-name">菜单界面字号</span>
-              <span class="fc-desc">侧栏/工具栏/弹窗等 UI 文字（快捷键 Cmd ±，状态栏「界面 −/＋」）</span>
+              <span class="fc-name">界面字体</span>
+              <span class="fc-desc">菜单/侧栏/弹窗的字体族（日志区恒为等宽）</span>
+            </div>
+            <div class="fc-ctrl">
+              <select class="fc-select" value={uiFontFamily} on:change={(e) => dispatch('uiFontFamily', e.currentTarget.value)}>
+                <option value="">系统默认（PingFang SC）</option>
+                <option value="'SF Mono', Menlo, monospace">SF Mono（等宽）</option>
+                <option value="Menlo, monospace">Menlo</option>
+                <option value="'Helvetica Neue', sans-serif">Helvetica</option>
+                <option value="'Songti SC', serif">宋体 Songti</option>
+                <option value="'Kaiti SC', serif">楷体 Kaiti</option>
+                <option value="Georgia, serif">Georgia</option>
+              </select>
+            </div>
+          </div>
+          <div class="fc-row">
+            <div class="fc-label">
+              <span class="fc-name">界面字号</span>
+              <span class="fc-desc">菜单/侧栏/弹窗文字大小（12-20px）</span>
+            </div>
+            <div class="fc-ctrl">
+              <button class="mini" on:click={() => dispatch('uiFontSize', Math.max(12, uiFontSize - 1))}>−</button>
+              <span class="fc-val">{uiFontSize}px</span>
+              <button class="mini" on:click={() => dispatch('uiFontSize', Math.min(20, uiFontSize + 1))}>＋</button>
+            </div>
+          </div>
+          <div class="fc-row">
+            <div class="fc-label">
+              <span class="fc-name">界面缩放</span>
+              <span class="fc-desc">整体等比缩放（独立于字号；快捷键 Cmd ± / 0）</span>
             </div>
             <div class="fc-ctrl">
               <button class="mini" on:click={() => dispatch('menuZoom', Math.max(0.8, Math.round((menuZoom - 0.05) * 100) / 100))}>−</button>
@@ -290,7 +322,7 @@
           <div class="fc-row">
             <div class="fc-label">
               <span class="fc-name">日志文本字号</span>
-              <span class="fc-desc">日志行文字（快捷键状态栏 A− / A＋，仅影响日志区）</span>
+              <span class="fc-desc">日志行文字（状态栏 A− / A＋，仅影响日志区）</span>
             </div>
             <div class="fc-ctrl">
               <button class="mini" on:click={() => dispatch('logFontSize', Math.max(10, logFontSize - 1))}>−</button>
@@ -341,7 +373,7 @@
     border-bottom: 2px solid transparent;
     color: #6b7280;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 0.875rem;
     padding: 8px 14px;
   }
   .tab.on {
@@ -355,7 +387,7 @@
   h4 {
     margin: 16px 0 8px;
     color: #6b7280;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .addrow {
     display: flex;
@@ -371,7 +403,7 @@
     border-radius: 4px;
     color: #1a1d21;
     padding: 5px 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .addrow input {
     flex: 1;
@@ -379,7 +411,7 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   th {
     text-align: left;
@@ -416,7 +448,7 @@
     border-radius: 4px;
     padding: 5px 14px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .btn:hover {
     background: #d8d8cd;
@@ -437,7 +469,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 9px;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .mini.danger:hover {
     color: #dc2626;
@@ -445,13 +477,13 @@
   }
   .hint {
     color: #9aa0a8;
-    font-size: 12px;
+    font-size: 0.75rem;
     margin: 8px 0 0;
   }
   .errbar {
     padding: 7px 18px;
     color: #dc2626;
-    font-size: 13px;
+    font-size: 0.8125rem;
     border-bottom: 1px solid #eac4c4;
   }
   .rulegrid {
@@ -460,11 +492,11 @@
     gap: 8px;
     align-items: center;
     padding: 4px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .rulegrid.head-row {
     color: #9aa0a8;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .rules-foot {
     display: flex;

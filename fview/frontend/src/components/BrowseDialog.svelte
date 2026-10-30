@@ -132,7 +132,7 @@
     align-items: center;
     padding: 8px 14px;
     border-bottom: 1px solid #e2e2d8;
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-family: 'SF Mono', Menlo, monospace;
   }
   .bar {
@@ -148,7 +148,7 @@
     border-radius: 4px;
     color: #1a1d21;
     padding: 3px 8px;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-family: 'SF Mono', Menlo, monospace;
   }
   .pwbar {
@@ -164,12 +164,12 @@
     border-radius: 4px;
     color: #1a1d21;
     padding: 3px 8px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .err {
     padding: 6px 14px;
     color: #dc2626;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .list {
     flex: 1;
@@ -178,7 +178,7 @@
   }
   .entry {
     padding: 3px 10px;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-family: 'SF Mono', Menlo, monospace;
     border-radius: 4px;
     cursor: pointer;
@@ -199,11 +199,11 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .hint {
     color: #9aa0a8;
     padding: 8px 10px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 </style>

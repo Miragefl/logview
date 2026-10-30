@@ -73,7 +73,7 @@
   }
   h3 {
     margin: 0;
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: #9aa0a8;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -92,7 +92,7 @@
     border-radius: 5px;
     color: #5f6672;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 0.75rem;
     padding: 4px 0;
   }
   .seg.on {
@@ -115,7 +115,7 @@
     cursor: pointer;
     padding: 3px 4px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 0.75rem;
     text-align: left;
   }
   .row:hover {

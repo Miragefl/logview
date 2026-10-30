@@ -58,6 +58,7 @@
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
   let toolbarOpen = true // 工具栏展开态（f 或按钮收起）
+  let sidebarOpen = true // 侧栏展开态（顶栏 ☰ 切换）
   let showK8s = false
   let showSettings = false
   let settingsTab: 'conn' | 'rules' | 'ui' = 'conn'
@@ -69,6 +70,15 @@
   let fontSize = Number(localStorage.getItem('fview.font-size')) || 13
   $: rowHeight = fontSize + 8
   $: localStorage.setItem('fview.font-size', String(fontSize))
+  // 菜单字体与字号（真 font 设置；缩放 menuZoom 为独立功能）
+  let uiFontFamily = localStorage.getItem('fview.ui-font-family') || ''
+  let uiFontSize = Number(localStorage.getItem('fview.ui-font-size')) || 14
+  $: {
+    document.body.style.fontFamily = uiFontFamily || "-apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif"
+    document.documentElement.style.fontSize = uiFontSize + 'px'
+    localStorage.setItem('fview.ui-font-family', uiFontFamily)
+    localStorage.setItem('fview.ui-font-size', String(uiFontSize))
+  }
   let menuZoom = Number(localStorage.getItem('fview.menu-zoom')) || 1.05
   $: {
     ;(document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(menuZoom)
@@ -226,6 +236,7 @@
 
 <svelte:window on:keydown={onKeydown} />
 <div class="app">
+  {#if sidebarOpen}
   <aside class="sidebar">
   <ConnectionPanel
     bind:this={connPanel}
@@ -244,9 +255,11 @@
     </div>
   {/if}
   </aside>
+  {/if}
 
   <div class="main-col">
     <header class="topbar">
+      <button class="hamburger" title="收起/展开侧栏" on:click={() => (sidebarOpen = !sidebarOpen)}>☰</button>
       <TabBar />
       <div class="spacer" />
       {#if themes.length}
@@ -341,8 +354,12 @@
       tab={settingsTab}
       menuZoom={menuZoom}
       logFontSize={fontSize}
+      uiFontFamily={uiFontFamily}
+      uiFontSize={uiFontSize}
       on:menuZoom={(e) => (menuZoom = e.detail)}
       on:logFontSize={(e) => (fontSize = e.detail)}
+      on:uiFontFamily={(e) => (uiFontFamily = e.detail)}
+      on:uiFontSize={(e) => (uiFontSize = e.detail)}
       on:close={() => (showSettings = false)}
       on:changed={() => connPanel?.refresh()}
     />
@@ -425,13 +442,26 @@
     min-height: 34px;
   }
   .spacer { flex: 1; }
+  .hamburger {
+    background: none;
+    border: 1px solid #c7c7bc;
+    border-radius: 6px;
+    color: #5f6672;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 2px 8px;
+    line-height: 1.3;
+  }
+  .hamburger:hover {
+    background: #e2e2d8;
+  }
   .theme-select {
     background: #e2e2d8;
     color: #6b7280;
     border: 1px solid #c7c7bc;
     border-radius: 4px;
     padding: 3px 6px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   main { flex: 1; overflow: hidden; }
   .pane {
@@ -458,7 +488,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 0 10px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .pane-body { flex: 1; display: flex; overflow: hidden; }
   .statusbar {
@@ -468,7 +498,7 @@
     padding: 3px 12px;
     background: #ebebe2;
     border-top: 1px solid #e2e2d8;
-    font-size: 14px;
+    font-size: 0.875rem;
     color: #5f6672;
     min-height: 26px;
   }
@@ -487,7 +517,7 @@
     border-radius: 4px;
     padding: 1px 10px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .st-follow.on { color: #15803d; border-color: #15803d; }
   .zoom { display: flex; align-items: center; gap: 4px; }
@@ -499,7 +529,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 8px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .st-btn:hover { color: #1a1d21; }
 </style>

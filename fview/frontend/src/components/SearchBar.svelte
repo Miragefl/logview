@@ -71,7 +71,7 @@
     border-radius: 4px;
     color: #1a1d21;
     padding: 3px 8px;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-family: 'SF Mono', Menlo, monospace;
   }
   input:focus {
@@ -83,12 +83,12 @@
   }
   .err {
     color: #dc2626;
-    font-size: 13px;
+    font-size: 0.8125rem;
     white-space: nowrap;
   }
   .count {
     color: #6b7280;
-    font-size: 13px;
+    font-size: 0.8125rem;
     white-space: nowrap;
   }
   .nav {

@@ -53,7 +53,7 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .head {
     display: flex;
@@ -74,7 +74,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   table {
     width: 100%;

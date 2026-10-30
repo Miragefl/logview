@@ -68,7 +68,7 @@
 <style>
   h3 {
     margin: 0 0 6px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: #9aa0a8;
     display: flex;
     justify-content: space-between;
@@ -85,7 +85,7 @@
     border-radius: 5px;
     padding: 6px 8px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 0.9375rem;
     margin-bottom: 4px;
     text-align: left;
   }
@@ -100,7 +100,7 @@
     color: #2563eb;
     cursor: pointer;
     text-align: left;
-    font-size: 15px;
+    font-size: 0.9375rem;
     padding: 3px 4px;
     border-radius: 4px;
     overflow: hidden;
@@ -115,7 +115,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 7px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .mini:hover { color: #1a1d21; }
   .foot { margin-top: auto; }
@@ -126,7 +126,7 @@
     border-radius: 5px;
     color: #6b7280;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 0.9375rem;
     padding: 6px;
   }
   .cfg:hover { color: #1a1d21; border-color: #4a6fa5; }
