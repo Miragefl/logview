@@ -130,8 +130,8 @@
       <button class="nav-item" class:on={tab === 'rules'} on:click={() => (tab = 'rules')}>解析规则</button>
       <button class="nav-item" class:on={tab === 'ui'} on:click={() => (tab = 'ui')}>界面</button>
       <div class="nav-spacer" />
-      <button class="nav-close" title="关闭" on:click={() => dispatch('close')}>&times;</button>
     </nav>
+    <button class="win-close" title="关闭" on:click={() => dispatch('close')}>&times;</button>
     {#if error}
       <div class="errbar">{error}</div>
     {/if}

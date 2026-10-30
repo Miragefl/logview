@@ -122,7 +122,7 @@
   .cfg {
     width: 100%;
     background: none;
-    border: 1px dashed var(--border-strong);
+    border: 1px solid var(--border);
     border-radius: 5px;
     color: var(--muted-fg);
     cursor: pointer;
