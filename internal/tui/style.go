@@ -130,13 +130,6 @@ var AppBgColor lipgloss.Color = ""
 var AppFgColor lipgloss.Color = ""
 var AppBgSeq string = ""
 
-func hexToRGB(hex string) (r, g, b int) {
-	if len(hex) == 7 && hex[0] == '#' {
-		fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
-	}
-	return
-}
-
 func SetTerminalBg(hex string) string {
 	if hex == "" {
 		return ""

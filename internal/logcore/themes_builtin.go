@@ -1,4 +1,4 @@
-package tui
+package logcore
 
 // 内置开源主题。配色取自 iTerm2-Color-Schemes（mbadolato）对应 scheme 的官方 16 色。
 // 映射约定：red→LevelError、yellow→LevelWarn、green→LevelInfo、cyan/blue→Accent/TraceID、

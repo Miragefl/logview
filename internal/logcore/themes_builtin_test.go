@@ -1,4 +1,4 @@
-package tui
+package logcore
 
 import (
 	"strings"
