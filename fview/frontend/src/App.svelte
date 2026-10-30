@@ -1,27 +1,117 @@
 <script lang="ts">
-  // M1 骨架占位：tab 容器与日志视图在后续任务接入，此处不 import 任何 wailsjs 绑定
-  //（App 后端当前零方法，绑定文件不生成）。
+  // fview 主框架：顶栏（打开按钮 + tab 栏）+ 主区（欢迎页/行流占位）。
+  // 行流渲染（虚拟滚动）在 Task 7 替换占位列表。
+  import { onMount } from 'svelte'
+  import TabBar from './components/TabBar.svelte'
+  import Welcome from './components/Welcome.svelte'
+  import { openFileViaDialog, subscribeTabEvents } from './lib/backend'
+  import {
+    tabsStore,
+    activeTab,
+    applyLinesEvent,
+    applyMetaEvent,
+    applyClosedEvent,
+  } from './lib/stores/tabs'
+
+  $: current = $tabsStore.find((t) => t.info.id === $activeTab)
+
+  onMount(() => {
+    subscribeTabEvents({
+      onLines: applyLinesEvent,
+      onMeta: applyMetaEvent,
+      onClosed: applyClosedEvent,
+    })
+  })
+
+  async function handleOpen() {
+    const id = await openFileViaDialog()
+    if (id) activeTab.set(id)
+  }
 </script>
 
-<main>
-  <div class="hero">
-    <h1>fview</h1>
-    <p>LogView 桌面版 · 骨架已就绪（tab / 日志视图将在后续任务接入）</p>
-  </div>
-</main>
+<div class="app">
+  <header class="topbar">
+    <button class="open-btn" on:click={handleOpen}>打开文件</button>
+    <TabBar />
+  </header>
+  <main>
+    {#if !current}
+      <Welcome />
+    {:else}
+      <div class="pane">
+        <div class="pane-head">
+          {current.info.label} · {current.info.lines} 行
+        </div>
+        <div class="lines">
+          {#each current.lines.slice(-50) as ln (ln.seq)}
+            <div class="row"><span class="seq">{ln.seq}</span>{ln.raw}</div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+  </main>
+</div>
 
 <style>
-  main {
-    width: 100%;
+  .app {
+    width: 100vw;
     height: 100vh;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #1b2636;
+    flex-direction: column;
+    background: #10161f;
     color: #e6e6e6;
     font-family: -apple-system, 'PingFang SC', sans-serif;
   }
-  .hero { text-align: center; }
-  h1 { font-size: 42px; margin: 0 0 12px; letter-spacing: 2px; }
-  p { opacity: 0.65; margin: 0; }
+  .topbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 6px 8px 0;
+    background: #0c1119;
+  }
+  .open-btn {
+    background: #2a5db0;
+    color: #fff;
+    border: none;
+    border-radius: 6px 6px 0 0;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .open-btn:hover {
+    background: #3671cc;
+  }
+  main {
+    flex: 1;
+    overflow: hidden;
+  }
+  .pane {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .pane-head {
+    padding: 4px 10px;
+    font-size: 12px;
+    color: #8b98a9;
+    border-bottom: 1px solid #1c2836;
+  }
+  .lines {
+    flex: 1;
+    overflow-y: auto;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+  }
+  .row {
+    padding: 1px 10px;
+    white-space: nowrap;
+  }
+  .row:hover {
+    background: #1a2534;
+  }
+  .seq {
+    color: #46586e;
+    margin-right: 8px;
+  }
 </style>
