@@ -4,6 +4,7 @@
   import { sshBrowse, browseFRP, type FrpConn } from '../lib/backend'
 
   export let host: string
+  export let frpConn: FrpConn | null = null // 非空即 FRP 模式（隧道+SSH 浏览）
   export let initialPath = '/'
   export let onPick: (path: string, password: string) => void = () => {}
   export let onClose: () => void = () => {}
