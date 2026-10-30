@@ -25,6 +25,8 @@ export function FrpServers():Promise<Array<frp.Server>>;
 
 export function GetLine(arg1:string,arg2:number):Promise<Record<string, string>>;
 
+export function GetMemStats():Promise<number>;
+
 export function Hides():Promise<Array<string>>;
 
 export function K8sContexts():Promise<Array<string>>;
@@ -78,3 +80,7 @@ export function ThemeNames():Promise<Array<string>>;
 export function UpsertFrpConn(arg1:frp.Conn):Promise<void>;
 
 export function UpsertFrpServer(arg1:frp.Server):Promise<void>;
+
+export function UsageRecent():Promise<Array<string>>;
+
+export function UsageTouch(arg1:string):Promise<void>;

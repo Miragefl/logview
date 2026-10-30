@@ -409,6 +409,17 @@ func (a *App) shutdown(ctx context.Context) {
 	frp.KillAllTunnels()
 }
 
+// ---- 源热点/内存绑定（与 TUI 共享 usage.json） ----
+
+// UsageRecent 源热点 key 列表（file:/ssh: 等前缀，衰减分降序），本地面板数据源。
+func (a *App) UsageRecent() []string { return fview.UsageRecent() }
+
+// UsageTouch 记录一次源使用（key 由前端按前缀规范拼接，如 file:/path/app.log）。
+func (a *App) UsageTouch(key string) { fview.UsageTouch(key) }
+
+// GetMemStats 状态栏内存徽章：Sys-HeapReleased 字节数（口径对齐 TUI）。
+func (a *App) GetMemStats() uint64 { return fview.MemStatsBytes() }
+
 // ---- k8s 浏览绑定 ----
 
 // K8sContexts 列出 kubeconfig 全部 context。

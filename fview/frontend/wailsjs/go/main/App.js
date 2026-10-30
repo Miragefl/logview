@@ -42,6 +42,10 @@ export function GetLine(arg1, arg2) {
   return window['go']['main']['App']['GetLine'](arg1, arg2);
 }
 
+export function GetMemStats() {
+  return window['go']['main']['App']['GetMemStats']();
+}
+
 export function Hides() {
   return window['go']['main']['App']['Hides']();
 }
@@ -148,4 +152,12 @@ export function UpsertFrpConn(arg1) {
 
 export function UpsertFrpServer(arg1) {
   return window['go']['main']['App']['UpsertFrpServer'](arg1);
+}
+
+export function UsageRecent() {
+  return window['go']['main']['App']['UsageRecent']();
+}
+
+export function UsageTouch(arg1) {
+  return window['go']['main']['App']['UsageTouch'](arg1);
 }
