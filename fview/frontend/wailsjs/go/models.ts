@@ -1,3 +1,46 @@
+export namespace frp {
+	
+	export class Conn {
+	    name: string;
+	    server: string;
+	    sk: string;
+	    proxy: string;
+	    user: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Conn(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.server = source["server"];
+	        this.sk = source["sk"];
+	        this.proxy = source["proxy"];
+	        this.user = source["user"];
+	        this.path = source["path"];
+	    }
+	}
+	export class Server {
+	    name: string;
+	    addr: string;
+	    token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Server(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.addr = source["addr"];
+	        this.token = source["token"];
+	    }
+	}
+
+}
+
 export namespace fview {
 	
 	export class LineDTO {

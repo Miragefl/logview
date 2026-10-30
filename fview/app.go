@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/fview"
 	"github.com/justfun/logview/internal/logcore"
 	"github.com/justfun/logview/internal/parser"
@@ -210,4 +211,73 @@ func (a *App) GetLine(tabID string, idx int) map[string]string {
 		"message": ln.Message,
 		"raw":     ln.Raw,
 	}
+}
+
+// ---- 连接库（共享正本：frp.json Servers/Conns + rules.yaml ssh_hosts）----
+
+// FrpServers frps 服务器列表（frp.json）。
+func (a *App) FrpServers() []frp.Server { return frp.LoadStore().Servers }
+
+// FrpConns frp 连接记录列表（frp.json）。
+func (a *App) FrpConns() []frp.Conn { return frp.LoadStore().Conns }
+
+// UpsertFrpServer 新增/更新 frps 服务器并落盘。
+func (a *App) UpsertFrpServer(s frp.Server) error {
+	st := frp.LoadStore()
+	st.UpsertServer(s)
+	return st.Save()
+}
+
+// UpsertFrpConn 新增/更新连接记录并落盘（确认日志路径也走这里）。
+func (a *App) UpsertFrpConn(c frp.Conn) error {
+	st := frp.LoadStore()
+	st.UpsertConn(c)
+	return st.Save()
+}
+
+// DeleteFrpServer 删除服务器（仍被连接引用时返回错误）。
+func (a *App) DeleteFrpServer(name string) error {
+	st := frp.LoadStore()
+	if err := st.DeleteServer(name); err != nil {
+		return err
+	}
+	return st.Save()
+}
+
+// DeleteFrpConn 删除连接记录。
+func (a *App) DeleteFrpConn(name string) error {
+	st := frp.LoadStore()
+	st.DeleteConn(name)
+	return st.Save()
+}
+
+// SSHHosts SSH 主机列表（rules.yaml ssh_hosts，TUI 同源）。
+func (a *App) SSHHosts() []string {
+	if res, err := parser.LoadRules(rulesPath()); err == nil {
+		return res.SSHHosts
+	}
+	return nil
+}
+
+// AddSSHHost 新增 SSH 主机（去重）写回共享正本。
+func (a *App) AddSSHHost(host string) error {
+	hosts := a.SSHHosts()
+	for _, h := range hosts {
+		if h == host {
+			return nil
+		}
+	}
+	return fview.UpdateSSHHosts(rulesPath(), append(hosts, host))
+}
+
+// RemoveSSHHost 移除 SSH 主机。
+func (a *App) RemoveSSHHost(host string) error {
+	hosts := a.SSHHosts()
+	out := hosts[:0]
+	for _, h := range hosts {
+		if h != host {
+			out = append(out, h)
+		}
+	}
+	return fview.UpdateSSHHosts(rulesPath(), out)
 }
