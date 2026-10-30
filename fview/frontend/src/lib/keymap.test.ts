@@ -55,6 +55,7 @@ describe('resolveKey 全表(TUI 对齐)', () => {
     [{ key: '#' }, 'lineNumbers'],
     [{ key: '?' }, 'help'],
     [{ key: 'C' }, 'clear'],
+    [{ key: 'Escape' }, 'escape'],
     [{ key: 'q' }, 'none'],
     [{ key: 'a' }, 'none'], // 小写 a 不再是级别
     [{ key: 'i' }, 'none'],

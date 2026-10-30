@@ -41,6 +41,8 @@ const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
 
 // 设置中心（Task 10 接入对话框，先占位开关）
 const settingsShow = ref(false)
+/** copied y 复制反馈行数(3s 闪现)。 */
+const copied = ref(0)
 
 function onSearch(payload: { hitSeqs: number[]; words: string[] }) {
   search.hitSeqs = payload.hitSeqs
@@ -161,8 +163,16 @@ function dispatchKey(action: KeyAction, arg?: string) {
     case 'visualLine':
       lv?.startVisual(true)
       break
-    case 'yank':
-      lv?.yankSelection()
+    case 'yank': {
+      const n = lv?.yankSelection() ?? 0
+      if (n > 0) {
+        copied.value = n
+        setTimeout(() => (copied.value = 0), 3000)
+      }
+      break
+    }
+    case 'escape':
+      lv?.exitVisual()
       break
     case 'bookmark':
       lv?.toggleBookmark()
@@ -247,7 +257,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               :fields="fields"
               :widths="colWidths"
             />
-            <StatusBar :hit-count="search.hitSeqs.length" />
+            <StatusBar :hit-count="search.hitSeqs.length" :copied="copied" />
           </template>
         </main>
       </div>

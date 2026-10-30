@@ -5,7 +5,7 @@ import { useTabsStore } from '../../stores/tabs'
 import { useUiStore } from '../../stores/ui'
 import { getMemStats } from '../../lib/backend'
 
-defineProps<{ hitCount: number }>()
+defineProps<{ hitCount: number; copied?: number }>()
 
 const tabs = useTabsStore()
 const ui = useUiStore()
@@ -33,6 +33,7 @@ onBeforeUnmount(() => {
   <footer class="statusbar">
     <span>{{ tabs.active?.info.lines ?? 0 }} 行</span>
     <span v-if="hitCount > 0">命中 {{ hitCount }}</span>
+    <span v-if="copied && copied > 0" class="copied">已复制 {{ copied }} 行</span>
     <span v-if="tabs.active?.info.follow" class="follow">● Following</span>
     <div class="spacer"></div>
     <span v-if="memMB > 0">内存 {{ memMB }}MB</span>
@@ -53,6 +54,9 @@ onBeforeUnmount(() => {
 }
 .follow {
   color: var(--level-info, #7ee29a);
+}
+.copied {
+  color: var(--accent, #7dc4e4);
 }
 .spacer {
   flex: 1;

@@ -34,6 +34,7 @@ export type KeyAction =
   | 'lineNumbers'
   | 'help'
   | 'clear'
+  | 'escape'
   | 'pending'
   | 'none'
 
@@ -86,6 +87,7 @@ const SIMPLE_MAP: Record<string, KeyResult> = {
   '#': { action: 'lineNumbers' },
   '?': { action: 'help' },
   C: { action: 'clear' },
+  Escape: { action: 'escape' },
 }
 
 const CTRL_MAP: Record<string, KeyResult> = {

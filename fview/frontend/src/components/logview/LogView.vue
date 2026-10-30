@@ -15,6 +15,9 @@ import { ensureVisible, moveClamp } from '../../lib/nav'
 import { splitSpans } from '../../lib/hlSpan'
 import { buildViewItems } from '../../lib/folds'
 import type { FoldRange, ViewItem } from '../../lib/folds'
+import { selectedSeqRange } from '../../lib/visualSel'
+import type { SeqRange } from '../../lib/visualSel'
+import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
 import { scopeOfLabel } from '../../lib/scope'
 import type { LineDTO } from '../../lib/types'
@@ -355,6 +358,49 @@ function toggleFold() {
 function unfoldAt(range: FoldRange) {
   tabs.toggleCollapse(range.startSeq)
 }
+
+// ---- 可视选择(验收反馈④ v/V/y):锚=起选行,j/k 移光标即扩选,seq 域区间 ----
+const visual = ref({ active: false, anchorSeq: 0 })
+/** lineSeqs 可见行 seq 序列(选择域,折叠占位天然不进)。 */
+const lineSeqs = computed(() =>
+  viewItems.value.filter((it) => it.type === 'line').map((it) => it.ln.seq)
+)
+const visualRange = computed<SeqRange | null>(() =>
+  visual.value.active
+    ? selectedSeqRange(lineSeqs.value, visual.value.anchorSeq, cursorSeq.value)
+    : null
+)
+/** inVisual 行是否落在选择区间(渲染 .vis)。 */
+function inVisual(seq: number): boolean {
+  const r = visualRange.value
+  return !!r && seq >= r.lo && seq <= r.hi
+}
+
+/** startVisual v/V:从光标行起选(本版无行内选择,V 与 v 等价预留)。 */
+function startVisual(_line: boolean) {
+  const it = viewItems.value[cursorIdx.value]
+  if (it && it.type === 'line') {
+    visual.value = { active: true, anchorSeq: it.ln.seq }
+  }
+}
+
+/** exitVisual Esc:退出可视选择。 */
+function exitVisual() {
+  visual.value = { active: false, anchorSeq: 0 }
+}
+
+/** yankSelection y:复制选中区间原文(raw 换行拼接),返回行数(0=无选择)。 */
+function yankSelection(): number {
+  const r = visualRange.value
+  if (!r) return 0
+  const text = filteredLines.value
+    .filter((l) => l.seq >= r.lo && l.seq <= r.hi)
+    .map((l) => l.raw)
+    .join('\n')
+  ClipboardSetText(text).catch(() => {})
+  return filteredLines.value.filter((l) => l.seq >= r.lo && l.seq <= r.hi).length
+}
+
 defineExpose({
   moveCursor,
   cursorToViewport,
@@ -367,9 +413,9 @@ defineExpose({
   pageMove,
   openDetailAtCursor,
   toggleFold,
-  startVisual: (_line: boolean) => {}, // T8 可视选择实现,先占位
-  exitVisual: () => {},
-  yankSelection: () => {},
+  startVisual,
+  exitVisual,
+  yankSelection,
   toggleBookmark: () => {}, // T9 书签实现,先占位
   showBookmarks: () => {},
 })
@@ -406,7 +452,7 @@ defineExpose({
         <div
           v-else
           class="row"
-          :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq }"
+          :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq, vis: inVisual(item.ln.seq) }"
           :style="{ top: i * rowH + 'px' }"
           @contextmenu="onContext($event, item.ln)"
           @dblclick="openDetail(item.ln)"
@@ -504,6 +550,14 @@ defineExpose({
 /* 光标行(TUI Selected 色,左侧 accent 竖条) */
 .row.cur {
   background: var(--selected, #30354f);
+  box-shadow: inset 2px 0 0 var(--accent, #7dc4e4);
+}
+/* 可视选择区(TUI Visual 色;与光标行叠加时保持竖条) */
+.row.vis {
+  background: var(--visual, #005f2f);
+}
+.row.vis.cur {
+  background: var(--visual, #005f2f);
   box-shadow: inset 2px 0 0 var(--accent, #7dc4e4);
 }
 /* 分栏:固定列定宽 + 两空格分隔;message 弹性 */
