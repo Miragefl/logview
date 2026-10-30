@@ -180,6 +180,20 @@ func (m *Manager) CloseTab(tabID string) error {
 	return nil
 }
 
+// SetFollow 设置 tab 跟随态（App 装配层调；gz 等归档源读满即止，follow 仅表用户意图）。
+func (m *Manager) SetFollow(tabID string, follow bool) error {
+	m.mu.Lock()
+	t, ok := m.tabs[tabID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("tab %s 不存在", tabID)
+	}
+	t.mu.Lock()
+	t.follow = follow
+	t.mu.Unlock()
+	return nil
+}
+
 // Tabs 返回打开顺序的 tab 元信息快照。
 func (m *Manager) Tabs() []TabInfo {
 	m.mu.Lock()

@@ -4,13 +4,14 @@
   import TabBar from './components/TabBar.svelte'
   import Welcome from './components/Welcome.svelte'
   import LogView from './components/LogView.svelte'
-  import { openFileViaDialog, subscribeTabEvents } from './lib/backend'
+  import { openFileViaDialog, setFollow, subscribeTabEvents } from './lib/backend'
   import {
     tabsStore,
     activeTab,
     applyLinesEvent,
     applyMetaEvent,
     applyClosedEvent,
+    toggleFollow,
   } from './lib/stores/tabs'
 
   $: current = $tabsStore.find((t) => t.info.id === $activeTab)
@@ -23,15 +24,23 @@
     })
   })
 
-  async function handleOpen() {
-    const id = await openFileViaDialog()
+  async function handleOpen(follow: boolean) {
+    const id = await openFileViaDialog(follow)
     if (id) activeTab.set(id)
+  }
+
+  async function handleFollowToggle() {
+    if (!current) return
+    const next = !current.info.follow
+    toggleFollow(current.info.id, next)
+    await setFollow(current.info.id, next)
   }
 </script>
 
 <div class="app">
   <header class="topbar">
-    <button class="open-btn" on:click={handleOpen}>打开文件</button>
+    <button class="open-btn" on:click={() => handleOpen(false)}>打开文件</button>
+    <button class="open-btn follow" on:click={() => handleOpen(true)}>打开并跟踪</button>
     <TabBar />
   </header>
   <main>
@@ -40,9 +49,16 @@
     {:else}
       <div class="pane">
         <div class="pane-head">
-          {current.info.label} · {current.info.lines} 行
+          <span>{current.info.label} · {current.info.lines} 行</span>
+          <button class="follow-toggle" class:on={current.info.follow} on:click={handleFollowToggle}>
+            {current.info.follow ? '跟随中 ↓' : '已暂停'}
+          </button>
         </div>
-        <LogView lines={current.lines} />
+        <LogView
+          lines={current.lines}
+          follow={current.info.follow}
+          onFollowPause={() => current && current.info.follow && handleFollowToggle()}
+        />
       </div>
     {/if}
   </main>
@@ -88,9 +104,31 @@
     flex-direction: column;
   }
   .pane-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 4px 10px;
     font-size: 12px;
     color: #8b98a9;
     border-bottom: 1px solid #1c2836;
+  }
+  .open-btn.follow {
+    background: #2f7d4f;
+  }
+  .open-btn.follow:hover {
+    background: #389760;
+  }
+  .follow-toggle {
+    background: #1c2836;
+    color: #8b98a9;
+    border: 1px solid #2a3a4f;
+    border-radius: 4px;
+    padding: 2px 10px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .follow-toggle.on {
+    color: #7ee29a;
+    border-color: #2f7d4f;
   }
 </style>

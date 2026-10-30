@@ -1,28 +1,49 @@
 <script lang="ts">
-  // 虚拟滚动日志视图（M2 Task 7）：固定行高 windowing，仅渲染可视区 ±OVERSCAN 行；
-  // 行内 ANSI 着色 + 级别色；超长行单行截断（1MB 单行不冻结——Review Focus 1）。
+  // 虚拟滚动日志视图：固定行高 windowing + ANSI 着色 + 级别色 + 跟随滚底。
+  // follow 为期望态（父级按钮）；用户向上滚动即暂停跟随，贴底或父级重置时恢复。
   import { ansiToHtml } from '../lib/ansi'
   import { levelClass } from '../lib/levelColor'
   import type { LineDTO } from '../lib/stores/tabs'
 
   export let lines: LineDTO[] = []
   export let rowHeight = 20
+  export let follow = false
+  export let onFollowPause: (() => void) | undefined = undefined
 
+  let viewport: HTMLElement
   let scrollTop = 0
   let viewportH = 600
+  let autoFollow = false
   const OVERSCAN = 20
+  const NEAR_BOTTOM = 30 // 距底多少像素内视为"贴底"
 
   $: first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
   $: visibleCount = Math.ceil(viewportH / rowHeight) + OVERSCAN * 2
   $: slice = lines.slice(first, first + visibleCount)
   $: totalH = lines.length * rowHeight
 
+  // 期望态变化：开跟随时立即贴底
+  $: if (follow) autoFollow = true
+
+  // 新行到达且自动跟随时贴底（在 DOM 更新后执行）
+  $: if (autoFollow && lines.length && viewport) {
+    viewport.scrollTop = totalH
+  }
+
   function onScroll(e: WheelEvent) {
-    scrollTop = (e.target as HTMLElement).scrollTop
+    const el = e.target as HTMLElement
+    scrollTop = el.scrollTop
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM
+    if (autoFollow && !atBottom) {
+      autoFollow = false
+      onFollowPause?.()
+    } else if (!autoFollow && atBottom && follow === false) {
+      // 用户手动滚回底部且未开跟随：仅更新滚动位置
+    }
   }
 </script>
 
-<div class="viewport" bind:clientHeight={viewportH} on:scroll={onScroll}>
+<div class="viewport" bind:this={viewport} bind:clientHeight={viewportH} on:scroll={onScroll}>
   <div class="spacer" style:height="{totalH}px">
     <div class="rows" style:transform="translateY({first * rowHeight}px)">
       {#each slice as ln (ln.seq)}

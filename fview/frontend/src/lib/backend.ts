@@ -20,9 +20,14 @@ export interface ClosedEvent {
   tabId: string
 }
 
-/** openFileViaDialog 弹系统文件选择框（多选）并开 tab，取消返回 ''。 */
-export function openFileViaDialog(): Promise<string> {
-  return PickAndOpenFile()
+/** openFileViaDialog 弹系统文件选择框（多选）并开 tab，取消返回 ''；follow 请求实时追踪。 */
+export function openFileViaDialog(follow: boolean): Promise<string> {
+  return PickAndOpenFile(follow)
+}
+
+/** setFollow 切换 tab 跟随态。 */
+export function setFollow(tabId: string, follow: boolean): Promise<void> {
+  return SetFollow(tabId, follow)
 }
 
 /** closeTab 关闭指定 tab。 */

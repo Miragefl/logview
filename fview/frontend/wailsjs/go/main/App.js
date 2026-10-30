@@ -10,12 +10,16 @@ export function Lines(arg1, arg2, arg3) {
   return window['go']['main']['App']['Lines'](arg1, arg2, arg3);
 }
 
-export function OpenFileTab(arg1, arg2) {
-  return window['go']['main']['App']['OpenFileTab'](arg1, arg2);
+export function OpenFileTab(arg1, arg2, arg3) {
+  return window['go']['main']['App']['OpenFileTab'](arg1, arg2, arg3);
 }
 
-export function PickAndOpenFile() {
-  return window['go']['main']['App']['PickAndOpenFile']();
+export function PickAndOpenFile(arg1) {
+  return window['go']['main']['App']['PickAndOpenFile'](arg1);
+}
+
+export function SetFollow(arg1, arg2) {
+  return window['go']['main']['App']['SetFollow'](arg1, arg2);
 }
 
 export function Tabs() {

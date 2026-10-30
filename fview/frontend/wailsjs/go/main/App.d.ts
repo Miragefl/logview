@@ -6,8 +6,10 @@ export function CloseTab(arg1:string):Promise<void>;
 
 export function Lines(arg1:string,arg2:number,arg3:number):Promise<Array<fview.LineDTO>>;
 
-export function OpenFileTab(arg1:Array<string>,arg2:number):Promise<string>;
+export function OpenFileTab(arg1:Array<string>,arg2:number,arg3:boolean):Promise<string>;
 
-export function PickAndOpenFile():Promise<string>;
+export function PickAndOpenFile(arg1:boolean):Promise<string>;
+
+export function SetFollow(arg1:string,arg2:boolean):Promise<void>;
 
 export function Tabs():Promise<Array<fview.TabInfo>>;

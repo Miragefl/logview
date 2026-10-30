@@ -111,3 +111,14 @@ export function applyClosedEvent(ev: { tabId: string }): void {
     activeTab.set(rest.length > 0 ? rest[rest.length - 1].info.id : '')
   }
 }
+
+/** toggleFollow 切换 tab 跟随态（本地 store + Go 侧同步由调用方负责）。 */
+export function toggleFollow(tabId: string, follow: boolean): void {
+  tabsStore.update((ts) => {
+    const i = ts.findIndex((t) => t.info.id === tabId)
+    if (i === -1) return ts
+    const copy = [...ts]
+    copy[i] = { ...copy[i], info: { ...copy[i].info, follow } }
+    return copy
+  })
+}
