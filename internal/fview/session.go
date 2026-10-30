@@ -54,6 +54,13 @@ type metaEvent struct {
 	Label      string `json:"label"`
 	ParserName string `json:"parserName"`
 	Repaint    bool   `json:"repaint"`
+	// Follow 非空时表示跟随态变更（SetFollow 广播；其余场景为 nil 不序列化）
+	Follow *bool `json:"follow,omitempty"`
+}
+
+type openedEvent struct {
+	TabID string `json:"tabId"`
+	Label string `json:"label"`
 }
 
 type closedEvent struct {
@@ -72,7 +79,8 @@ type tab struct {
 
 	mu         sync.Mutex
 	parserName string
-	pend       []LineDTO // 待 flush 行
+	pend       []LineDTO   // 待 flush 行
+	flushTimer *time.Timer // 尾批兜底（流安静时 50ms 后必 flush）
 	lastFlush  time.Time
 }
 
@@ -150,6 +158,7 @@ func (m *Manager) OpenTab(src stream.LogStream) (string, error) {
 	m.order = append(m.order, id)
 	m.mu.Unlock()
 
+	m.emit("tab:opened", openedEvent{TabID: id, Label: t.label})
 	go t.ingestLoop(ctx, ch, m)
 	return id, nil
 }
@@ -173,11 +182,16 @@ func (m *Manager) CloseTab(tabID string) error {
 	}
 	t.cancel()
 	<-t.done // 等 ingest 退出，避免与 Cleanup 竞态
-	if err := t.src.Cleanup(); err != nil {
-		return err
+	t.mu.Lock()
+	if t.flushTimer != nil {
+		t.flushTimer.Stop()
+		t.flushTimer = nil
 	}
+	t.mu.Unlock()
+	cleanupErr := t.src.Cleanup()
+	// Cleanup 出错也必须广播 closed：tab 已从 map 删除，不广播则前端永久卡死（Final Review #8）
 	m.emit("tab:closed", closedEvent{TabID: tabID})
-	return nil
+	return cleanupErr
 }
 
 // SetFollow 设置 tab 跟随态（App 装配层调；gz 等归档源读满即止，follow 仅表用户意图）。
@@ -190,7 +204,9 @@ func (m *Manager) SetFollow(tabID string, follow bool) error {
 	}
 	t.mu.Lock()
 	t.follow = follow
+	label := t.label
 	t.mu.Unlock()
+	m.emit("tab:meta", metaEvent{TabID: tabID, Label: label, Follow: &follow})
 	return nil
 }
 
@@ -307,17 +323,23 @@ func (t *tab) onParserSwitch(p parser.Parser, m *Manager) {
 			}
 		}
 	}
-	// repaint：meta 信号 + 全量分批重发（DTO 转换持锁快照，emit 放锁外）
-	m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: name, Repaint: true})
+	// 持锁快照全量 DTO 分片，解锁后再逐批 emit——10 万行 repaint 的
+	// JSON 序列化期间不阻塞 Lines()/Tabs()（Final Review #7）
+	batches := make([][]LineDTO, 0, n/emitBatch+1)
 	for start := 0; start < n; start += emitBatch {
 		end := min(start+emitBatch, n)
 		dtos := make([]LineDTO, 0, end-start)
 		for i := start; i < end; i++ {
 			dtos = append(dtos, t.toDTO(t.buf.Get(i)))
 		}
-		m.emit("tab:lines", linesEvent{TabID: t.id, Lines: dtos, FirstSeq: dtos[0].Seq})
+		batches = append(batches, dtos)
 	}
 	t.mu.Unlock()
+
+	m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: name, Repaint: true})
+	for _, dtos := range batches {
+		m.emit("tab:lines", linesEvent{TabID: t.id, Lines: dtos, FirstSeq: dtos[0].Seq})
+	}
 }
 
 func (t *tab) appendEmit(dto LineDTO, m *Manager) {
@@ -330,13 +352,21 @@ func (t *tab) appendEmit(dto LineDTO, m *Manager) {
 	}
 }
 
+// maybeFlush 尾批兜底：pend 非空且未安排兜底时，50ms 后强制 flush——
+// 流安静（follow 低速/尾读最后一批）时不再依赖下一批到达才检查时间。
 func (t *tab) maybeFlush(m *Manager) {
 	t.mu.Lock()
-	due := len(t.pend) > 0 && time.Since(t.lastFlush) >= flushInterval
-	t.mu.Unlock()
-	if due {
-		t.flush(m)
+	if len(t.pend) == 0 || t.flushTimer != nil {
+		t.mu.Unlock()
+		return
 	}
+	t.flushTimer = time.AfterFunc(flushInterval, func() {
+		t.flush(m)
+		t.mu.Lock()
+		t.flushTimer = nil
+		t.mu.Unlock()
+	})
+	t.mu.Unlock()
 }
 
 func (t *tab) flush(m *Manager) {

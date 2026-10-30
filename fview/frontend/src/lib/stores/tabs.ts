@@ -77,28 +77,41 @@ export function registerTab(info: TabInfo): void {
   activeTab.set(info.id)
 }
 
-/** applyLinesEvent 合并 tab:lines 事件（增量追加/repaint 重发统一走 addLines）。 */
+/** applyLinesEvent 合并 tab:lines 事件（增量追加/repaint 重发统一走 addLines），
+ * 顺带同步 info.lines（后端 Tabs() 不轮询，行数以本地数组为准）。 */
 export function applyLinesEvent(ev: { tabId: string; lines: LineDTO[] }): void {
   tabsStore.update((ts) => {
     const i = ts.findIndex((t) => t.info.id === ev.tabId)
     if (i === -1) return ts
     const copy = [...ts]
-    copy[i] = { ...copy[i], lines: addLines(copy[i].lines, ev.lines) }
+    const lines = addLines(copy[i].lines, ev.lines)
+    copy[i] = { info: { ...copy[i].info, lines: lines.length }, lines }
     return copy
   })
 }
 
-/** applyMetaEvent 更新 tab 元信息（label/parser 名；EOF 终态也走这里）。 */
+/** applyOpenedEvent 响应 tab:opened（后端 OpenTab 广播；registerTab 的唯一触发源）。 */
+export function applyOpenedEvent(ev: { tabId: string; label: string }): void {
+  tabsStore.update((ts) => {
+    if (ts.some((t) => t.info.id === ev.tabId)) return ts
+    return [...ts, { info: { id: ev.tabId, label: ev.label, lines: 0, follow: false }, lines: [] }]
+  })
+  activeTab.set(ev.tabId)
+}
+
+/** applyMetaEvent 更新 tab 元信息（label/跟随态；EOF 终态也走这里）。 */
 export function applyMetaEvent(ev: {
   tabId: string
   label: string
   parserName: string
+  follow?: boolean | null
 }): void {
   tabsStore.update((ts) => {
     const i = ts.findIndex((t) => t.info.id === ev.tabId)
     if (i === -1) return ts
     const copy = [...ts]
-    copy[i] = { ...copy[i], info: { ...copy[i].info, label: ev.label } }
+    const info = ev.follow == null ? { ...copy[i].info, label: ev.label } : { ...copy[i].info, label: ev.label, follow: ev.follow }
+    copy[i] = { ...copy[i], info }
     return copy
   })
 }

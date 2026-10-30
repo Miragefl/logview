@@ -2,6 +2,7 @@ package fview
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -312,5 +313,137 @@ func TestManagerCloseTabCleansUp(t *testing.T) {
 	}
 	if !c.hasClosed(id) {
 		t.Error("未收到 tab:closed 事件")
+	}
+}
+
+// slowStream 发批 A（满批触发即时 flush）后延迟发批 B（不满批、不关闭通道），
+// 复现 follow 场景尾批滞留 pend 的时序（Final Review Important #3）。
+type slowStream struct {
+	label string
+	ch    chan []model.RawLine
+}
+
+func (s *slowStream) Start(_ context.Context) (<-chan []model.RawLine, error) {
+	s.ch = make(chan []model.RawLine, 2)
+	return s.ch, nil
+}
+func (s *slowStream) Label() string { return s.label }
+func (s *slowStream) Scope() string { return "" }
+func (s *slowStream) Cleanup() error {
+	return nil
+}
+
+// errCleanupStream Cleanup 恒错（Final Review Important #8：Cleanup 出错也要广播 closed）。
+type errCleanupStream struct {
+	feedStream
+}
+
+func (e *errCleanupStream) Cleanup() error { return errors.New("boom") }
+
+// TestOpenTabEmitsOpened OpenTab 后广播 tab:opened（前端 registerTab 唯一入口，Final Review Critical #1）。
+func TestOpenTabEmitsOpened(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 100)
+	id, err := m.OpenTab(&feedStream{label: "opened.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}})
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	ok := false
+	for time.Now().Before(deadline) && !ok {
+		c.mu.Lock()
+		for _, e := range c.events {
+			if e.name == "tab:opened" {
+				if ev, alright := e.data.(openedEvent); alright && ev.TabID == id && ev.Label == "opened.log" {
+					ok = true
+				}
+			}
+		}
+		c.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ok {
+		t.Fatal("OpenTab 后未广播 tab:opened {tabID, label}")
+	}
+}
+
+// TestFlushTimerDrainsPendingTail 批 B 到达于 flush 间隔窗口内且流安静时，
+// 兜底定时器必须在时限内把尾批推出（Final Review Important #3）。
+func TestFlushTimerDrainsPendingTail(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	src := &slowStream{label: "slow.log"}
+	id, err := m.OpenTab(src)
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	// 批 A：满批 1000 行（appendEmit 即时 flush，lastFlush=t0）
+	src.ch <- mkBatch(1, 1000, func(i int) string { return "a" })
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && c.linesTotal() < 1000 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c.linesTotal() < 1000 {
+		t.Fatal("批 A 未到达")
+	}
+	time.Sleep(80 * time.Millisecond) // 距上次 flush ≥50ms 后再发批 B，触发"窗口内不 flush+流安静"
+	// 批 B：10 行不满批，流保持开放
+	src.ch <- mkBatch(1001, 10, func(i int) string { return "b" })
+
+	deadline = time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) && c.linesTotal() < 1010 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := c.linesTotal(); got < 1010 {
+		t.Errorf("尾批滞留 pend：emit 行数 %d（期望 ≥1010），flush 无定时器兜底", got)
+	}
+	// RingBuffer 容量 1000：累计 1010 行后缓冲保持 1000（淘汰语义）
+	if got := len(m.Lines(id, 0, -1)); got != 1000 {
+		t.Errorf("缓冲行数 = %d, 期望 1000（容量淘汰）", got)
+	}
+}
+
+// TestCloseTabBroadcastsClosedDespiteCleanupError Cleanup 出错仍广播 tab:closed（Final Review Important #8）。
+func TestCloseTabBroadcastsClosedDespiteCleanupError(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	src := &errCleanupStream{feedStream{label: "e.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}}}
+	id, err := m.OpenTab(src)
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 5)
+	if err := m.CloseTab(id); err == nil {
+		t.Fatal("Cleanup 恒错时 CloseTab 应返回错误")
+	}
+	if !c.hasClosed(id) {
+		t.Error("Cleanup 出错时 tab:closed 未广播——前端 tab 将永久卡死")
+	}
+}
+
+// TestSetFollowEmitsMeta SetFollow 广播带 follow 的 meta（前端跟随按钮显示态同步）。
+func TestSetFollowEmitsMeta(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	id, err := m.OpenTab(&feedStream{label: "f.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}})
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 5)
+	if err := m.SetFollow(id, true); err != nil {
+		t.Fatalf("SetFollow: %v", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	found := false
+	for _, e := range c.events {
+		if e.name == "tab:meta" {
+			if ev, ok := e.data.(metaEvent); ok && ev.TabID == id && ev.Follow != nil && *ev.Follow {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("SetFollow 后未广播 Follow=true 的 tab:meta")
 	}
 }

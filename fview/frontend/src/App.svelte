@@ -17,6 +17,10 @@
     saveHides,
     getFields,
     saveFields,
+  themeNames,
+  themeCSS,
+  currentTheme,
+  setTheme,
     type QueryMeta,
     type FieldConfig,
   } from './lib/backend'
@@ -26,6 +30,7 @@
     applyLinesEvent,
     applyMetaEvent,
     applyClosedEvent,
+    applyOpenedEvent,
     toggleFollow,
     type LineDTO,
   } from './lib/stores/tabs'
@@ -61,6 +66,7 @@
 
   onMount(() => {
     subscribeTabEvents({
+      onOpened: applyOpenedEvent,
       onLines: applyLinesEvent,
       onMeta: applyMetaEvent,
       onClosed: applyClosedEvent,
@@ -68,12 +74,15 @@
     getHides().then((v) => (hides = v))
     getFields().then((v) => (fields = v))
     themeNames().then((v) => (themes = v))
-    currentTheme().then((v) => v && applyTheme(v))
+    currentTheme().then((v) => {
+      if (v) applyTheme(v)
+    })
   })
 
   async function handleOpen(follow: boolean) {
-    const id = await openFileViaDialog(follow)
-    if (id) activeTab.set(id)
+    // tab 注册由 tab:opened 事件驱动（applyOpenedEvent → registerTab 语义），
+    // 此处只发起打开；follow 期望态在事件到达后由 toggleFollow 补
+    await openFileViaDialog(follow)
   }
 
   async function handleFollowToggle() {

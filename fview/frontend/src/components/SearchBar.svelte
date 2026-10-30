@@ -5,7 +5,7 @@
   export let meta: QueryMeta | null = null
   export let hitsCount = 0
   export let hitPos = -1
-  export let onSearch: (q: string) => void = () => {}
+  export let onSearch: (q: string) => void | Promise<void> = () => {}
   export let onJump: (delta: number) => void = () => {}
 
   let input: HTMLInputElement
@@ -21,10 +21,10 @@
     input.focus()
   }
 
-  function onKeydown(e: KeyboardEvent) {
+  async function onKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       clearTimeout(timer)
-      onSearch(value)
+      await onSearch(value) // 先完成搜索再跳转——Enter 跳的是新命中集（Final Review #10）
       onJump(e.shiftKey ? -1 : 1)
     }
     if (e.key === 'Escape') {

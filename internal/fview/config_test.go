@@ -55,3 +55,22 @@ hides:
 		t.Errorf("fields 写回破坏 theme: %q", res.Theme)
 	}
 }
+
+// TestUpdateHidesCreatesMissingFile rules.yaml 不存在时保存应自动落盘默认（Final Review #11）。
+func TestUpdateHidesCreatesMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rules.yaml") // 不存在
+	if err := UpdateHides(path, []string{"kw"}); err != nil {
+		t.Fatalf("文件不存在时 UpdateHides 应自动创建: %v", err)
+	}
+	res, err := parser.LoadRules(path)
+	if err != nil {
+		t.Fatalf("LoadRules: %v", err)
+	}
+	if len(res.Hides) != 1 || res.Hides[0] != "kw" {
+		t.Errorf("落盘后 hides = %v", res.Hides)
+	}
+	if len(res.Rules) == 0 {
+		t.Error("落盘文件应含默认解析规则（纯 fview 新用户开箱即用）")
+	}
+}

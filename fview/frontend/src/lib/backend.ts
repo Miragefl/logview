@@ -1,6 +1,21 @@
 // Wails 绑定封装：Go 方法调用 + tab 事件订阅（事件协议见 internal/fview/session.go）
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-import { PickAndOpenFile, CloseTab } from '../../wailsjs/go/main/App'
+import {
+  PickAndOpenFile,
+  CloseTab,
+  SetFollow,
+  ParseQuery,
+  MatchLines,
+  Hides,
+  SaveHides,
+  Fields,
+  SaveFields,
+  GetLine,
+  ThemeNames,
+  ThemeCSS,
+  CurrentTheme,
+  SetTheme,
+} from '../../wailsjs/go/main/App'
 import type { LineDTO, TabInfo } from './stores/tabs'
 
 export interface LinesEvent {
@@ -14,10 +29,16 @@ export interface MetaEvent {
   label: string
   parserName: string
   repaint?: boolean
+  follow?: boolean | null
 }
 
 export interface ClosedEvent {
   tabId: string
+}
+
+export interface OpenedEvent {
+  tabId: string
+  label: string
 }
 
 /** openFileViaDialog 弹系统文件选择框（多选）并开 tab，取消返回 ''；follow 请求实时追踪。 */
@@ -36,6 +57,7 @@ export function closeTab(tabId: string): Promise<void> {
 }
 
 export interface TabEventCallbacks {
+  onOpened: (ev: OpenedEvent) => void
   onLines: (ev: LinesEvent) => void
   onMeta: (ev: MetaEvent) => void
   onClosed: (ev: ClosedEvent) => void
@@ -43,6 +65,7 @@ export interface TabEventCallbacks {
 
 /** subscribeTabEvents 订阅 Manager 的 tab 事件流（onMount 时调用一次）。 */
 export function subscribeTabEvents(cb: TabEventCallbacks): void {
+  EventsOn('tab:opened', cb.onOpened)
   EventsOn('tab:lines', cb.onLines)
   EventsOn('tab:meta', cb.onMeta)
   EventsOn('tab:closed', cb.onClosed)
@@ -66,10 +89,10 @@ export function matchLines(tabId: string, query: string): Promise<number[]> {
   return MatchLines(tabId, query)
 }
 
+// FieldConfig 前端统一小写字段；与 Wails 生成的大写字段模型在此映射
 export interface FieldConfig {
   name: string
   visible: boolean
-  width?: number
 }
 
 export function getHides(): Promise<string[]> {
@@ -78,11 +101,12 @@ export function getHides(): Promise<string[]> {
 export function saveHides(list: string[]): Promise<void> {
   return SaveHides(list)
 }
-export function getFields(): Promise<FieldConfig[]> {
-  return Fields()
+export async function getFields(): Promise<FieldConfig[]> {
+  const raw = await Fields()
+  return (raw ?? []).map((f) => ({ name: f.Name, visible: f.Visible }))
 }
 export function saveFields(fields: FieldConfig[]): Promise<void> {
-  return SaveFields(fields)
+  return SaveFields(fields.map((f) => ({ Name: f.name, Visible: f.visible, Width: 0 })))
 }
 
 /** getLine 取单行详情（键值对：seq/time/level/thread/traceId/logger/message/raw）。 */

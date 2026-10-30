@@ -1,7 +1,6 @@
 <script lang="ts">
   // 虚拟滚动日志视图：固定行高 windowing + 级别/隐藏词过滤（windowing 基于过滤后行集）
   // + 字段列显隐 + ANSI 着色 + 搜索命中/关键词高亮 + 跟随滚底。
-  import { ansiToHtml } from '../lib/ansi'
   import { levelClass } from '../lib/levelColor'
   import { levelFilter, hidesFilter, highlightRanges, type LevelFilterMode } from '../lib/filter'
   import type { LineDTO } from '../lib/stores/tabs'
@@ -51,8 +50,8 @@
     viewport.scrollTop = Math.max(0, currentRowPos * rowHeight - viewportH / 2)
   }
 
-  function onScroll(e: WheelEvent) {
-    const el = e.target as HTMLElement
+  function onScroll(e: Event) {
+    const el = e.currentTarget as HTMLElement
     scrollTop = el.scrollTop
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM
     if (autoFollow && !atBottom) {
@@ -61,12 +60,13 @@
     }
   }
 
-  // 关键词高亮：仅纯文本行（无 ANSI）按区间切 span；多词多色（hl-0/hl-1/...）
+  // 关键词高亮：后端已 StripANSI（与 TUI 一致），行文本恒为纯文本——
+  // 统一 escapeHtml 后按区间切 span（多词多色 hl-0/1/2），无注入面。
   function renderText(ln: LineDTO): string {
-    if (!highlightWords.length) return escapeHtml(ln.raw)
-    if (ln.raw.includes('\x1b[')) return ansiToHtml(ln.raw)
+    const escaped = escapeHtml(ln.raw)
+    if (!highlightWords.length) return escaped
     const ranges = highlightRanges(ln.raw, highlightWords)
-    if (!ranges.length) return escapeHtml(ln.raw)
+    if (!ranges.length) return escaped
     let out = ''
     let pos = 0
     ranges.forEach(([s, e], i) => {
@@ -114,7 +114,10 @@
           class:hit={hitSet.has(r.idx)}
           class:hit-current={r.idx === currentLine}
           style:height="{rowHeight}px"
+          role="button"
+          tabindex="-1"
           on:click={() => onLineClick?.(r.ln)}
+          on:keydown={(e) => e.key === 'Enter' && onLineClick?.(r.ln)}
         >
           {#if visibleFields.includes('time')}<span class="col time">{fieldVal(r.ln, 'time')}</span>{/if}
           {#if visibleFields.includes('level')}<span class="col level">{r.ln.level}</span>{/if}

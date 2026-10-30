@@ -11,9 +11,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ensureRulesFile rules.yaml 不存在时落盘内置默认（纯 fview 新用户开箱即用，Final Review #11）。
+func ensureRulesFile(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	return os.WriteFile(path, []byte(parser.DefaultRulesYAML()), 0644)
+}
+
 // updateRulesKey 读改写 rules.yaml 顶层键：命中则替换值节点（保留原 key 节点注释），
 // 未命中则追加；其余键原样保留。
 func updateRulesKey(path, key string, value any) error {
+	if err := ensureRulesFile(path); err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
