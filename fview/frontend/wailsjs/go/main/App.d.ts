@@ -3,6 +3,7 @@
 import {parser} from '../models';
 import {frp} from '../models';
 import {fview} from '../models';
+import {main} from '../models';
 
 export function AddSSHHost(arg1:string):Promise<void>;
 
@@ -37,6 +38,8 @@ export function PickAndOpenFile(arg1:boolean):Promise<string>;
 export function RemoveSSHHost(arg1:string):Promise<void>;
 
 export function Rules():Promise<Array<parser.RuleConfig>>;
+
+export function SSHBrowse(arg1:string,arg2:string,arg3:string):Promise<Array<main.DirEntryDTO>>;
 
 export function SSHHosts():Promise<Array<string>>;
 

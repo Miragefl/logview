@@ -17,6 +17,7 @@ import {
   SetTheme,
   Rules,
   SaveRules,
+  SSHBrowse,
 } from '../../wailsjs/go/main/App'
 import type { LineDTO, TabInfo } from './stores/tabs'
 
@@ -142,4 +143,17 @@ export async function getRules(): Promise<RuleConfig[]> {
 
 export function saveRules(rules: RuleConfig[]): Promise<void> {
   return SaveRules(rules.map((r) => ({ Name: r.name, Pattern: r.pattern, Parse: '', Fallback: r.fallback })))
+}
+
+export interface DirEntry {
+  name: string
+  isDir: boolean
+}
+
+export function sshBrowse(
+  host: string,
+  path: string,
+  password: string
+): Promise<DirEntry[]> {
+  return SSHBrowse(host, path, password)
 }

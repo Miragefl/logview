@@ -106,6 +106,25 @@ export namespace fview {
 
 }
 
+export namespace main {
+	
+	export class DirEntryDTO {
+	    name: string;
+	    isDir: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DirEntryDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.isDir = source["isDir"];
+	    }
+	}
+
+}
+
 export namespace parser {
 	
 	export class FieldConfig {

@@ -70,6 +70,10 @@ export function Rules() {
   return window['go']['main']['App']['Rules']();
 }
 
+export function SSHBrowse(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SSHBrowse'](arg1, arg2, arg3);
+}
+
 export function SSHHosts() {
   return window['go']['main']['App']['SSHHosts']();
 }

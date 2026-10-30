@@ -281,3 +281,24 @@ func (a *App) RemoveSSHHost(host string) error {
 	}
 	return fview.UpdateSSHHosts(rulesPath(), out)
 }
+
+// ---- 远程目录浏览 ----
+
+// DirEntryDTO 目录条目（前端树/列表渲染）。
+type DirEntryDTO struct {
+	Name  string `json:"name"`
+	IsDir bool   `json:"isDir"`
+}
+
+// SSHBrowse 列出 SSH 主机远程目录（密码空串走密钥认证；认证失败返回明确错误供前端弹密码重试）。
+func (a *App) SSHBrowse(host, path, password string) ([]DirEntryDTO, error) {
+	entries, err := stream.SSHListDir(host, path, password)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirEntryDTO, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, DirEntryDTO{Name: e.Name, IsDir: e.IsDir})
+	}
+	return out, nil
+}
