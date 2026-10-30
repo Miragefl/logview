@@ -19,6 +19,7 @@ import Toolbar from './components/logview/Toolbar.vue'
 import LogView from './components/logview/LogView.vue'
 import StatusBar from './components/logview/StatusBar.vue'
 import SearchPopup from './components/logview/SearchPopup.vue'
+import HelpModal from './components/logview/HelpModal.vue'
 import { useSearchStore } from './stores/searchStore'
 
 const theme = useThemeStore()
@@ -43,6 +44,8 @@ const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
 const settingsShow = ref(false)
 /** copied y 复制反馈行数(3s 闪现)。 */
 const copied = ref(0)
+/** 帮助弹窗(? 键)。 */
+const helpShow = ref(false)
 
 function onSearch(payload: { hitSeqs: number[]; words: string[] }) {
   search.hitSeqs = payload.hitSeqs
@@ -174,6 +177,12 @@ function dispatchKey(action: KeyAction, arg?: string) {
     case 'escape':
       lv?.exitVisual()
       break
+    case 'lineNumbers':
+      lv?.toggleLineNum()
+      break
+    case 'help':
+      helpShow.value = !helpShow.value
+      break
     case 'bookmark':
       lv?.toggleBookmark()
       break
@@ -190,7 +199,7 @@ function dispatchKey(action: KeyAction, arg?: string) {
       }
       break
     }
-    // wrap(T10)/lineNumbers(T9)/help(T9):后续任务实装,先占位
+    // wrap(T10):后续任务实装,先占位
     default:
       break
   }
@@ -264,6 +273,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
     </div>
     <SettingsDialog v-model:show="settingsShow" />
     <SearchPopup v-if="tabs.tabs.length" @search="onSearch" />
+    <HelpModal v-model:show="helpShow" />
   </n-config-provider>
 </template>
 

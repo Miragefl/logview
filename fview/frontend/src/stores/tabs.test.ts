@@ -97,4 +97,21 @@ describe('useTabsStore', () => {
     expect(t.collapsed).toEqual([])
     expect(s.activeId).toBe('t1')
   })
+
+  it('toggleBookmark:活动 tab 书签增删(seq 域);applyCleared 一并清', () => {
+    const s = useTabsStore()
+    s.applyOpened({ tabId: 't1', label: 'a.log' })
+    s.toggleBookmark(5)
+    s.toggleBookmark(9)
+    s.toggleBookmark(5) // 再按删除
+    expect(s.tabs[0].bookmarks).toEqual([9])
+
+    s.applyOpened({ tabId: 't2', label: 'b.log' })
+    s.toggleBookmark(1)
+    expect(s.tabs[0].bookmarks).toEqual([9]) // tab 隔离
+    expect(s.tabs[1].bookmarks).toEqual([1])
+
+    s.applyCleared('t2')
+    expect(s.tabs[1].bookmarks).toEqual([])
+  })
 })

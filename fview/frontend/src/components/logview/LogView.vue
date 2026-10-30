@@ -384,9 +384,10 @@ function startVisual(_line: boolean) {
   }
 }
 
-/** exitVisual Esc:退出可视选择。 */
+/** exitVisual Esc:退出可视选择(顺带收书签列表)。 */
 function exitVisual() {
   visual.value = { active: false, anchorSeq: 0 }
+  bmShow.value = false
 }
 
 /** yankSelection y:复制选中区间原文(raw 换行拼接),返回行数(0=无选择)。 */
@@ -399,6 +400,46 @@ function yankSelection(): number {
     .join('\n')
   ClipboardSetText(text).catch(() => {})
   return filteredLines.value.filter((l) => l.seq >= r.lo && l.seq <= r.hi).length
+}
+
+// ---- 书签 m/' + 行号 # ----
+/** bmSet 书签 seq 集合(行前缀渲染)。 */
+const bmSet = computed(() => new Set(tabs.active?.bookmarks ?? []))
+const bmShow = ref(false)
+const bmItems = computed(() => {
+  const t = tabs.active
+  if (!t) return []
+  return [...t.bookmarks].sort((a, b) => a - b).map((seq) => {
+    const l = filteredLines.value.find((x) => x.seq === seq)
+    return { seq, label: (l?.message ?? `seq ${seq}`).slice(0, 60) }
+  })
+})
+
+/** toggleBookmark m:光标行书签增删。 */
+function toggleBookmark() {
+  if (cursorSeq.value > 0) tabs.toggleBookmark(cursorSeq.value)
+}
+
+/** showBookmarks ':书签列表开关。 */
+function showBookmarks() {
+  bmShow.value = !bmShow.value
+}
+
+/** gotoBookmark 跳书签(折叠组自动展开,居中)。 */
+function gotoBookmark(seq: number) {
+  bmShow.value = false
+  ensureExpanded(seq)
+  cursorToSeq(seq)
+  const idx = cursorIdx.value
+  if (idx >= 0 && scrollEl.value) {
+    scrollEl.value.scrollTop = Math.max(0, idx * rowH.value - viewportH.value / 2)
+  }
+}
+
+/** 行号开关 #。 */
+const showLineNum = ref(false)
+function toggleLineNum() {
+  showLineNum.value = !showLineNum.value
 }
 
 defineExpose({
@@ -416,8 +457,9 @@ defineExpose({
   startVisual,
   exitVisual,
   yankSelection,
-  toggleBookmark: () => {}, // T9 书签实现,先占位
-  showBookmarks: () => {},
+  toggleBookmark,
+  showBookmarks,
+  toggleLineNum,
 })
 </script>
 
@@ -457,6 +499,13 @@ defineExpose({
           @contextmenu="onContext($event, item.ln)"
           @dblclick="openDetail(item.ln)"
         >
+        <span class="gutter">
+          <span v-if="bmSet.has(item.ln.seq)" class="bm">▸</span><span v-else>&nbsp;</span><span
+            v-if="showLineNum"
+            class="lnum"
+            >{{ String(range[0] + i + 1).padStart(6) }} │</span
+          >
+        </span>
         <template v-for="c in cellsOf(item.ln)" :key="c.field">
           <span v-if="c.field === 'message'" class="cell f-msg">
             <template v-for="(s, si) in renderSpans(item.ln.message)" :key="si">
@@ -475,6 +524,18 @@ defineExpose({
         </template>
         </div>
       </template>
+    </div>
+
+    <!-- 书签列表(' 键) -->
+    <div v-if="bmShow" class="bm-panel">
+      <div class="bm-head">书签(Esc 关闭,m 添加)</div>
+      <ul>
+        <li v-for="b in bmItems" :key="b.seq" @click="gotoBookmark(b.seq)">
+          <span class="bseq">#{{ b.seq }}</span>
+          <span class="blabel">{{ b.label }}</span>
+        </li>
+        <li v-if="!bmItems.length" class="bempty">暂无书签——光标行按 m 添加</li>
+      </ul>
     </div>
 
     <!-- 右键隐藏菜单 -->
@@ -575,6 +636,65 @@ defineExpose({
   min-width: 0;
   overflow: visible;
   white-space: pre;
+}
+/* 行首 gutter:书签 ▸ / 行号(TUI 前缀风格) */
+.gutter {
+  color: var(--dim, #5d7292);
+  white-space: pre;
+  flex: none;
+}
+.gutter .bm {
+  color: var(--accent, #7dc4e4);
+}
+/* 书签列表浮层 */
+.bm-panel {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  min-width: 420px;
+  max-width: 70%;
+  background: var(--popup-bg, #16202e);
+  border: 1px solid var(--popup-border, #2a3a4f);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.bm-head {
+  color: var(--dim, #8b98a9);
+  margin-bottom: 6px;
+}
+.bm-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.bm-panel li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.bm-panel li:hover {
+  background: var(--popup-bg, #1f2c3f);
+}
+.bseq {
+  color: var(--accent, #7dc4e4);
+  flex: none;
+}
+.blabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bempty {
+  color: var(--dim, #5d7292);
+  cursor: default;
 }
 /* 折叠占位行(TUI dim 风格) */
 .fold-row {

@@ -11,6 +11,8 @@ export interface TabState {
   folds: FoldRange[]
   /** 已折叠组的 startSeq(会话级) */
   collapsed: number[]
+  /** 书签行 seq(会话级,验收反馈④ m 键) */
+  bookmarks: number[]
 }
 
 // DEFAULT_MAX_LINES 与后端 RingBuffer 默认容量对齐（前端同步裁剪，防双份内存膨胀）
@@ -71,7 +73,7 @@ export const useTabsStore = defineStore('tabs', {
     /** register 新 tab 注册（前端打开动作先登记，tab:opened 随后到达时去重）。 */
     register(info: TabInfo) {
       if (!this.tabs.some((t) => t.info.id === info.id)) {
-        this.tabs.push({ info, lines: [], folds: [], collapsed: [] })
+        this.tabs.push({ info, lines: [], folds: [], collapsed: [], bookmarks: [] })
       }
       this.activeId = info.id
     },
@@ -103,6 +105,14 @@ export const useTabsStore = defineStore('tabs', {
         ? t.collapsed.filter((s) => s !== startSeq)
         : [...t.collapsed, startSeq]
     },
+    /** toggleBookmark 活动 tab 光标行书签增删（seq 域,m 键）。 */
+    toggleBookmark(seq: number) {
+      const t = this.tabs.find((x) => x.info.id === this.activeId)
+      if (!t) return
+      t.bookmarks = t.bookmarks.includes(seq)
+        ? t.bookmarks.filter((s) => s !== seq)
+        : [...t.bookmarks, seq]
+    },
     /** applyCleared 响应 tab:cleared（C 键清屏:镜像/行数/折叠态全清,tab 不关）。 */
     applyCleared(tabId: string) {
       const t = this.tabs.find((x) => x.info.id === tabId)
@@ -111,6 +121,7 @@ export const useTabsStore = defineStore('tabs', {
       t.info.lines = 0
       t.folds = []
       t.collapsed = []
+      t.bookmarks = []
     },
     /** applyMeta 更新 tab 元信息（label/跟随态；EOF 终态也走这里）。 */
     applyMeta(ev: { tabId: string; label: string; parserName: string; follow?: boolean | null }) {
