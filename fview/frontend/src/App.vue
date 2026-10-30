@@ -9,6 +9,7 @@ import { getHides, subscribeTabEvents } from './lib/backend'
 import type { LevelFilterMode } from './lib/filter'
 import TabBar from './components/tabs/TabBar.vue'
 import Welcome from './components/Welcome.vue'
+import SidebarRail from './components/sources/SidebarRail.vue'
 import Toolbar from './components/logview/Toolbar.vue'
 import LogView from './components/logview/LogView.vue'
 import StatusBar from './components/logview/StatusBar.vue'
@@ -26,6 +27,9 @@ const fields = ref<string[]>([...ALL_FIELDS])
 
 const logviewRef = ref<InstanceType<typeof LogView> | null>(null)
 const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
+
+// 设置中心（Task 10 接入对话框，先占位开关）
+const settingsShow = ref(false)
 
 function onSearch(payload: { hitSeqs: number[]; words: string[] }) {
   search.hitSeqs = payload.hitSeqs
@@ -98,9 +102,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         <TabBar />
       </header>
       <div class="body">
-        <aside class="rail">
-          <!-- 图标条 + 源面板：Task 9 接入 -->
-        </aside>
+        <SidebarRail @open-settings="settingsShow = true" />
         <main class="main">
           <Welcome v-if="tabs.tabs.length === 0" />
           <template v-else>

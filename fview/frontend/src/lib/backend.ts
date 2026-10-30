@@ -3,6 +3,7 @@ import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { frp } from '../../wailsjs/go/models'
 import {
   GetMemStats,
+  OpenFileTab,
   PickAndOpenFile,
   UsageRecent,
   UsageTouch,
@@ -255,6 +256,11 @@ export async function getK8sResources(kubeCtx: string, namespace: string): Promi
 }
 export function openK8sTab(resource: string, namespace: string, kubeCtx: string, tailLines: number): Promise<string> {
   return OpenK8sTab(resource, namespace, kubeCtx, tailLines)
+}
+
+/** openFileTab 按路径开本地文件 tab（最近文件列表点击用）。 */
+export function openFileTab(path: string, tailLines: number, follow: boolean): Promise<string> {
+  return OpenFileTab([path], tailLines, follow)
 }
 
 /** usageRecent 源热点 key 列表（file:/ssh: 前缀，衰减分降序），本地面板数据源。 */
