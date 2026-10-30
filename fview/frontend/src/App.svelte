@@ -1,9 +1,9 @@
 <script lang="ts">
-  // fview 主框架：顶栏（打开按钮 + tab 栏）+ 主区（欢迎页/行流占位）。
-  // 行流渲染（虚拟滚动）在 Task 7 替换占位列表。
+  // fview 主框架：顶栏（打开按钮 + tab 栏）+ 主区（欢迎页/虚拟滚动日志视图）。
   import { onMount } from 'svelte'
   import TabBar from './components/TabBar.svelte'
   import Welcome from './components/Welcome.svelte'
+  import LogView from './components/LogView.svelte'
   import { openFileViaDialog, subscribeTabEvents } from './lib/backend'
   import {
     tabsStore,
@@ -42,11 +42,7 @@
         <div class="pane-head">
           {current.info.label} · {current.info.lines} 行
         </div>
-        <div class="lines">
-          {#each current.lines.slice(-50) as ln (ln.seq)}
-            <div class="row"><span class="seq">{ln.seq}</span>{ln.raw}</div>
-          {/each}
-        </div>
+        <LogView lines={current.lines} />
       </div>
     {/if}
   </main>
@@ -96,22 +92,5 @@
     font-size: 12px;
     color: #8b98a9;
     border-bottom: 1px solid #1c2836;
-  }
-  .lines {
-    flex: 1;
-    overflow-y: auto;
-    font-family: 'SF Mono', Menlo, monospace;
-    font-size: 12px;
-  }
-  .row {
-    padding: 1px 10px;
-    white-space: nowrap;
-  }
-  .row:hover {
-    background: #1a2534;
-  }
-  .seq {
-    color: #46586e;
-    margin-right: 8px;
   }
 </style>
