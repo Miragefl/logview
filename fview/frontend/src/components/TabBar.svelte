@@ -41,7 +41,7 @@
     border: none;
     border-radius: 6px 6px 0 0;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 14px;
     white-space: nowrap;
     max-width: 220px;
   }
@@ -56,7 +56,7 @@
   }
   .lines {
     opacity: 0.5;
-    font-size: 11px;
+    font-size: 13px;
   }
   .close {
     border-radius: 3px;

@@ -142,7 +142,7 @@
     align-items: center;
     padding: 8px 14px;
     border-bottom: 1px solid #1c2836;
-    font-size: 13px;
+    font-size: 15px;
   }
   .bar {
     display: flex;
@@ -157,12 +157,12 @@
     border-radius: 4px;
     color: #e6e6e6;
     padding: 3px 6px;
-    font-size: 12px;
+    font-size: 14px;
   }
   .err {
     padding: 4px 14px;
     color: #ff6b6b;
-    font-size: 11px;
+    font-size: 13px;
   }
   .list {
     flex: 1;
@@ -172,11 +172,11 @@
   .hint {
     color: #46586e;
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: 14px;
   }
   .res {
     padding: 3px 10px;
-    font-size: 12px;
+    font-size: 14px;
     font-family: 'SF Mono', Menlo, monospace;
     border-radius: 4px;
     cursor: pointer;
@@ -198,6 +198,6 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 13px;
   }
 </style>

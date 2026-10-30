@@ -59,8 +59,6 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    border-bottom: 1px solid #1c2836;
-    background: #0c1119;
   }
   .prompt {
     color: #46586e;
@@ -73,7 +71,7 @@
     border-radius: 4px;
     color: #e6e6e6;
     padding: 3px 8px;
-    font-size: 12px;
+    font-size: 14px;
     font-family: 'SF Mono', Menlo, monospace;
   }
   input:focus {
@@ -85,12 +83,12 @@
   }
   .err {
     color: #ff6b6b;
-    font-size: 11px;
+    font-size: 13px;
     white-space: nowrap;
   }
   .count {
     color: #8b98a9;
-    font-size: 11px;
+    font-size: 13px;
     white-space: nowrap;
   }
   .nav {

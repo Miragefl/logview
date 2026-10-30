@@ -1,5 +1,6 @@
 <script lang="ts">
-  // fview 主框架：顶栏（打开/tab）+ 搜索栏 + 过滤栏 + 主区（日志视图 + 行详情侧板）。
+  // fview 主框架（重设计版）：左侧源列表 → 顶栏（tab+设置）→ 工具栏一行（搜索+过滤）
+  // → 日志区 → 底部状态栏。设置中心统一三区（连接/规则/界面）。
   import { onMount } from 'svelte'
   import TabBar from './components/TabBar.svelte'
   import SearchBar from './components/SearchBar.svelte'
@@ -7,18 +8,13 @@
   import LogView from './components/LogView.svelte'
   import Welcome from './components/Welcome.svelte'
   import DetailPanel from './components/DetailPanel.svelte'
-  import RulesPanel from './components/RulesPanel.svelte'
   import BrowseDialog from './components/BrowseDialog.svelte'
   import ConnectionPanel from './components/ConnectionPanel.svelte'
   import K8sDialog from './components/K8sDialog.svelte'
-  import ConfigDialog from './components/ConfigDialog.svelte'
+  import SettingsDialog from './components/SettingsDialog.svelte'
   import {
     openFileViaDialog,
     setFollow,
-    openSSHTab,
-  openFRPTab,
-  releaseFRPBrowse,
-  type FrpConn,
     subscribeTabEvents,
     parseQuery,
     matchLines,
@@ -26,12 +22,16 @@
     saveHides,
     getFields,
     saveFields,
-  themeNames,
-  themeCSS,
-  currentTheme,
-  setTheme,
+    themeNames,
+    themeCSS,
+    currentTheme,
+    setTheme,
+    openSSHTab,
+    openFRPTab,
+    releaseFRPBrowse,
     type QueryMeta,
     type FieldConfig,
+    type FrpConn,
   } from './lib/backend'
   import {
     tabsStore,
@@ -55,34 +55,25 @@
   let hides: string[] = []
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
-  let showRules = false
   let showK8s = false
-  let showConfig = false
+  let showSettings = false
+  let settingsTab: 'conn' | 'rules' | 'ui' = 'conn'
   let connPanel: ConnectionPanel
+  let browseHost = ''
+  let browseFRPConn: FrpConn | null = null
 
-  // 全局 UI 缩放（CSS zoom，WKWebView 等比重排整个界面；日志行字号另有 A± 独立调节）
-  let uiZoom = Number(localStorage.getItem('fview.ui-zoom')) || 1.0
+  // 字号与缩放
+  let fontSize = Number(localStorage.getItem('fview.font-size')) || 13
+  $: rowHeight = fontSize + 8
+  $: localStorage.setItem('fview.font-size', String(fontSize))
+  let uiZoom = Number(localStorage.getItem('fview.ui-zoom')) || 1.05
   $: {
     ;(document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(uiZoom)
     localStorage.setItem('fview.ui-zoom', String(uiZoom))
   }
-  let browseHost = '' // 非空即弹远程目录浏览
-  let browseFRPConn: FrpConn | null = null
-  let fontSize = Number(localStorage.getItem('fview.font-size')) || 12
-  $: rowHeight = fontSize + 8
-  $: localStorage.setItem('fview.font-size', String(fontSize))
+
   let themes: string[] = []
   let theme = ''
-
-  async function applyTheme(name: string) {
-    theme = name
-    const css = await themeCSS(name)
-    const root = document.documentElement
-    for (const [k, v] of Object.entries(css)) {
-      if (v) root.style.setProperty(k, v)
-    }
-    await setTheme(name)
-  }
 
   const DEFAULT_FIELDS = ['time', 'level', 'message']
   $: visibleFields = fields.length
@@ -104,9 +95,17 @@
     })
   })
 
+  async function applyTheme(name: string) {
+    theme = name
+    const css = await themeCSS(name)
+    const root = document.documentElement
+    for (const [k, v] of Object.entries(css)) {
+      if (v) root.style.setProperty(k, v)
+    }
+    await setTheme(name)
+  }
+
   async function handleOpen(follow: boolean) {
-    // tab 注册由 tab:opened 事件驱动（applyOpenedEvent → registerTab 语义），
-    // 此处只发起打开；follow 期望态在事件到达后由 toggleFollow 补
     await openFileViaDialog(follow)
   }
 
@@ -155,7 +154,6 @@
       e.preventDefault()
       searchBar.focus()
     }
-    // 全局缩放：Cmd/Ctrl + =/-/0（整个 UI 等比放大，输入框外）
     if ((e.metaKey || e.ctrlKey) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
@@ -165,7 +163,7 @@
         uiZoom = Math.max(0.8, Math.round((uiZoom - 0.05) * 100) / 100)
       } else if (e.key === '0') {
         e.preventDefault()
-        uiZoom = 1.0
+        uiZoom = 1.05
       }
     }
   }
@@ -179,84 +177,101 @@
     on:browseSSH={(e) => (browseHost = e.detail)}
     on:openFRP={(e) => (browseFRPConn = e.detail)}
     on:openK8s={() => (showK8s = true)}
-    on:openConfig={() => (showConfig = true)}
+    on:openConfig={(e) => {
+      settingsTab = e.detail ?? 'conn'
+      showSettings = true
+    }}
   />
+
   <div class="main-col">
-  <header class="topbar">
-    <button class="top-btn" on:click={() => (showRules = true)}>规则</button>
-    <TabBar />
-    <div class="spacer" />
-    {#if themes.length}
-      <select class="theme-select" value={theme} on:change={(e) => applyTheme(e.currentTarget.value)}>
-        {#each themes as tn (tn)}
-          <option value={tn}>{tn}</option>
-        {/each}
-      </select>
-    {/if}
-  </header>
-  <main>
-    {#if !current}
-      <Welcome />
-    {:else}
-      <div class="pane">
-        <SearchBar
-          bind:this={searchBar}
-          meta={queryMeta}
-          hitsCount={hits.length}
-          hitPos={hitPos}
-          onSearch={runSearch}
-          onJump={jumpHit}
-        />
-        <FilterBar
-          {levelMode}
-          {hides}
-          {fields}
-          onLevel={(m) => (levelMode = m)}
-          onSaveHides={handleSaveHides}
-          onToggleField={handleToggleField}
-        />
-        <div class="pane-head">
-          <span>{current.info.label} · {current.info.lines} 行</span>
-          <span class="zoom">
-            <button class="follow-toggle" on:click={() => (fontSize = Math.max(9, fontSize - 1))} title="缩小 (Cmd+-)">A-</button>
-            <span class="zoom-val">{fontSize}px</span>
-            <button class="follow-toggle" on:click={() => (fontSize = Math.min(24, fontSize + 1))} title="放大 (Cmd+=)">A+</button>
-          </span>
-          <button class="follow-toggle" class:on={current.info.follow} on:click={handleFollowToggle}>
-            {current.info.follow ? '跟随中 ↓' : '已暂停'}
-          </button>
+    <header class="topbar">
+      <TabBar />
+      <div class="spacer" />
+      {#if themes.length}
+        <select class="theme-select" value={theme} on:change={(e) => applyTheme(e.currentTarget.value)}>
+          {#each themes as tn (tn)}
+            <option value={tn}>{tn}</option>
+          {/each}
+        </select>
+      {/if}
+      <button class="top-btn" title="设置（连接 / 解析规则 / 界面）" on:click={() => (showSettings = true)}>⚙ 设置</button>
+    </header>
+
+    <main>
+      {#if !current}
+        <Welcome />
+      {:else}
+        <div class="pane">
+          <div class="toolbar">
+            <SearchBar
+              bind:this={searchBar}
+              meta={queryMeta}
+              hitsCount={hits.length}
+              hitPos={hitPos}
+              onSearch={runSearch}
+              onJump={jumpHit}
+            />
+            <FilterBar
+              {levelMode}
+              {hides}
+              {fields}
+              onLevel={(m) => (levelMode = m)}
+              onSaveHides={handleSaveHides}
+              onToggleField={handleToggleField}
+            />
+          </div>
+          <div class="pane-body">
+            <LogView
+              lines={current.lines}
+              follow={current.info.follow}
+              onFollowPause={() => current && current.info.follow && handleFollowToggle()}
+              {hits}
+              currentLine={hitPos >= 0 ? hits[hitPos] : -1}
+              {levelMode}
+              hidesList={hides}
+              highlightWords={queryMeta?.highlightKeywords ?? []}
+              {visibleFields}
+              {fontSize}
+              {rowHeight}
+              onLineClick={(ln) => (detailLine = ln)}
+            />
+            {#if detailLine}
+              <DetailPanel line={detailLine} onClose={() => (detailLine = null)} />
+            {/if}
+          </div>
+          <footer class="statusbar">
+            <span class="st-file">{current.info.label}</span>
+            <span>{current.info.lines.toLocaleString()} 行</span>
+            <button class="st-follow" class:on={current.info.follow} on:click={handleFollowToggle}>
+              {current.info.follow ? '跟随中 ↓' : '已暂停'}
+            </button>
+            <div class="spacer" />
+            {#if hits.length}
+              <span>命中 {hitPos >= 0 ? hitPos + 1 : 0}/{hits.length}</span>
+            {/if}
+            <span class="zoom">
+              <button class="st-btn" title="缩小 (Cmd+-)" on:click={() => (fontSize = Math.max(10, fontSize - 1))}>A-</button>
+              <span class="zoom-val">{fontSize}px</span>
+              <button class="st-btn" title="放大 (Cmd+=)" on:click={() => (fontSize = Math.min(26, fontSize + 1))}>A+</button>
+            </span>
+            <span class="zoom">
+              <button class="st-btn" title="缩小整个界面 (Cmd+-)" on:click={() => (uiZoom = Math.max(0.8, Math.round((uiZoom - 0.05) * 100) / 100))}>界面 -</button>
+              <span class="zoom-val">{Math.round(uiZoom * 100)}%</span>
+              <button class="st-btn" title="放大整个界面 (Cmd+=)" on:click={() => (uiZoom = Math.min(1.6, Math.round((uiZoom + 0.05) * 100) / 100))}>界面 +</button>
+            </span>
+          </footer>
         </div>
-        <div class="pane-body">
-          <LogView
-            lines={current.lines}
-            follow={current.info.follow}
-            {fontSize}
-            {rowHeight}
-            onFollowPause={() => current && current.info.follow && handleFollowToggle()}
-            {hits}
-            currentLine={hitPos >= 0 ? hits[hitPos] : -1}
-            {levelMode}
-            hidesList={hides}
-            highlightWords={queryMeta?.highlightKeywords ?? []}
-            {visibleFields}
-            onLineClick={(ln) => (detailLine = ln)}
-          />
-          {#if detailLine}
-            <DetailPanel line={detailLine} onClose={() => (detailLine = null)} />
-          {/if}
-        </div>
-      </div>
-    {/if}
-  </main>
-  {#if showRules}
-    <RulesPanel onClose={() => (showRules = false)} />
-  {/if}
+      {/if}
+    </main>
+  </div>
+
   {#if showK8s}
     <K8sDialog on:close={() => (showK8s = false)} />
   {/if}
-  {#if showConfig}
-    <ConfigDialog
-      on:close={() => (showConfig = false)}
+  {#if showSettings}
+    <SettingsDialog
+      tab={settingsTab}
+      on:close={() => (showSettings = false)}
       on:changed={() => connPanel?.refresh()}
     />
   {/if}
@@ -286,7 +301,7 @@
         } catch (e) {
           window.alert(`FRP 开 tab 失败：${e}`)
         } finally {
-          await releaseFRPBrowse(name).catch(() => {}) // 开 tab 成败都释放浏览侧引用
+          await releaseFRPBrowse(name).catch(() => {})
         }
       }}
       onClose={async () => {
@@ -295,7 +310,6 @@
       }}
     />
   {/if}
-  </div>
 </div>
 
 <style>
@@ -303,9 +317,9 @@
     width: 100vw;
     height: 100vh;
     display: flex;
-    background: var(--bg, #10161f);
-    color: var(--fg, #e6e6e6);
-    font-family: -apple-system, 'PingFang SC', sans-serif;
+    background: var(--bg, #0d131c);
+    color: var(--fg, #dbe4ee);
+    font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
   }
   .main-col {
     flex: 1;
@@ -316,80 +330,87 @@
   }
   .topbar {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 8px;
-    padding: 6px 8px 0;
+    padding: 4px 10px 0;
     background: #0c1119;
+    border-bottom: 1px solid #1c2836;
+    min-height: 34px;
   }
-  .spacer {
-    flex: 1;
-  }
+  .spacer { flex: 1; }
   .theme-select {
-    align-self: center;
     background: #1c2836;
     color: #8b98a9;
     border: 1px solid #2a3a4f;
     border-radius: 4px;
-    padding: 2px 6px;
-    font-size: 11px;
+    padding: 3px 6px;
+    font-size: 14px;
   }
-  main {
-    flex: 1;
-    overflow: hidden;
+  .top-btn {
+    background: #1c2836;
+    color: #c5cdd8;
+    border: 1px solid #2a3a4f;
+    border-radius: 6px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 15px;
   }
+  .top-btn:hover { background: #243348; }
+  main { flex: 1; overflow: hidden; }
   .pane {
     width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
   }
-  .pane-head {
+  .toolbar {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 4px 10px;
-    font-size: 12px;
-    color: #8b98a9;
+    align-items: stretch;
+    gap: 8px;
+    padding: 6px 10px;
+    background: #0c1119;
     border-bottom: 1px solid #1c2836;
   }
-  .follow-toggle {
+  .pane-body { flex: 1; display: flex; overflow: hidden; }
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 3px 12px;
+    background: #0c1119;
+    border-top: 1px solid #1c2836;
+    font-size: 14px;
+    color: #8fa1b8;
+    min-height: 26px;
+  }
+  .st-file {
+    font-family: 'SF Mono', Menlo, monospace;
+    color: #c5cdd8;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .st-follow {
     background: #1c2836;
     color: #8b98a9;
     border: 1px solid #2a3a4f;
     border-radius: 4px;
-    padding: 2px 10px;
+    padding: 1px 10px;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 14px;
   }
-  .follow-toggle.on {
-    color: #7ee29a;
-    border-color: #2f7d4f;
-  }
-  .top-btn {
+  .st-follow.on { color: #7ee29a; border-color: #2f7d4f; }
+  .zoom { display: flex; align-items: center; gap: 4px; }
+  .zoom-val { min-width: 40px; text-align: center; }
+  .st-btn {
     background: #1c2836;
     color: #8b98a9;
     border: 1px solid #2a3a4f;
-    border-radius: 6px 6px 0 0;
-    padding: 6px 12px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 12px;
+    padding: 1px 8px;
+    font-size: 14px;
   }
-  .top-btn:hover {
-    color: #e6e6e6;
-  }
-  .zoom {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .zoom-val {
-    font-size: 11px;
-    min-width: 32px;
-    text-align: center;
-  }
-  .pane-body {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-  }
+  .st-btn:hover { color: #e6e6e6; }
 </style>

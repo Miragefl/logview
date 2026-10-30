@@ -8,7 +8,7 @@
     browseSSH: string
     openFRP: FrpConn
     openK8s: void
-    openConfig: void
+    openConfig: 'conn' | 'rules' | 'ui'
   }>()
 
   let sshHosts: string[] = []
@@ -32,7 +32,7 @@
   <section>
     <h3>
       SSH 主机（{sshHosts.length}）
-      <button class="mini" title="配置" on:click={() => dispatch('openConfig')}>⚙</button>
+      <button class="mini" title="配置" on:click={() => dispatch('openConfig', 'conn')}>⚙</button>
     </h3>
     {#each sshHosts as h (h)}
       <div class="item">
@@ -44,7 +44,7 @@
   <section>
     <h3>
       FRP 连接（{conns.length}）
-      <button class="mini" title="配置" on:click={() => dispatch('openConfig')}>⚙</button>
+      <button class="mini" title="配置" on:click={() => dispatch('openConfig', 'conn')}>⚙</button>
     </h3>
     {#each conns as c (c.name)}
       <div class="item">
@@ -59,6 +59,10 @@
     <h3>Kubernetes</h3>
     <button class="act" on:click={() => dispatch('openK8s')}>选择集群资源…</button>
   </section>
+
+  <div class="foot">
+    <button class="cfg" on:click={() => dispatch('openConfig', 'conn')}>⚙ 设置</button>
+  </div>
 </aside>
 
 <style>
@@ -72,11 +76,11 @@
     flex-direction: column;
     gap: 14px;
     padding: 10px 8px;
-    font-size: 13px;
+    font-size: 15px;
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 11px;
+    font-size: 13px;
     color: #46586e;
     display: flex;
     justify-content: space-between;
@@ -93,7 +97,7 @@
     border-radius: 5px;
     padding: 6px 8px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 15px;
     margin-bottom: 4px;
     text-align: left;
   }
@@ -108,7 +112,7 @@
     color: #7cc0ff;
     cursor: pointer;
     text-align: left;
-    font-size: 13px;
+    font-size: 15px;
     padding: 3px 4px;
     border-radius: 4px;
     overflow: hidden;
@@ -123,7 +127,19 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 1px 7px;
-    font-size: 11px;
+    font-size: 13px;
   }
   .mini:hover { color: #e6e6e6; }
+  .foot { margin-top: auto; }
+  .cfg {
+    width: 100%;
+    background: none;
+    border: 1px dashed #2a3a4f;
+    border-radius: 5px;
+    color: #8b98a9;
+    cursor: pointer;
+    font-size: 15px;
+    padding: 6px;
+  }
+  .cfg:hover { color: #e6e6e6; border-color: #3671cc; }
 </style>

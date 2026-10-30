@@ -202,7 +202,7 @@
     flex: 0 0 64px;
     text-align: center;
     border-radius: 3px;
-    font-size: 11px;
+    font-size: 13px;
     padding: 0 2px;
   }
   .row.lv-error .col.level {

@@ -63,8 +63,7 @@
     align-items: center;
     gap: 12px;
     padding: 4px 10px;
-    border-bottom: 1px solid #1c2836;
-    font-size: 11px;
+    font-size: 14px;
   }
   .levels {
     display: flex;
@@ -99,7 +98,7 @@
     border-radius: 4px;
     color: #e6e6e6;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 13px;
     flex: 1;
     max-width: 320px;
   }
@@ -110,7 +109,7 @@
     border-radius: 4px;
     cursor: pointer;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 13px;
   }
   .fields-wrap {
     position: relative;
