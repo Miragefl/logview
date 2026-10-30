@@ -1,0 +1,107 @@
+import { defineStore } from 'pinia'
+import type { LineDTO, TabInfo } from '../lib/types'
+
+// 行/tab 前端状态（数据源为后端 Manager 事件流 tab:opened/tab:lines/tab:meta/tab:closed）
+
+export interface TabState {
+  info: TabInfo
+  lines: LineDTO[]
+}
+
+// DEFAULT_MAX_LINES 与后端 RingBuffer 默认容量对齐（前端同步裁剪，防双份内存膨胀）
+export const DEFAULT_MAX_LINES = 100000
+
+/**
+ * addLines 向升序行数组合并一批行：
+ * - 递增尾部直接追加（follow 增量快路径）
+ * - 乱序按 seq 二分插入（repaint 部分重发）
+ * - 同 seq 替换（repaint 全量重发的更新语义）
+ * - 超过 maxLines 裁掉头部（对齐后端 RingBuffer 淘汰）
+ * （自 m4m6 Svelte 版原样移植，语义不变）
+ */
+export function addLines(
+  arr: LineDTO[],
+  batch: LineDTO[],
+  maxLines = DEFAULT_MAX_LINES
+): LineDTO[] {
+  const out = [...arr]
+  for (const ln of batch) {
+    if (out.length === 0 || ln.seq > out[out.length - 1].seq) {
+      out.push(ln)
+      continue
+    }
+    let lo = 0
+    let hi = out.length - 1
+    let pos = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (out[mid].seq === ln.seq) {
+        pos = mid
+        break
+      }
+      if (out[mid].seq < ln.seq) lo = mid + 1
+      else hi = mid - 1
+    }
+    if (pos >= 0) {
+      out[pos] = ln
+    } else {
+      out.splice(lo, 0, ln)
+    }
+  }
+  if (out.length > maxLines) return out.slice(out.length - maxLines)
+  return out
+}
+
+export const useTabsStore = defineStore('tabs', {
+  state: () => ({
+    tabs: [] as TabState[],
+    activeId: '',
+  }),
+  getters: {
+    active(state): TabState | null {
+      return state.tabs.find((t) => t.info.id === state.activeId) ?? null
+    },
+  },
+  actions: {
+    /** register 新 tab 注册（前端打开动作先登记，tab:opened 随后到达时去重）。 */
+    register(info: TabInfo) {
+      if (!this.tabs.some((t) => t.info.id === info.id)) {
+        this.tabs.push({ info, lines: [] })
+      }
+      this.activeId = info.id
+    },
+    /** applyLines 合并 tab:lines 事件（增量追加/repaint 重发统一走 addLines），
+     * 顺带同步 info.lines（后端 Tabs() 不轮询，行数以本地数组为准）。 */
+    applyLines(ev: { tabId: string; lines: LineDTO[] }) {
+      const t = this.tabs.find((x) => x.info.id === ev.tabId)
+      if (!t) return
+      t.lines = addLines(t.lines, ev.lines)
+      t.info.lines = t.lines.length
+    },
+    /** applyOpened 响应 tab:opened（后端 OpenTab 广播）。 */
+    applyOpened(ev: { tabId: string; label: string }) {
+      this.register({ id: ev.tabId, label: ev.label, lines: 0, follow: false })
+    },
+    /** applyMeta 更新 tab 元信息（label/跟随态；EOF 终态也走这里）。 */
+    applyMeta(ev: { tabId: string; label: string; parserName: string; follow?: boolean | null }) {
+      const t = this.tabs.find((x) => x.info.id === ev.tabId)
+      if (!t) return
+      t.info.label = ev.label
+      if (ev.follow != null) t.info.follow = ev.follow
+    },
+    /** toggleFollow 本地切换（Go 侧同步由调用方负责）。 */
+    toggleFollow(tabId: string, follow: boolean) {
+      const t = this.tabs.find((x) => x.info.id === tabId)
+      if (t) t.info.follow = follow
+    },
+    /** remove 关闭 tab；关的是当前 tab 时回落到邻近 tab。 */
+    remove(tabId: string) {
+      const i = this.tabs.findIndex((t) => t.info.id === tabId)
+      if (i === -1) return
+      this.tabs.splice(i, 1)
+      if (this.activeId === tabId) {
+        this.activeId = this.tabs[Math.min(i, this.tabs.length - 1)]?.info.id ?? ''
+      }
+    },
+  },
+})
