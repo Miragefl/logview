@@ -476,11 +476,6 @@
     flex: 1;
     text-align: right;
   }
-  .ui-note {
-    color: #5f6672;
-    font-size: 13px;
-    line-height: 2;
-  }
   input.mono {
     font-family: 'SF Mono', Menlo, monospace;
   }
