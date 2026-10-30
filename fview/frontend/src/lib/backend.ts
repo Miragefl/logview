@@ -1,5 +1,6 @@
 // Wails 绑定封装：Go 方法调用 + tab 事件订阅（事件协议见 internal/fview/session.go）
 import { EventsOn } from '../../wailsjs/runtime/runtime'
+import { frp } from '../../wailsjs/go/models'
 import {
   PickAndOpenFile,
   CloseTab,
@@ -197,10 +198,10 @@ export async function getFrpConns(): Promise<FrpConn[]> {
   return (await FrpConns()) ?? []
 }
 export function upsertFrpServer(s: FrpServer): Promise<void> {
-  return UpsertFrpServer({ Name: s.name, Addr: s.addr, Token: s.token })
+  return UpsertFrpServer(frp.Server.createFrom({ Name: s.name, Addr: s.addr, Token: s.token }))
 }
 export function upsertFrpConn(c: FrpConn): Promise<void> {
-  return UpsertFrpConn({ Name: c.name, Server: c.server, SK: c.sk, Proxy: c.proxy, User: c.user, Path: c.path })
+  return UpsertFrpConn(frp.Conn.createFrom({ Name: c.name, Server: c.server, SK: c.sk, Proxy: c.proxy, User: c.user, Path: c.path }))
 }
 export function deleteFrpServer(name: string): Promise<void> {
   return DeleteFrpServer(name)

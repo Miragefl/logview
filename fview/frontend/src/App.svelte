@@ -280,24 +280,6 @@
     padding: 2px 6px;
     font-size: 11px;
   }
-  .open-btn {
-    background: #2a5db0;
-    color: #fff;
-    border: none;
-    border-radius: 6px 6px 0 0;
-    padding: 6px 14px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-  .open-btn:hover {
-    background: #3671cc;
-  }
-  .open-btn.follow {
-    background: #2f7d4f;
-  }
-  .open-btn.follow:hover {
-    background: #389760;
-  }
   main {
     flex: 1;
     overflow: hidden;
