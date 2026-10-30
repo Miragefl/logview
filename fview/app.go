@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/justfun/logview/internal/frp"
@@ -83,7 +84,12 @@ func (a *App) OpenFileTab(paths []string, tailLines int, follow bool) (string, e
 	} else {
 		src = stream.NewFileSource(paths).WithTailLines(tailLines)
 	}
-	id, err := a.mgr.OpenTab(src)
+	// 展示名=文件名(多文件 +N);源信息条=全路径逗号拼接(验收反馈⑥)
+	display := filepath.Base(paths[0])
+	if len(paths) > 1 {
+		display = fmt.Sprintf("%s+%d", display, len(paths)-1)
+	}
+	id, err := a.mgr.OpenTab(src, display, strings.Join(paths, ", "))
 	if err == nil && follow {
 		err = a.mgr.SetFollow(id, true)
 	}
@@ -360,7 +366,7 @@ func (a *App) OpenSSHTab(host, path string, tailLines int, password string) (str
 	if password != "" {
 		src.SetPassword(password)
 	}
-	id, err := a.mgr.OpenTab(src)
+	id, err := a.mgr.OpenTab(src, filepath.Base(path), host+":"+path)
 	if err != nil {
 		return "", err
 	}
@@ -423,7 +429,7 @@ func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) 
 	if password != "" {
 		src.SetPassword(password)
 	}
-	id, err := a.mgr.OpenTab(src)
+	id, err := a.mgr.OpenTab(src, filepath.Base(path), conn.Name+" → "+srv.Addr)
 	if err != nil {
 		_ = t.Cleanup() // 开 tab 失败回退本次引用
 		return "", err
@@ -485,7 +491,7 @@ func (a *App) OpenK8sTab(resource, namespace, kubeCtx string, tailLines int) (st
 	}
 	src := stream.NewK8sSource(resource, namespace, nil, tailLines)
 	src.SetContext(kubeCtx)
-	id, err := a.mgr.OpenTab(src)
+	id, err := a.mgr.OpenTab(src, resource, kubeCtx+" · "+namespace+"/"+resource)
 	if err != nil {
 		return "", err
 	}

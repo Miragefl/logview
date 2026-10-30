@@ -114,4 +114,14 @@ describe('useTabsStore', () => {
     s.applyCleared('t2')
     expect(s.tabs[1].bookmarks).toEqual([])
   })
+
+  it('applyOpened 透传 display/info(顶栏文件名+源信息条,验收⑥)', () => {
+    const s = useTabsStore()
+    s.applyOpened({ tabId: 't1', label: 'file', display: 'app.log', info: '/tmp/app.log' })
+    expect(s.tabs[0].info.display).toBe('app.log')
+    expect(s.tabs[0].info.info).toBe('/tmp/app.log')
+    // display 空:保持空,TabBar 回落 label
+    s.applyOpened({ tabId: 't2', label: 'ssh://h/p', display: '', info: '' })
+    expect(s.tabs[1].info.display).toBe('')
+  })
 })

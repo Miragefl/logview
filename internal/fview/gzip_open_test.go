@@ -34,7 +34,7 @@ func TestGzipOpenEOF(t *testing.T) {
 	c := &collector{}
 	m := NewManager(c.emit, 1000)
 	m.SetParsers([]parser.Parser{logbackTestParser(t), plainTestParser(t)})
-	id, err := m.OpenTab(stream.NewFileSource([]string{p}).WithTailLines(100000))
+	id, err := m.OpenTab(stream.NewFileSource([]string{p}).WithTailLines(100000), "", "")
 	if err != nil {
 		t.Fatalf("OpenTab(gz): %v", err)
 	}

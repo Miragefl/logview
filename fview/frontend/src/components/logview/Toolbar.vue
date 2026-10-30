@@ -97,6 +97,10 @@ function zoom(delta: number) {
 
 <template>
   <div class="toolbar">
+    <!-- 源信息条(验收反馈⑥):本地=路径/SSH=user@host:path/FRP=连接→服务器/K8s=ctx·ns/资源 -->
+    <span v-if="tabs.active?.info.info" class="src-info" :title="tabs.active.info.info">{{
+      tabs.active.info.info
+    }}</span>
     <NBadge :value="ann.highlights.length + ann.hideRules.length" :max="99" type="info">
       <NButton size="tiny" quaternary @click="openSearch(0)">🔍 搜索</NButton>
     </NBadge>
@@ -144,6 +148,16 @@ function zoom(delta: number) {
   gap: 6px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--popup-border, #1e2837);
+}
+/* 源信息条:dim 色,最大 40% 宽不挤搜索按钮 */
+.src-info {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--dim, #5d7292);
+  font-family: var(--font-mono, monospace);
 }
 .level {
   width: 100px;

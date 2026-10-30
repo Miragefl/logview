@@ -22,7 +22,7 @@ func TestMatchLines(t *testing.T) {
 			return fmt.Sprintf("2026-10-30 12:00:%02d.000 [main] [t-1] %s com.example.S - msg-%d", i%60, lv, i)
 		}),
 	}}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}

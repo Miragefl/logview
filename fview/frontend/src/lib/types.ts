@@ -15,4 +15,8 @@ export interface TabInfo {
   label: string
   lines: number
   follow: boolean
+  /** 顶栏展示名(文件名;空=回落 label) */
+  display?: string
+  /** 源信息条全称(路径/服务器/ns 等) */
+  info?: string
 }

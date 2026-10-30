@@ -85,9 +85,9 @@ export const useTabsStore = defineStore('tabs', {
       t.lines = addLines(t.lines, ev.lines)
       t.info.lines = t.lines.length
     },
-    /** applyOpened 响应 tab:opened（后端 OpenTab 广播）。 */
-    applyOpened(ev: { tabId: string; label: string }) {
-      this.register({ id: ev.tabId, label: ev.label, lines: 0, follow: false })
+    /** applyOpened 响应 tab:opened（后端 OpenTab 广播,带 display/info）。 */
+    applyOpened(ev: { tabId: string; label: string; display?: string; info?: string }) {
+      this.register({ id: ev.tabId, label: ev.label, lines: 0, follow: false, display: ev.display, info: ev.info })
     },
     /** applyFolds 应用折叠组变更（tab:folds 推送/懒拉）;清已消失组的孤儿折叠态。 */
     applyFolds(ev: { tabId: string; ranges: FoldRange[] }) {

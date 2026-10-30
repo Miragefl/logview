@@ -13,10 +13,10 @@ const tabs = useTabsStore()
       :key="t.info.id"
       class="tab"
       :class="{ active: t.info.id === tabs.activeId }"
-      :title="t.info.label"
+      :title="t.info.info || t.info.label"
       @click="tabs.activeId = t.info.id"
     >
-      <span class="label">{{ t.info.label }}</span>
+      <span class="label">{{ t.info.display || t.info.label }}</span>
       <span class="lines">{{ t.info.lines }}</span>
       <span
         class="close"

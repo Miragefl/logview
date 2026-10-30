@@ -173,7 +173,7 @@ func TestManagerIngestBatches(t *testing.T) {
 		mkBatch(101, 100, func(i int) string { return fmt.Sprintf("line-b-%d", i) }),
 		mkBatch(201, 100, func(i int) string { return fmt.Sprintf("line-c-%d", i) }),
 	}}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestManagerLargeIngest(t *testing.T) {
 	src := &feedStream{label: "big.log", batches: [][]model.RawLine{
 		mkBatch(1, 100000, func(i int) string { return fmt.Sprintf("big-%d", i) }),
 	}}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestManagerRepaintOnParserUpgrade(t *testing.T) {
 		mkBatch(1, 50, func(i int) string { return fmt.Sprintf("plain-%d", i) }), // 先 50 行 plain
 		mkBatch(51, 50, logbackLine), // 后 50 行 logback → 升级
 	}
-	id, err := m.OpenTab(&feedStream{label: "mixed.log", batches: batches})
+	id, err := m.OpenTab(&feedStream{label: "mixed.log", batches: batches}, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestManagerCloseTabCleansUp(t *testing.T) {
 	c := &collector{}
 	m := NewManager(c.emit, 1000)
 	src := &feedStream{label: "c.log", batches: [][]model.RawLine{mkBatch(1, 10, func(i int) string { return "x" })}}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -344,7 +344,7 @@ func (e *errCleanupStream) Cleanup() error { return errors.New("boom") }
 func TestOpenTabEmitsOpened(t *testing.T) {
 	c := &collector{}
 	m := NewManager(c.emit, 100)
-	id, err := m.OpenTab(&feedStream{label: "opened.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}})
+	id, err := m.OpenTab(&feedStream{label: "opened.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}}, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestFlushTimerDrainsPendingTail(t *testing.T) {
 	c := &collector{}
 	m := NewManager(c.emit, 1000)
 	src := &slowStream{label: "slow.log"}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestCloseTabBroadcastsClosedDespiteCleanupError(t *testing.T) {
 	c := &collector{}
 	m := NewManager(c.emit, 1000)
 	src := &errCleanupStream{feedStream{label: "e.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}}}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestCloseTabBroadcastsClosedDespiteCleanupError(t *testing.T) {
 func TestSetFollowEmitsMeta(t *testing.T) {
 	c := &collector{}
 	m := NewManager(c.emit, 1000)
-	id, err := m.OpenTab(&feedStream{label: "f.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}})
+	id, err := m.OpenTab(&feedStream{label: "f.log", batches: [][]model.RawLine{mkBatch(1, 5, func(i int) string { return "x" })}}, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestClearTab(t *testing.T) {
 	src := &feedStream{label: "file", batches: [][]model.RawLine{
 		{{Seq: 1, Text: "a"}, {Seq: 2, Text: "b"}},
 	}}
-	id, err := m.OpenTab(src)
+	id, err := m.OpenTab(src, "", "")
 	if err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
@@ -484,11 +484,41 @@ func TestClearTab(t *testing.T) {
 
 	// 清屏后 Manager 健康:新 tab 收行正常
 	src2 := &feedStream{label: "file", batches: [][]model.RawLine{{{Seq: 1, Text: "x"}}}}
-	id2, err := m.OpenTab(src2)
+	id2, err := m.OpenTab(src2, "", "")
 	if err != nil {
 		t.Fatalf("清屏后再开 tab: %v", err)
 	}
 	waitLines(t, m, c, id2, 1)
 	_ = m.CloseTab(id2)
 	_ = m.CloseTab(id)
+}
+
+// TestOpenTabDisplayInfo 展示名/源信息透传(验收反馈⑥):display 空=前端回落 label。
+func TestOpenTabDisplayInfo(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	src := &feedStream{label: "file", batches: [][]model.RawLine{{{Seq: 1, Text: "a"}}}}
+	id, err := m.OpenTab(src, "app.log", "/tmp/logs/app.log")
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	ts := m.Tabs()
+	if len(ts) != 1 {
+		t.Fatalf("Tabs: %d 项", len(ts))
+	}
+	if ts[0].Display != "app.log" {
+		t.Errorf("Display = %q,期望 app.log", ts[0].Display)
+	}
+	if ts[0].Info != "/tmp/logs/app.log" {
+		t.Errorf("Info = %q", ts[0].Info)
+	}
+	_ = m.CloseTab(id)
+
+	// display 空串:后端不填,前端 TabBar 回落 Label
+	src2 := &feedStream{label: "ssh://host/logs/a.log", batches: [][]model.RawLine{{{Seq: 1, Text: "a"}}}}
+	id2, _ := m.OpenTab(src2, "", "")
+	if ts := m.Tabs(); ts[0].Display != "" {
+		t.Errorf("空 display 应保持空(前端回落 label),得到 %q", ts[0].Display)
+	}
+	_ = m.CloseTab(id2)
 }

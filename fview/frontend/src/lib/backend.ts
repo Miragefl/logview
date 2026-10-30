@@ -73,6 +73,8 @@ export interface ClosedEvent {
 export interface OpenedEvent {
   tabId: string
   label: string
+  display?: string
+  info?: string
 }
 
 /** openFileViaDialog 弹系统文件选择框（多选）并开 tab，取消返回 ''；follow 请求实时追踪。 */

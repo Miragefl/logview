@@ -34,12 +34,15 @@ type LineDTO struct {
 	Raw     string `json:"raw"`
 }
 
-// TabInfo tab 元信息快照。
+// TabInfo tab 元信息快照。Display 为顶栏展示名(空=前端回落 Label);
+// Info 为源信息条全称(文件路径/服务器/namespace 等,验收反馈⑥)。
 type TabInfo struct {
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Lines  int    `json:"lines"`
-	Follow bool   `json:"follow"`
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Lines   int    `json:"lines"`
+	Follow  bool   `json:"follow"`
+	Display string `json:"display"`
+	Info    string `json:"info"`
 }
 
 // 事件协议（emit 的 event 名与负载）。
@@ -59,8 +62,10 @@ type metaEvent struct {
 }
 
 type openedEvent struct {
-	TabID string `json:"tabId"`
-	Label string `json:"label"`
+	TabID   string `json:"tabId"`
+	Label   string `json:"label"`
+	Display string `json:"display,omitempty"`
+	Info    string `json:"info,omitempty"`
 }
 
 type closedEvent struct {
@@ -79,9 +84,11 @@ type clearedEvent struct {
 }
 
 type tab struct {
-	id     string
-	label  string
-	follow bool
+	id      string
+	label   string
+	display string
+	info    string
+	follow  bool
 	src    stream.LogStream
 	pars   *parser.AutoDetect
 	buf    *buffer.RingBuffer
@@ -144,7 +151,8 @@ func (m *Manager) SetParsers(ps []parser.Parser) {
 }
 
 // OpenTab 打开一个日志源 tab，返回 tabID；行流随即经 emit 推送。
-func (m *Manager) OpenTab(src stream.LogStream) (string, error) {
+// display 为顶栏展示名(空=前端回落 Label);info 为源信息条全称。
+func (m *Manager) OpenTab(src stream.LogStream, display, info string) (string, error) {
 	m.mu.Lock()
 	id := fmt.Sprintf("tab-%d", m.nextID)
 	m.nextID++
@@ -153,13 +161,15 @@ func (m *Manager) OpenTab(src stream.LogStream) (string, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &tab{
-		id:     id,
-		label:  src.Label(),
-		src:    src,
-		pars:   pars,
-		buf:    buffer.NewRingBuffer(m.bufSize),
-		cancel: cancel,
-		done:   make(chan struct{}),
+		id:      id,
+		label:   src.Label(),
+		display: display,
+		info:    info,
+		src:     src,
+		pars:    pars,
+		buf:     buffer.NewRingBuffer(m.bufSize),
+		cancel:  cancel,
+		done:    make(chan struct{}),
 	}
 
 	ch, err := src.Start(ctx)
@@ -173,7 +183,7 @@ func (m *Manager) OpenTab(src stream.LogStream) (string, error) {
 	m.order = append(m.order, id)
 	m.mu.Unlock()
 
-	m.emit("tab:opened", openedEvent{TabID: id, Label: t.label})
+	m.emit("tab:opened", openedEvent{TabID: id, Label: t.label, Display: t.display, Info: t.info})
 	go t.ingestLoop(ctx, ch, m)
 	return id, nil
 }
@@ -257,7 +267,7 @@ func (m *Manager) Tabs() []TabInfo {
 			continue
 		}
 		t.mu.Lock()
-		out = append(out, TabInfo{ID: t.id, Label: t.label, Lines: t.buf.Len(), Follow: t.follow})
+		out = append(out, TabInfo{ID: t.id, Label: t.label, Lines: t.buf.Len(), Follow: t.follow, Display: t.display, Info: t.info})
 		t.mu.Unlock()
 	}
 	return out

@@ -120,6 +120,8 @@ export namespace fview {
 	    label: string;
 	    lines: number;
 	    follow: boolean;
+	    display: string;
+	    info: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TabInfo(source);
@@ -131,6 +133,8 @@ export namespace fview {
 	        this.label = source["label"];
 	        this.lines = source["lines"];
 	        this.follow = source["follow"];
+	        this.display = source["display"];
+	        this.info = source["info"];
 	    }
 	}
 
