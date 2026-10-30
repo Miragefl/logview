@@ -14,3 +14,12 @@ build:
 
 clean:
 	rm -f logview
+
+# fview 桌面端（Wails v2，工程根 fview/；需本地 macOS + node）
+.PHONY: fview-dev fview-build
+
+fview-dev:
+	cd fview && wails dev
+
+fview-build:
+	cd fview && wails build
