@@ -97,7 +97,7 @@ func K8sNamespaces(kubeCtx string) ([]string, error) {
 
 // K8sResources 列出指定 namespace 的工作负载资源（deploy/sts/ds/pod）。
 func K8sResources(kubeCtx, namespace string) ([]ResourceDTO, error) {
-	out, err := runKubectl(kubeCtx, "-n", namespace, "get", "deployments,statefulsets,daemonsets,pods", "-o", "name")
+	out, err := runKubectl(kubeCtx, "-n", namespace, "get", "deployments,statefulsets,pods", "-o", "name")
 	if err != nil {
 		return nil, err
 	}

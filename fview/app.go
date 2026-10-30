@@ -416,3 +416,23 @@ func (a *App) K8sNamespaces(kubeCtx string) ([]string, error) { return fview.K8s
 func (a *App) K8sResources(kubeCtx, namespace string) ([]fview.ResourceDTO, error) {
 	return fview.K8sResources(kubeCtx, namespace)
 }
+
+// OpenK8sTab 打开 k8s 资源日志 tab（resource 格式 kind/name，支持 deploy/sts/pod 简称）。
+func (a *App) OpenK8sTab(resource, namespace, kubeCtx string, tailLines int) (string, error) {
+	if tailLines <= 0 {
+		tailLines = defaultBufSize
+	}
+	if _, err := stream.ParseK8sResource(resource); err != nil {
+		return "", err
+	}
+	src := stream.NewK8sSource(resource, namespace, nil, tailLines)
+	src.SetContext(kubeCtx)
+	id, err := a.mgr.OpenTab(src)
+	if err != nil {
+		return "", err
+	}
+	if err := a.mgr.SetFollow(id, true); err != nil {
+		return id, err
+	}
+	return id, nil
+}

@@ -74,6 +74,10 @@ export function OpenFileTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['OpenFileTab'](arg1, arg2, arg3);
 }
 
+export function OpenK8sTab(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['OpenK8sTab'](arg1, arg2, arg3, arg4);
+}
+
 export function OpenSSHTab(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['OpenSSHTab'](arg1, arg2, arg3, arg4);
 }

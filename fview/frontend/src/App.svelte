@@ -10,6 +10,7 @@
   import RulesPanel from './components/RulesPanel.svelte'
   import BrowseDialog from './components/BrowseDialog.svelte'
   import ConnectionPanel from './components/ConnectionPanel.svelte'
+  import K8sDialog from './components/K8sDialog.svelte'
   import {
     openFileViaDialog,
     setFollow,
@@ -54,6 +55,7 @@
   let fields: FieldConfig[] = []
   let detailLine: LineDTO | null = null
   let showRules = false
+  let showK8s = false
   let browseHost = '' // 非空即弹远程目录浏览
   let browseFRPConn: FrpConn | null = null
   let fontSize = Number(localStorage.getItem('fview.font-size')) || 12
@@ -165,7 +167,7 @@
     on:openLocal={(e) => handleOpen(e.detail)}
     on:browseSSH={(e) => (browseHost = e.detail)}
     on:openFRP={(e) => (browseFRPConn = e.detail)}
-    on:openK8s={() => {}}
+    on:openK8s={() => (showK8s = true)}
   />
   <div class="main-col">
   <header class="topbar">
@@ -236,6 +238,9 @@
   </main>
   {#if showRules}
     <RulesPanel onClose={() => (showRules = false)} />
+  {/if}
+  {#if showK8s}
+    <K8sDialog on:close={() => (showK8s = false)} />
   {/if}
   {#if browseHost}
     <BrowseDialog

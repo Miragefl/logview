@@ -32,6 +32,10 @@ import {
   BrowseFRP,
   ReleaseFRPBrowse,
   OpenFRPTab,
+  K8sContexts,
+  K8sNamespaces,
+  K8sResources,
+  OpenK8sTab,
 } from '../../wailsjs/go/main/App'
 
 import type { LineDTO, TabInfo } from './stores/tabs'
@@ -230,4 +234,22 @@ export function releaseFRPBrowse(connName: string): Promise<void> {
 }
 export function openFRPTab(connName: string, path: string, tailLines: number, password: string): Promise<string> {
   return OpenFRPTab(connName, path, tailLines, password)
+}
+
+export interface K8sResource {
+  kind: string
+  name: string
+}
+
+export async function getK8sContexts(): Promise<string[]> {
+  return (await K8sContexts()) ?? []
+}
+export async function getK8sNamespaces(kubeCtx: string): Promise<string[]> {
+  return (await K8sNamespaces(kubeCtx)) ?? []
+}
+export async function getK8sResources(kubeCtx: string, namespace: string): Promise<K8sResource[]> {
+  return (await K8sResources(kubeCtx, namespace)) ?? []
+}
+export function openK8sTab(resource: string, namespace: string, kubeCtx: string, tailLines: number): Promise<string> {
+  return OpenK8sTab(resource, namespace, kubeCtx, tailLines)
 }
