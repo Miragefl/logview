@@ -23,3 +23,26 @@ func TestThemeToCSSKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestThemeToCSSFieldColors 字段色全量导出：Source/TraceID/Thread/Selected/Visual
+// 必须进 CSS 变量（验收反馈⑤——治"日志文字全白"）。
+func TestThemeToCSSFieldColors(t *testing.T) {
+	css := ThemeToCSS(logcore.DarkTheme)
+	want := map[string]string{
+		"--source":   "#D7AFFF",
+		"--trace":    "#87FFFF",
+		"--thread":   "#9E9E9E",
+		"--selected": "#30354F",
+		"--visual":   "#008700",
+	}
+	for key, w := range want {
+		v, ok := css[key]
+		if !ok {
+			t.Errorf("缺 CSS 键 %s（DarkTheme 应导出全部字段色）", key)
+			continue
+		}
+		if v != w {
+			t.Errorf("%s = %q, 期望 %q", key, v, w)
+		}
+	}
+}
