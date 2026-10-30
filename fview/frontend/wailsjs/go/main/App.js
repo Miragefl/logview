@@ -34,6 +34,10 @@ export function Fields() {
   return window['go']['main']['App']['Fields']();
 }
 
+export function FoldRanges(arg1) {
+  return window['go']['main']['App']['FoldRanges'](arg1);
+}
+
 export function FrpConns() {
   return window['go']['main']['App']['FrpConns']();
 }

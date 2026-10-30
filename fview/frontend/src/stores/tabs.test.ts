@@ -64,4 +64,21 @@ describe('useTabsStore', () => {
     expect(s.tabs.map((t) => t.info.id)).toEqual(['a'])
     expect(s.activeId).toBe('a') // 关闭后回落到邻近 tab
   })
+
+  it('folds/toggleCollapse:折叠态增删;applyFolds 清已消失组的孤儿折叠态', () => {
+    const s = useTabsStore()
+    s.applyOpened({ tabId: 't1', label: 'app.log' })
+    s.applyFolds({ tabId: 't1', ranges: [{ startSeq: 2, endSeq: 5, leader: 'x' }] })
+    const t = () => s.tabs.find((x) => x.info.id === 't1')!
+
+    s.toggleCollapse(2)
+    expect(t().collapsed).toEqual([2])
+    s.toggleCollapse(2)
+    expect(t().collapsed).toEqual([])
+
+    s.toggleCollapse(2)
+    // 组消失(重发空 ranges)→ 孤儿折叠态清除
+    s.applyFolds({ tabId: 't1', ranges: [] })
+    expect(t().collapsed).toEqual([])
+  })
 })

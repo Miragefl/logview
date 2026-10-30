@@ -43,6 +43,22 @@ export namespace frp {
 
 export namespace fview {
 	
+	export class FoldRange {
+	    startSeq: number;
+	    endSeq: number;
+	    leader: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FoldRange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.startSeq = source["startSeq"];
+	        this.endSeq = source["endSeq"];
+	        this.leader = source["leader"];
+	    }
+	}
 	export class LineDTO {
 	    seq: number;
 	    time: string;

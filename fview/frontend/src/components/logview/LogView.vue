@@ -13,6 +13,8 @@ import { DEFAULT_WIDTHS, headerCells, layoutLine } from '../../lib/columns'
 import { visibleRange } from '../../lib/virtual'
 import { ensureVisible, moveClamp } from '../../lib/nav'
 import { splitSpans } from '../../lib/hlSpan'
+import { buildViewItems } from '../../lib/folds'
+import type { FoldRange, ViewItem } from '../../lib/folds'
 import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
 import { scopeOfLabel } from '../../lib/scope'
 import type { LineDTO } from '../../lib/types'
@@ -50,6 +52,12 @@ const filteredLines = computed<LineDTO[]>(() => {
 
 const rowH = computed(() => ui.rowPx())
 
+/** viewItems 折叠视图项序列(行/折叠占位,验收反馈④ e 键)。 */
+const viewItems = computed<ViewItem[]>(() => {
+  const t = tabs.active
+  return buildViewItems(filteredLines.value, t?.folds ?? [], t?.collapsed ?? [])
+})
+
 /** colsW 生效列宽（分栏渲染,验收反馈②）。 */
 const colsW = computed<Record<string, number>>(() => props.widths ?? DEFAULT_WIDTHS)
 /** headCells 表头行（与数据列同宽对齐,sticky 置顶）。 */
@@ -63,11 +71,11 @@ function cellW(field: string): Record<string, string> | undefined {
   if (field === 'message') return undefined
   return { width: `${colsW.value[field] ?? 0}ch` }
 }
-/** range 可视行区间 [start, end)（响应式，随滚动/裁剪/字号联动）。 */
+/** range 可视行区间 [start, end)（响应式，随滚动/裁剪/字号联动;viewItems 域）。 */
 const range = computed<[number, number]>(() =>
-  visibleRange(scrollTop.value, viewportH.value, rowH.value, filteredLines.value.length)
+  visibleRange(scrollTop.value, viewportH.value, rowH.value, viewItems.value.length)
 )
-const visLines = computed(() => filteredLines.value.slice(range.value[0], range.value[1]))
+const visItems = computed(() => viewItems.value.slice(range.value[0], range.value[1]))
 
 /** renderSpans 行 message 分段（高亮词亮色粗体下划线 / 命中词暗色底纹）。 */
 function renderSpans(text: string) {
@@ -130,7 +138,7 @@ watch(
 )
 // 镜像裁头后 scrollTop 出界修正
 watch(
-  () => filteredLines.value.length,
+  () => viewItems.value.length,
   (total) => {
     const el = scrollEl.value
     if (!el) return
@@ -194,7 +202,9 @@ async function openDetail(ln: LineDTO) {
 
 // ---- 光标模型（验收反馈④,TUI 手感:j/k 移光标,scrolloff 跟随） ----
 const cursorSeq = ref(0)
-const cursorIdx = computed(() => filteredLines.value.findIndex((l) => l.seq === cursorSeq.value))
+const cursorIdx = computed(() =>
+  viewItems.value.findIndex((it) => it.type === 'line' && it.ln.seq === cursorSeq.value)
+)
 const rowsInView = computed(() => Math.max(1, Math.floor(viewportH.value / rowH.value)))
 
 /** stopFollow 关跟随（本地+后端;锚定/回顶时用,对齐 TUI）。 */
@@ -206,20 +216,21 @@ function stopFollow() {
   }
 }
 
-/** setCursor 置光标到过滤视图 idx,可选滚动保可视（scrolloff=3）。 */
+/** setCursor 置光标到视图项 idx(line 项),可选滚动保可视（scrolloff=3）。 */
 function setCursor(idx: number, scroll = true) {
-  const arr = filteredLines.value
-  if (idx < 0 || idx >= arr.length) return
-  cursorSeq.value = arr[idx].seq
+  const arr = viewItems.value
+  const it = arr[idx]
+  if (idx < 0 || !it || it.type !== 'line') return
+  cursorSeq.value = it.ln.seq
   if (scroll && scrollEl.value) {
     const first = ensureVisible(idx, range.value[0], rowsInView.value, arr.length)
     scrollEl.value.scrollTop = first * rowH.value
   }
 }
 
-/** moveCursor 光标 ±delta;无光标时从可视区边缘起。 */
+/** moveCursor 光标 ±delta;无光标时从可视区边缘起(跳过折叠占位行)。 */
 function moveCursor(delta: number) {
-  const arr = filteredLines.value
+  const arr = viewItems.value
   if (!arr.length) return
   const ci = cursorIdx.value
   if (ci < 0) {
@@ -236,9 +247,9 @@ function cursorToViewport(pos: 'top' | 'mid' | 'bottom') {
   setCursor(idx, false)
 }
 
-/** cursorToSeq 光标到指定 seq 行。 */
+/** cursorToSeq 光标到指定 seq 行（viewItems 域查找）。 */
 function cursorToSeq(seq: number) {
-  const idx = filteredLines.value.findIndex((l) => l.seq === seq)
+  const idx = viewItems.value.findIndex((it) => it.type === 'line' && it.ln.seq === seq)
   if (idx >= 0) setCursor(idx)
 }
 
@@ -257,35 +268,48 @@ function anchorCursor(pos: 't' | 'z' | 'b') {
   }
 }
 
-/** cursorToHit n/N:光标跳上/下一个搜索命中（以光标为基准,跳后居中）。 */
+/** cursorToHit n/N:光标跳上/下一个搜索命中(过滤域查找;目标在折叠组内先展开,跳后居中)。 */
 function cursorToHit(dir: 1 | -1) {
   if (props.hitSeqs.size === 0) return
   const arr = filteredLines.value
-  const ref = cursorIdx.value >= 0 ? cursorIdx.value : range.value[0]
-  const refSeq = arr[ref]?.seq ?? 0
-  let target = -1
+  const cur = viewItems.value[cursorIdx.value]
+  const refSeq = cur && cur.type === 'line' ? cur.ln.seq : (viewItems.value[range.value[0]] as { ln?: LineDTO } | undefined)?.ln?.seq ?? 0
+  let targetSeq = -1
   if (dir === 1) {
-    target = arr.findIndex((l) => l.seq > refSeq && props.hitSeqs.has(l.seq))
+    const hit = arr.find((l) => l.seq > refSeq && props.hitSeqs.has(l.seq))
+    targetSeq = hit?.seq ?? -1
   } else {
-    for (let i = Math.min(ref, arr.length - 1); i >= 0; i--) {
+    for (let i = arr.length - 1; i >= 0; i--) {
       if (props.hitSeqs.has(arr[i].seq) && arr[i].seq < refSeq) {
-        target = i
+        targetSeq = arr[i].seq
         break
       }
     }
   }
-  if (target >= 0) {
-    setCursor(target, false)
-    if (scrollEl.value) {
-      scrollEl.value.scrollTop = Math.max(0, target * rowH.value - viewportH.value / 2)
-    }
+  if (targetSeq < 0) return
+  ensureExpanded(targetSeq)
+  cursorToSeq(targetSeq)
+  const idx = cursorIdx.value
+  if (idx >= 0 && scrollEl.value) {
+    scrollEl.value.scrollTop = Math.max(0, idx * rowH.value - viewportH.value / 2)
   }
+}
+
+/** ensureExpanded 目标 seq 落在已折叠组内时展开该组。 */
+function ensureExpanded(seq: number) {
+  const t = tabs.active
+  if (!t) return
+  const f = t.folds.find(
+    (x) => seq >= x.startSeq && seq <= x.endSeq && t.collapsed.includes(x.startSeq)
+  )
+  if (f) tabs.toggleCollapse(f.startSeq)
 }
 
 /** gotoTop g:回顶（关 follow）。 */
 function gotoTop() {
   stopFollow()
-  cursorToSeq(filteredLines.value[0]?.seq ?? 0)
+  const first = viewItems.value[0]
+  if (first?.type === 'line') cursorToSeq(first.ln.seq)
   if (scrollEl.value) scrollEl.value.scrollTop = 0
 }
 
@@ -296,7 +320,8 @@ function gotoBottom() {
     tabs.toggleFollow(t.info.id, true)
     setFollow(t.info.id, true).catch(() => {})
   }
-  cursorToSeq(filteredLines.value[filteredLines.value.length - 1]?.seq ?? 0)
+  const last = viewItems.value[viewItems.value.length - 1]
+  if (last?.type === 'line') cursorToSeq(last.ln.seq)
   if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
 }
 
@@ -312,8 +337,23 @@ function pageMove(dir: 1 | -1) {
 
 /** openDetailAtCursor d:光标行详情（等价双击）。 */
 function openDetailAtCursor() {
-  const ci = cursorIdx.value
-  if (ci >= 0) openDetail(filteredLines.value[ci])
+  const it = viewItems.value[cursorIdx.value]
+  if (it && it.type === 'line') openDetail(it.ln)
+}
+
+/** toggleFold e:光标行所在堆栈组折叠/展开(TUI 同款)。 */
+function toggleFold() {
+  const t = tabs.active
+  if (!t) return
+  const f = t.folds.find(
+    (x) => cursorSeq.value >= x.startSeq && cursorSeq.value <= x.endSeq
+  )
+  if (f) tabs.toggleCollapse(f.startSeq)
+}
+
+/** unfoldAt 点击折叠占位行展开。 */
+function unfoldAt(range: FoldRange) {
+  tabs.toggleCollapse(range.startSeq)
 }
 defineExpose({
   moveCursor,
@@ -326,7 +366,7 @@ defineExpose({
   halfPage,
   pageMove,
   openDetailAtCursor,
-  toggleFold: (_dir?: 1 | -1) => {}, // T6 堆栈折叠实现,先占位
+  toggleFold,
   startVisual: (_line: boolean) => {}, // T8 可视选择实现,先占位
   exitVisual: () => {},
   yankSelection: () => {},
@@ -348,23 +388,32 @@ defineExpose({
         >{{ c.text }}</span
       >
     </div>
-    <div class="spacer" :style="{ height: filteredLines.length * rowH + 'px' }"></div>
+    <div class="spacer" :style="{ height: viewItems.length * rowH + 'px' }"></div>
     <div
       class="rows"
-      :style="{ transform: `translateY(${range[0] * rowH}px)`, height: filteredLines.length * rowH + 'px' }"
+      :style="{ transform: `translateY(${range[0] * rowH}px)`, height: viewItems.length * rowH + 'px' }"
     >
-      <div
-        v-for="(ln, i) in visLines"
-        :key="ln.seq"
-        class="row"
-        :class="{ hit: hitSeqs.has(ln.seq), cur: ln.seq === cursorSeq }"
-        :style="{ top: i * rowH + 'px' }"
-        @contextmenu="onContext($event, ln)"
-        @dblclick="openDetail(ln)"
-      >
-        <template v-for="c in cellsOf(ln)" :key="c.field">
+      <template v-for="(item, i) in visItems" :key="item.type === 'line' ? item.ln.seq : 'f' + item.range.startSeq">
+        <!-- 折叠占位行(点击展开) -->
+        <div
+          v-if="item.type === 'fold'"
+          class="row fold-row"
+          :style="{ top: i * rowH + 'px' }"
+          @click="unfoldAt(item.range)"
+        >
+          ▸ {{ item.range.endSeq - item.range.startSeq + 1 }} 行堆栈: {{ item.range.leader }}
+        </div>
+        <div
+          v-else
+          class="row"
+          :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq }"
+          :style="{ top: i * rowH + 'px' }"
+          @contextmenu="onContext($event, item.ln)"
+          @dblclick="openDetail(item.ln)"
+        >
+        <template v-for="c in cellsOf(item.ln)" :key="c.field">
           <span v-if="c.field === 'message'" class="cell f-msg">
-            <template v-for="(s, si) in renderSpans(ln.message)" :key="si">
+            <template v-for="(s, si) in renderSpans(item.ln.message)" :key="si">
               <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
               <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
               <template v-else>{{ s.text }}</template>
@@ -373,12 +422,13 @@ defineExpose({
           <span
             v-else
             class="cell"
-            :class="['f-' + c.field, c.field === 'level' ? levelClass(ln.level) : '']"
+            :class="['f-' + c.field, c.field === 'level' ? levelClass(item.ln.level) : '']"
             :style="cellW(c.field)"
             >{{ c.text }}</span
           >
         </template>
-      </div>
+        </div>
+      </template>
     </div>
 
     <!-- 右键隐藏菜单 -->
@@ -471,6 +521,18 @@ defineExpose({
   min-width: 0;
   overflow: visible;
   white-space: pre;
+}
+/* 折叠占位行(TUI dim 风格) */
+.fold-row {
+  color: var(--dim, #8b98a9);
+  font-style: italic;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.fold-row:hover {
+  color: var(--accent, #7dc4e4);
 }
 /* 表头行:sticky 置顶 */
 .row.header {

@@ -12,6 +12,7 @@ import {
   UsageTouch,
   UsageKeywords,
   BumpKeyword,
+  FoldRanges,
   CloseTab,
   SetFollow,
   ParseQuery,
@@ -48,6 +49,7 @@ import {
 } from '../../wailsjs/go/main/App'
 
 import type { LineDTO, TabInfo } from './types'
+import type { FoldRange } from './folds'
 
 export interface LinesEvent {
   tabId: string
@@ -87,11 +89,17 @@ export function closeTab(tabId: string): Promise<void> {
   return CloseTab(tabId)
 }
 
+export interface FoldsEvent {
+  tabId: string
+  ranges: FoldRange[]
+}
+
 export interface TabEventCallbacks {
   onOpened: (ev: OpenedEvent) => void
   onLines: (ev: LinesEvent) => void
   onMeta: (ev: MetaEvent) => void
   onClosed: (ev: ClosedEvent) => void
+  onFolds: (ev: FoldsEvent) => void
 }
 
 /** subscribeTabEvents 订阅 Manager 的 tab 事件流（onMount 时调用一次）。 */
@@ -100,6 +108,12 @@ export function subscribeTabEvents(cb: TabEventCallbacks): void {
   EventsOn('tab:lines', cb.onLines)
   EventsOn('tab:meta', cb.onMeta)
   EventsOn('tab:closed', cb.onClosed)
+  EventsOn('tab:folds', cb.onFolds)
+}
+
+/** foldRanges 折叠组懒拉（tab 打开/切换时补一次全量）。 */
+export function foldRanges(tabId: string): Promise<FoldRange[]> {
+  return FoldRanges(tabId)
 }
 
 export type { LineDTO, TabInfo }

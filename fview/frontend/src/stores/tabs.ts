@@ -1,11 +1,16 @@
 import { defineStore } from 'pinia'
 import type { LineDTO, TabInfo } from '../lib/types'
+import type { FoldRange } from '../lib/folds'
 
-// 行/tab 前端状态（数据源为后端 Manager 事件流 tab:opened/tab:lines/tab:meta/tab:closed）
+// 行/tab 前端状态（数据源为后端 Manager 事件流 tab:opened/tab:lines/tab:meta/tab:closed/tab:folds）
 
 export interface TabState {
   info: TabInfo
   lines: LineDTO[]
+  /** 折叠组(tab:folds 推送/懒拉,seq 域) */
+  folds: FoldRange[]
+  /** 已折叠组的 startSeq(会话级) */
+  collapsed: number[]
 }
 
 // DEFAULT_MAX_LINES 与后端 RingBuffer 默认容量对齐（前端同步裁剪，防双份内存膨胀）
@@ -66,7 +71,7 @@ export const useTabsStore = defineStore('tabs', {
     /** register 新 tab 注册（前端打开动作先登记，tab:opened 随后到达时去重）。 */
     register(info: TabInfo) {
       if (!this.tabs.some((t) => t.info.id === info.id)) {
-        this.tabs.push({ info, lines: [] })
+        this.tabs.push({ info, lines: [], folds: [], collapsed: [] })
       }
       this.activeId = info.id
     },
@@ -81,6 +86,22 @@ export const useTabsStore = defineStore('tabs', {
     /** applyOpened 响应 tab:opened（后端 OpenTab 广播）。 */
     applyOpened(ev: { tabId: string; label: string }) {
       this.register({ id: ev.tabId, label: ev.label, lines: 0, follow: false })
+    },
+    /** applyFolds 应用折叠组变更（tab:folds 推送/懒拉）;清已消失组的孤儿折叠态。 */
+    applyFolds(ev: { tabId: string; ranges: FoldRange[] }) {
+      const t = this.tabs.find((x) => x.info.id === ev.tabId)
+      if (!t) return
+      t.folds = ev.ranges ?? []
+      const live = new Set(t.folds.map((f) => f.startSeq))
+      t.collapsed = t.collapsed.filter((s) => live.has(s))
+    },
+    /** toggleCollapse 活动 tab 折叠/展开指定组（按 startSeq 键控）。 */
+    toggleCollapse(startSeq: number) {
+      const t = this.tabs.find((x) => x.info.id === this.activeId)
+      if (!t) return
+      t.collapsed = t.collapsed.includes(startSeq)
+        ? t.collapsed.filter((s) => s !== startSeq)
+        : [...t.collapsed, startSeq]
     },
     /** applyMeta 更新 tab 元信息（label/跟随态；EOF 终态也走这里）。 */
     applyMeta(ev: { tabId: string; label: string; parserName: string; follow?: boolean | null }) {

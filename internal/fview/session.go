@@ -67,6 +67,12 @@ type closedEvent struct {
 	TabID string `json:"tabId"`
 }
 
+// foldsEvent 折叠组变更事件(检测到新组/组终结时随 flush 发出)。
+type foldsEvent struct {
+	TabID  string      `json:"tabId"`
+	Ranges []FoldRange `json:"ranges"`
+}
+
 type tab struct {
 	id     string
 	label  string
@@ -82,6 +88,10 @@ type tab struct {
 	pend       []LineDTO   // 待 flush 行
 	flushTimer *time.Timer // 尾批兜底（流安静时 50ms 后必 flush）
 	lastFlush  time.Time
+
+	fold        foldDetector // 堆栈折叠尾窗检测（持 mu 访问）
+	lastFolds   []FoldRange  // 最近一次检测结果（FoldRanges 懒拉数据源）
+	lastFoldSig string       // 变更签名（len+末组区间），决定是否 emit tab:folds
 }
 
 func (t *tab) toDTO(pl *model.ParsedLine) LineDTO {
@@ -225,6 +235,19 @@ func (m *Manager) Tabs() []TabInfo {
 		t.mu.Unlock()
 	}
 	return out
+}
+
+// FoldRanges 返回 tab 当前折叠组快照（seq 域;前端懒拉数据源）。
+func (m *Manager) FoldRanges(tabID string) []FoldRange {
+	m.mu.Lock()
+	t, ok := m.tabs[tabID]
+	m.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]FoldRange(nil), t.lastFolds...)
 }
 
 // Lines 拉取 tab 行窗口 [start, end)；end<0 表示到末尾（计划 pre-flight 裁决）。
@@ -374,9 +397,31 @@ func (t *tab) flush(m *Manager) {
 	batch := t.pend
 	t.pend = nil
 	t.lastFlush = time.Now()
+	// 尾窗折叠检测:缓冲无锁须持 mu;签名变化才广播,避免每批重发全量组
+	ranges := t.fold.update(t.buf)
+	sig := foldSignature(ranges)
+	foldChanged := sig != t.lastFoldSig
+	t.lastFoldSig = sig
+	t.lastFolds = ranges
 	t.mu.Unlock()
 	if len(batch) == 0 {
+		if foldChanged {
+			m.emit("tab:folds", foldsEvent{TabID: t.id, Ranges: ranges})
+		}
 		return
 	}
 	m.emit("tab:lines", linesEvent{TabID: t.id, Lines: batch, FirstSeq: batch[0].Seq})
+	if foldChanged {
+		m.emit("tab:folds", foldsEvent{TabID: t.id, Ranges: ranges})
+	}
+}
+
+// foldSignature 折叠组变更签名(len+末组区间)——组只增不减且顺序追加,
+// 首组变化必然伴随末组或长度变化,足够判定"结果有变"。
+func foldSignature(rs []FoldRange) string {
+	if len(rs) == 0 {
+		return "0"
+	}
+	last := rs[len(rs)-1]
+	return fmt.Sprintf("%d:%d:%d", len(rs), last.StartSeq, last.EndSeq)
 }

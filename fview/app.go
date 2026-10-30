@@ -448,6 +448,9 @@ func (a *App) UsageKeywords(scope, kind string) []string { return fview.Keywords
 // BumpKeyword 记一次关键词使用（与 TUI 同一份词频，验收反馈③）。
 func (a *App) BumpKeyword(scope, kind, word string) { fview.BumpKeyword(scope, kind, word) }
 
+// FoldRanges 堆栈折叠组快照（seq 域,e 键折叠渲染数据源,验收反馈④）。
+func (a *App) FoldRanges(tabID string) []fview.FoldRange { return a.mgr.FoldRanges(tabID) }
+
 // GetMemStats 状态栏内存徽章：Sys-HeapReleased 字节数（口径对齐 TUI）。
 func (a *App) GetMemStats() uint64 { return fview.MemStatsBytes() }
 

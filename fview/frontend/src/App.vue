@@ -5,7 +5,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useThemeStore } from './themes'
 import { useTabsStore } from './stores/tabs'
 import { useUiStore } from './stores/ui'
-import { getFields, subscribeTabEvents } from './lib/backend'
+import { foldRanges, getFields, subscribeTabEvents } from './lib/backend'
 import type { FieldConfig } from './lib/backend'
 import { fieldsWidths } from './lib/columns'
 import { resolveKey } from './lib/keymap'
@@ -179,10 +179,17 @@ function dispatchKey(action: KeyAction, arg?: string) {
 onMounted(async () => {
   theme.init()
   subscribeTabEvents({
-    onOpened: tabs.applyOpened,
+    onOpened: (ev) => {
+      tabs.applyOpened(ev)
+      // 折叠组懒拉补一次全量(后续靠 tab:folds 增量推送)
+      foldRanges(ev.tabId)
+        .then((rs) => tabs.applyFolds({ tabId: ev.tabId, ranges: rs }))
+        .catch(() => {})
+    },
     onLines: tabs.applyLines,
     onMeta: tabs.applyMeta,
     onClosed: (ev) => tabs.remove(ev.tabId),
+    onFolds: tabs.applyFolds,
   })
   // 字段显隐按 rules.yaml 的 fields.Visible 校正（与 TUI 同源；hides 是行级隐藏词不得混用）
   try {
