@@ -11,6 +11,8 @@ export function BrowseFRP(arg1:string,arg2:string,arg3:string):Promise<Array<mai
 
 export function BumpKeyword(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ClearTab(arg1:string):Promise<void>;
+
 export function CloseTab(arg1:string):Promise<void>;
 
 export function CurrentTheme():Promise<string>;

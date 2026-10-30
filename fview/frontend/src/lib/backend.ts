@@ -13,6 +13,7 @@ import {
   UsageKeywords,
   BumpKeyword,
   FoldRanges,
+  ClearTab,
   CloseTab,
   SetFollow,
   ParseQuery,
@@ -89,6 +90,11 @@ export function closeTab(tabId: string): Promise<void> {
   return CloseTab(tabId)
 }
 
+/** clearTab 清屏（C 键,后端清会话缓冲并广播 tab:cleared）。 */
+export function clearTab(tabId: string): Promise<void> {
+  return ClearTab(tabId)
+}
+
 export interface FoldsEvent {
   tabId: string
   ranges: FoldRange[]
@@ -100,6 +106,7 @@ export interface TabEventCallbacks {
   onMeta: (ev: MetaEvent) => void
   onClosed: (ev: ClosedEvent) => void
   onFolds: (ev: FoldsEvent) => void
+  onCleared: (ev: ClosedEvent) => void
 }
 
 /** subscribeTabEvents 订阅 Manager 的 tab 事件流（onMount 时调用一次）。 */
@@ -109,6 +116,7 @@ export function subscribeTabEvents(cb: TabEventCallbacks): void {
   EventsOn('tab:meta', cb.onMeta)
   EventsOn('tab:closed', cb.onClosed)
   EventsOn('tab:folds', cb.onFolds)
+  EventsOn('tab:cleared', cb.onCleared)
 }
 
 /** foldRanges 折叠组懒拉（tab 打开/切换时补一次全量）。 */

@@ -5,7 +5,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useThemeStore } from './themes'
 import { useTabsStore } from './stores/tabs'
 import { useUiStore } from './stores/ui'
-import { foldRanges, getFields, subscribeTabEvents } from './lib/backend'
+import { clearTab, foldRanges, getFields, subscribeTabEvents } from './lib/backend'
 import type { FieldConfig } from './lib/backend'
 import { fieldsWidths } from './lib/columns'
 import { resolveKey } from './lib/keymap'
@@ -170,7 +170,17 @@ function dispatchKey(action: KeyAction, arg?: string) {
     case 'gotoBookmarks':
       lv?.showBookmarks()
       break
-    // wrap(T10)/lineNumbers(T9)/help(T9)/clear(T7):后续任务实装,先占位
+    case 'clear': {
+      const id = tabs.activeId
+      if (id) {
+        // 本地立即清(后端清完广播 tab:cleared 再清一次,幂等)
+        tabs.applyCleared(id)
+        onSearch({ hitSeqs: [], words: [] })
+        clearTab(id).catch(() => {})
+      }
+      break
+    }
+    // wrap(T10)/lineNumbers(T9)/help(T9):后续任务实装,先占位
     default:
       break
   }
@@ -190,6 +200,11 @@ onMounted(async () => {
     onMeta: tabs.applyMeta,
     onClosed: (ev) => tabs.remove(ev.tabId),
     onFolds: tabs.applyFolds,
+    onCleared: (ev) => {
+      const wasActive = tabs.activeId === ev.tabId
+      tabs.applyCleared(ev.tabId)
+      if (wasActive) onSearch({ hitSeqs: [], words: [] })
+    },
   })
   // 字段显隐按 rules.yaml 的 fields.Visible 校正（与 TUI 同源；hides 是行级隐藏词不得混用）
   try {

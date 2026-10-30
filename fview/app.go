@@ -121,6 +121,11 @@ func (a *App) CloseTab(tabID string) error {
 	return a.mgr.CloseTab(tabID)
 }
 
+// ClearTab 清屏（C 键:后端清会话缓冲并广播 tab:cleared,验收反馈④）。
+func (a *App) ClearTab(tabID string) error {
+	return a.mgr.ClearTab(tabID)
+}
+
 // Tabs 返回 tab 元信息列表。
 func (a *App) Tabs() []fview.TabInfo {
 	return a.mgr.Tabs()

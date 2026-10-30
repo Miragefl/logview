@@ -447,3 +447,48 @@ func TestSetFollowEmitsMeta(t *testing.T) {
 		t.Error("SetFollow 后未广播 Follow=true 的 tab:meta")
 	}
 }
+
+// TestClearTab C 清屏(验收反馈④):换新缓冲、pend 清空、广播 tab:cleared、
+// 清屏后 Manager 继续正常收行。
+func TestClearTab(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	src := &feedStream{label: "file", batches: [][]model.RawLine{
+		{{Seq: 1, Text: "a"}, {Seq: 2, Text: "b"}},
+	}}
+	id, err := m.OpenTab(src)
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 2)
+
+	if err := m.ClearTab(id); err != nil {
+		t.Fatalf("ClearTab: %v", err)
+	}
+	if ls := m.Lines(id, 0, -1); len(ls) != 0 {
+		t.Errorf("缓冲未清,剩 %d 行", len(ls))
+	}
+	c.mu.Lock()
+	cleared := false
+	for _, e := range c.events {
+		if e.name == "tab:cleared" {
+			if ev, ok := e.data.(clearedEvent); ok && ev.TabID == id {
+				cleared = true
+			}
+		}
+	}
+	c.mu.Unlock()
+	if !cleared {
+		t.Error("未广播 tab:cleared")
+	}
+
+	// 清屏后 Manager 健康:新 tab 收行正常
+	src2 := &feedStream{label: "file", batches: [][]model.RawLine{{{Seq: 1, Text: "x"}}}}
+	id2, err := m.OpenTab(src2)
+	if err != nil {
+		t.Fatalf("清屏后再开 tab: %v", err)
+	}
+	waitLines(t, m, c, id2, 1)
+	_ = m.CloseTab(id2)
+	_ = m.CloseTab(id)
+}

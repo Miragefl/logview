@@ -73,6 +73,11 @@ type foldsEvent struct {
 	Ranges []FoldRange `json:"ranges"`
 }
 
+// clearedEvent 清屏事件(C 键:缓冲/pend/折叠态全清)。
+type clearedEvent struct {
+	TabID string `json:"tabId"`
+}
+
 type tab struct {
 	id     string
 	label  string
@@ -202,6 +207,27 @@ func (m *Manager) CloseTab(tabID string) error {
 	// Cleanup 出错也必须广播 closed：tab 已从 map 删除，不广播则前端永久卡死（Final Review #8）
 	m.emit("tab:closed", closedEvent{TabID: tabID})
 	return cleanupErr
+}
+
+// ClearTab 清屏(C 键):换新 RingBuffer、丢弃未 flush 的 pend、重置折叠检测,
+// 广播 tab:cleared。前端镜像同步清(本地单清会导致 n/N 跳空 seq/计数错乱)。
+// ingest goroutine 不动:清屏后到达的新行进新缓冲(与 TUI clearScreen 同语义)。
+func (m *Manager) ClearTab(tabID string) error {
+	m.mu.Lock()
+	t, ok := m.tabs[tabID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("tab %s 不存在", tabID)
+	}
+	t.mu.Lock()
+	t.buf = buffer.NewRingBuffer(m.bufSize)
+	t.pend = nil
+	t.fold = foldDetector{}
+	t.lastFolds = nil
+	t.lastFoldSig = ""
+	t.mu.Unlock()
+	m.emit("tab:cleared", clearedEvent{TabID: tabID})
+	return nil
 }
 
 // SetFollow 设置 tab 跟随态（App 装配层调；gz 等归档源读满即止，follow 仅表用户意图）。

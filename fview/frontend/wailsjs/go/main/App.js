@@ -14,6 +14,10 @@ export function BumpKeyword(arg1, arg2, arg3) {
   return window['go']['main']['App']['BumpKeyword'](arg1, arg2, arg3);
 }
 
+export function ClearTab(arg1) {
+  return window['go']['main']['App']['ClearTab'](arg1);
+}
+
 export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }

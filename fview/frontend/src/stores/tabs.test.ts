@@ -81,4 +81,20 @@ describe('useTabsStore', () => {
     s.applyFolds({ tabId: 't1', ranges: [] })
     expect(t().collapsed).toEqual([])
   })
+
+  it('applyCleared:清镜像/行数/折叠态,activeId 不变', () => {
+    const s = useTabsStore()
+    s.applyOpened({ tabId: 't1', label: 'app.log' })
+    s.applyLines({ tabId: 't1', lines: [ln(1), ln(2)] })
+    s.applyFolds({ tabId: 't1', ranges: [{ startSeq: 1, endSeq: 2, leader: 'x' }] })
+    s.toggleCollapse(1)
+
+    s.applyCleared('t1')
+    const t = s.tabs.find((x) => x.info.id === 't1')!
+    expect(t.lines).toEqual([])
+    expect(t.info.lines).toBe(0)
+    expect(t.folds).toEqual([])
+    expect(t.collapsed).toEqual([])
+    expect(s.activeId).toBe('t1')
+  })
 })

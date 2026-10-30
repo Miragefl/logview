@@ -103,6 +103,15 @@ export const useTabsStore = defineStore('tabs', {
         ? t.collapsed.filter((s) => s !== startSeq)
         : [...t.collapsed, startSeq]
     },
+    /** applyCleared 响应 tab:cleared（C 键清屏:镜像/行数/折叠态全清,tab 不关）。 */
+    applyCleared(tabId: string) {
+      const t = this.tabs.find((x) => x.info.id === tabId)
+      if (!t) return
+      t.lines = []
+      t.info.lines = 0
+      t.folds = []
+      t.collapsed = []
+    },
     /** applyMeta 更新 tab 元信息（label/跟随态；EOF 终态也走这里）。 */
     applyMeta(ev: { tabId: string; label: string; parserName: string; follow?: boolean | null }) {
       const t = this.tabs.find((x) => x.info.id === ev.tabId)
