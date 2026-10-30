@@ -12,6 +12,7 @@
   import {
     openFileViaDialog,
     setFollow,
+    openSSHTab,
     subscribeTabEvents,
     parseQuery,
     matchLines,
