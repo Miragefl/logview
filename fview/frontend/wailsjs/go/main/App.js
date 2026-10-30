@@ -6,6 +6,10 @@ export function AddSSHHost(arg1) {
   return window['go']['main']['App']['AddSSHHost'](arg1);
 }
 
+export function BrowseFRP(arg1, arg2, arg3) {
+  return window['go']['main']['App']['BrowseFRP'](arg1, arg2, arg3);
+}
+
 export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
@@ -50,6 +54,10 @@ export function MatchLines(arg1, arg2) {
   return window['go']['main']['App']['MatchLines'](arg1, arg2);
 }
 
+export function OpenFRPTab(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['OpenFRPTab'](arg1, arg2, arg3, arg4);
+}
+
 export function OpenFileTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['OpenFileTab'](arg1, arg2, arg3);
 }
@@ -64,6 +72,10 @@ export function ParseQuery(arg1) {
 
 export function PickAndOpenFile(arg1) {
   return window['go']['main']['App']['PickAndOpenFile'](arg1);
+}
+
+export function ReleaseFRPBrowse(arg1) {
+  return window['go']['main']['App']['ReleaseFRPBrowse'](arg1);
 }
 
 export function RemoveSSHHost(arg1) {

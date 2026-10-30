@@ -29,6 +29,9 @@ import {
   SSHHosts,
   AddSSHHost,
   RemoveSSHHost,
+  BrowseFRP,
+  ReleaseFRPBrowse,
+  OpenFRPTab,
 } from '../../wailsjs/go/main/App'
 
 import type { LineDTO, TabInfo } from './stores/tabs'
@@ -217,4 +220,14 @@ export function addSSHHost(host: string): Promise<void> {
 }
 export function removeSSHHost(host: string): Promise<void> {
   return RemoveSSHHost(host)
+}
+
+export function browseFRP(connName: string, path: string, password: string): Promise<DirEntry[]> {
+  return BrowseFRP(connName, path, password)
+}
+export function releaseFRPBrowse(connName: string): Promise<void> {
+  return ReleaseFRPBrowse(connName)
+}
+export function openFRPTab(connName: string, path: string, tailLines: number, password: string): Promise<string> {
+  return OpenFRPTab(connName, path, tailLines, password)
 }

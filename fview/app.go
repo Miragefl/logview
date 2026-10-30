@@ -323,3 +323,83 @@ func (a *App) OpenSSHTab(host, path string, tailLines int, password string) (str
 	}
 	return id, nil
 }
+
+// ---- FRP 一键连接（AcquireTunnel 引用计数复用）----
+
+// browseTunnels 浏览会话持有的隧道（connName → tunnel）；
+// 开 tab 时 OpenFRPTab 再 Acquire 同 key 复用，ReleaseFRPBrowse 释放浏览侧引用。
+var browseTunnels = map[string]*frp.Tunnel{}
+
+// BrowseFRP 建隧道浏览远程目录；认证失败返回明确错误供前端弹密码。
+func (a *App) BrowseFRP(connName, path, password string) ([]DirEntryDTO, error) {
+	st := frp.LoadStore()
+	conn, ok := st.FindConn(connName)
+	if !ok {
+		return nil, fmt.Errorf("连接 %s 不存在", connName)
+	}
+	srv, ok := st.FindServer(conn.Server)
+	if !ok {
+		return nil, fmt.Errorf("连接 %s 引用的服务器 %s 不存在", connName, conn.Server)
+	}
+	t, err := frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
+	if err != nil {
+		return nil, fmt.Errorf("建立隧道失败: %w", err)
+	}
+	browseTunnels[connName] = t
+	entries, err := stream.SSHListDirWithPort("127.0.0.1", t.LocalPort(), path, password)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirEntryDTO, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, DirEntryDTO{Name: e.Name, IsDir: e.IsDir})
+	}
+	return out, nil
+}
+
+// ReleaseFRPBrowse 释放浏览侧隧道引用（浏览未转化为 tab 时不泄漏 frpc，Review Focus 2）。
+func (a *App) ReleaseFRPBrowse(connName string) {
+	if t, ok := browseTunnels[connName]; ok {
+		_ = t.Cleanup()
+		delete(browseTunnels, connName)
+	}
+}
+
+// OpenFRPTab FRP 一键连接开 tab（同 key 隧道复用；tab 关闭时 FRPSource.Cleanup 减引用）。
+func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) (string, error) {
+	if tailLines <= 0 {
+		tailLines = defaultBufSize
+	}
+	st := frp.LoadStore()
+	conn, ok := st.FindConn(connName)
+	if !ok {
+		return "", fmt.Errorf("连接 %s 不存在", connName)
+	}
+	srv, ok := st.FindServer(conn.Server)
+	if !ok {
+		return "", fmt.Errorf("连接 %s 引用的服务器 %s 不存在", connName, conn.Server)
+	}
+	t, err := frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
+	if err != nil {
+		return "", fmt.Errorf("建立隧道失败: %w", err)
+	}
+	src := stream.NewFRPSource(conn.Name, t, conn.User, path, tailLines)
+	src.SetBufferLines(defaultBufSize)
+	if password != "" {
+		src.SetPassword(password)
+	}
+	id, err := a.mgr.OpenTab(src)
+	if err != nil {
+		_ = t.Cleanup() // 开 tab 失败回退本次引用
+		return "", err
+	}
+	if err := a.mgr.SetFollow(id, true); err != nil {
+		return id, err
+	}
+	return id, nil
+}
+
+// shutdown 退出兜底：杀全部 frpc visitor（漏网隧道零残留）。
+func (a *App) shutdown(ctx context.Context) {
+	frp.KillAllTunnels()
+}

@@ -14,6 +14,9 @@
     openFileViaDialog,
     setFollow,
     openSSHTab,
+  openFRPTab,
+  releaseFRPBrowse,
+  type FrpConn,
     subscribeTabEvents,
     parseQuery,
     matchLines,
@@ -52,6 +55,7 @@
   let detailLine: LineDTO | null = null
   let showRules = false
   let browseHost = '' // 非空即弹远程目录浏览
+  let browseFRPConn: FrpConn | null = null
   let fontSize = Number(localStorage.getItem('fview.font-size')) || 12
   $: rowHeight = fontSize + 8
   $: localStorage.setItem('fview.font-size', String(fontSize))
@@ -160,6 +164,7 @@
   <ConnectionPanel
     on:openLocal={(e) => handleOpen(e.detail)}
     on:browseSSH={(e) => (browseHost = e.detail)}
+    on:openFRP={(e) => (browseFRPConn = e.detail)}
     on:openK8s={() => {}}
   />
   <div class="main-col">
@@ -240,6 +245,22 @@
         if (id) browseHost = ''
       }}
       onClose={() => (browseHost = '')}
+    />
+  {/if}
+  {#if browseFRPConn}
+    <BrowseDialog
+      host=""
+      frpConn={browseFRPConn}
+      onPick={async (path, password) => {
+        const name = browseFRPConn?.name ?? ''
+        const id = await openFRPTab(name, path, 0, password)
+        await releaseFRPBrowse(name) // 开 tab 后释放浏览侧引用（tab 持有自己那份）
+        if (id) browseFRPConn = null
+      }}
+      onClose={async () => {
+        if (browseFRPConn) await releaseFRPBrowse(browseFRPConn.name)
+        browseFRPConn = null
+      }}
     />
   {/if}
   </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
   // 远程目录浏览弹层：路径栏 + 目录/文件列表 + 双击进入 + 选文件回调。
   // 认证失败（错误信息含 auth/password 字样）弹密码输入行重试。
-  import { sshBrowse } from '../lib/backend'
+  import { sshBrowse, browseFRP, type FrpConn } from '../lib/backend'
 
   export let host: string
   export let initialPath = '/'
@@ -19,7 +19,9 @@
     loading = true
     error = ''
     try {
-      entries = await sshBrowse(host, path, password)
+      entries = frpConn
+        ? await browseFRP(frpConn.name, path, password)
+        : await sshBrowse(host, path, password)
       needPassword = false
     } catch (e) {
       error = String(e)
@@ -52,7 +54,7 @@
 <div class="overlay" role="presentation" on:click|self={onClose}>
   <div class="dialog" role="dialog" aria-label="远程目录浏览">
     <div class="head">
-      <span>{host}:{path}</span>
+      <span>{frpConn ? `frp://${frpConn.name}` : host}:{path}</span>
       <button class="mini" on:click={onClose}>&times;</button>
     </div>
     <div class="bar">
