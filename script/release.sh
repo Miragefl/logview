@@ -68,6 +68,33 @@ FVIEW_TGZ="dist/fview_${NEXT}_macos_universal.tar.gz"
 tar czf "$FVIEW_TGZ" -C fview/build/bin fview.app
 gh release upload "v$NEXT" "$FVIEW_TGZ"
 
+# fview homebrew cask(手工推 tap,与 fview 产物同链路;goreleaser brews 已 deprecated 且只覆盖 logview formula。
+# GUI .app 走 Cask;nightly 不推,版本化 Cask 只跟正式版)
+echo "==> pushing fview cask to homebrew-logview tap"
+FVIEW_SHA256=$(shasum -a 256 "$FVIEW_TGZ" | cut -d' ' -f1)
+CASK_BODY=$(cat <<RUBY
+cask "fview" do
+  version "${NEXT}"
+  sha256 "${FVIEW_SHA256}"
+  url "https://github.com/Miragefl/logview/releases/download/v${NEXT}/fview_${NEXT}_macos_universal.tar.gz"
+  name "fview"
+  desc "LogView desktop - terminal-style log viewer with tabs and GUI"
+  homepage "https://github.com/Miragefl/logview"
+  app "fview.app"
+end
+RUBY
+)
+CASK_ARGS=(
+  -X PUT "repos/Miragefl/homebrew-logview/contents/Casks/fview.rb"
+  -f message="fview v${NEXT}"
+  -f content="$(printf '%s' "$CASK_BODY" | base64)"
+)
+# contents API 更新已存在文件必须带 sha;404 = 首次新建无需
+if CASK_SHA=$(gh api "repos/Miragefl/homebrew-logview/contents/Casks/fview.rb" --jq .sha 2>/dev/null); then
+    CASK_ARGS+=(-f sha="$CASK_SHA")
+fi
+gh api "${CASK_ARGS[@]}"
+
 # gitee mirror assets verify & repair (mirror release sync is unreliable,
 # v0.18.2 stalled at 2/7 assets; failure warns but does not block the release)
 echo "==> verifying gitee mirror assets"
@@ -80,9 +107,9 @@ echo "==> upgrading local brew"
 if [[ -n "${RELEASE_PROXY:-}" ]] || nc -z -w1 127.0.0.1 7890 2>/dev/null; then
     PROXY="${RELEASE_PROXY:-http://127.0.0.1:7890}"
     echo "    using proxy $PROXY (set RELEASE_PROXY to override)"
-    HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew update && HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew upgrade logview
+    HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew update && HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew upgrade logview && HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" brew upgrade --cask fview 2>/dev/null || true
 else
-    brew update && brew upgrade logview
+    brew update && brew upgrade logview && brew upgrade --cask fview 2>/dev/null || true
 fi
 
 # update nightly
