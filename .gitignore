@@ -1,19 +1,21 @@
-# Binaries
-/logview
-*.exe
 
-# IDE
-.idea/
-.vscode/
-*.swp
 
-# OS
+
+
 .DS_Store
-
-# Test
-*.test
-dist/
-
-# Agent workspaces
-.worktrees/
+.idea/
+.openidea/
 .superpowers/
+.vscode/
+.worktrees/
+*.exe
+*.swp
+*.test
+/logview
+# Agent workspaces
+# Binaries
+# IDE
+# OS
+# Test
+dist/
+node_modules/.vite/
