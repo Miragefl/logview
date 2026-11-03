@@ -30,10 +30,6 @@ export function DeleteFrpConn(arg1) {
   return window['go']['main']['App']['DeleteFrpConn'](arg1);
 }
 
-export function DeleteFrpServer(arg1) {
-  return window['go']['main']['App']['DeleteFrpServer'](arg1);
-}
-
 export function Fields() {
   return window['go']['main']['App']['Fields']();
 }
@@ -46,16 +42,16 @@ export function FrpConns() {
   return window['go']['main']['App']['FrpConns']();
 }
 
-export function FrpServers() {
-  return window['go']['main']['App']['FrpServers']();
-}
-
 export function GetLine(arg1, arg2) {
   return window['go']['main']['App']['GetLine'](arg1, arg2);
 }
 
 export function GetMemStats() {
   return window['go']['main']['App']['GetMemStats']();
+}
+
+export function GetSavedPass(arg1) {
+  return window['go']['main']['App']['GetSavedPass'](arg1);
 }
 
 export function Hides() {
@@ -138,6 +134,10 @@ export function SaveHides(arg1) {
   return window['go']['main']['App']['SaveHides'](arg1);
 }
 
+export function SavePass(arg1, arg2) {
+  return window['go']['main']['App']['SavePass'](arg1, arg2);
+}
+
 export function SavePatterns(arg1) {
   return window['go']['main']['App']['SavePatterns'](arg1);
 }
@@ -172,10 +172,6 @@ export function ThemeNames() {
 
 export function UpsertFrpConn(arg1) {
   return window['go']['main']['App']['UpsertFrpConn'](arg1);
-}
-
-export function UpsertFrpServer(arg1) {
-  return window['go']['main']['App']['UpsertFrpServer'](arg1);
 }
 
 export function UsageKeywords(arg1, arg2) {

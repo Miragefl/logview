@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 本地文件面板：最近文件（usage.json 热点排序，与 TUI 共享）+ 系统选择框打开。
 import { onMounted, ref } from 'vue'
-import { openFileTab, openFileViaDialog, usageRecent, usageTouch } from '../../lib/backend'
+import { openFileViaDialog, usageRecent } from '../../lib/backend'
+import { openRecent } from '../../lib/recent'
 
 const recent = ref<string[]>([])
 
@@ -22,8 +23,7 @@ async function open(k: string) {
   const p = filePath(k)
   if (!p) return
   try {
-    await openFileTab(p, 0, true)
-    await usageTouch(k)
+    await openRecent(k) // 分派正本（lib/recent.ts，Welcome 同源）
     recent.value = ((await usageRecent()) ?? []) // 刷新排序
   } catch {
     /* 打开失败静默（文件可能已移动） */
@@ -47,7 +47,8 @@ async function pick() {
     </div>
     <ul class="list">
       <li v-for="k in recent.filter((x) => filePath(x))" :key="k" class="recent-item" @click="open(k)">
-        📄 {{ filePath(k) }}
+        <svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+        {{ filePath(k) }}
       </li>
     </ul>
     <p v-if="!recent.filter((x) => filePath(x)).length" class="empty">暂无记录，点「打开…」选择日志文件</p>

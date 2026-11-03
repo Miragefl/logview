@@ -31,11 +31,8 @@ import {
   SaveRules,
   SSHBrowse,
   OpenSSHTab,
-  FrpServers,
   FrpConns,
-  UpsertFrpServer,
   UpsertFrpConn,
-  DeleteFrpServer,
   DeleteFrpConn,
   SSHHosts,
   AddSSHHost,
@@ -47,6 +44,8 @@ import {
   K8sNamespaces,
   K8sResources,
   OpenK8sTab,
+  GetSavedPass,
+  SavePass,
 } from '../../wailsjs/go/main/App'
 
 import type { LineDTO, TabInfo } from './types'
@@ -62,6 +61,8 @@ export interface MetaEvent {
   tabId: string
   label: string
   parserName: string
+  /** 当前解析器可产出字段集(首次选定/升级/EOF 随 meta 推送;缺省=后端未发,不裁剪) */
+  parserFields?: string[]
   repaint?: boolean
   follow?: boolean | null
 }
@@ -92,6 +93,16 @@ export function closeTab(tabId: string): Promise<void> {
   return CloseTab(tabId)
 }
 
+/** getSavedPass 取存的密码（系统钥匙串，空串=无；key 式 ssh:{host} / frp:{connName}）。 */
+export function getSavedPass(key: string): Promise<string> {
+  return GetSavedPass(key)
+}
+
+/** savePass 存密码（后端 guard 空值不入库、幂等覆盖）。 */
+export function savePass(key: string, pass: string): Promise<void> {
+  return SavePass(key, pass)
+}
+
 /** clearTab 清屏（C 键,后端清会话缓冲并广播 tab:cleared）。 */
 export function clearTab(tabId: string): Promise<void> {
   return ClearTab(tabId)
@@ -119,6 +130,12 @@ export function subscribeTabEvents(cb: TabEventCallbacks): void {
   EventsOn('tab:closed', cb.onClosed)
   EventsOn('tab:folds', cb.onFolds)
   EventsOn('tab:cleared', cb.onCleared)
+}
+
+/** onShortcutCloseTab 订阅 mac 菜单 ⌘W 快捷键事件（后端 menu.go 路由、app.go 发射）。
+ *  事件名 shortcut:closeTab 与 Go 侧逐字一致，漂移即静默失效（backend-shortcut.test 钉死）。 */
+export function onShortcutCloseTab(cb: () => void): void {
+  EventsOn('shortcut:closeTab', cb)
 }
 
 /** foldRanges 折叠组懒拉（tab 打开/切换时补一次全量）。 */
@@ -232,40 +249,51 @@ export function openSSHTab(host: string, path: string, tailLines: number, passwo
 
 // ---- 连接库（共享正本 frp.json + rules.yaml ssh_hosts）----
 
-export interface FrpServer {
-  name: string
-  addr: string
-  token: string
-}
-
+/** FrpConn v2：单层平铺 frp 官方字段（type stcp/tcp）；name 是记录名不进 frpc，alias 是纯展示别名。 */
 export interface FrpConn {
   name: string
-  server: string
-  sk: string
-  proxy: string
+  alias: string
+  type: string
+  serverAddr: string
+  serverPort: number
+  token: string
+  serverName: string
+  secretKey: string
+  remotePort: number
   user: string
   path: string
 }
 
-export async function getFrpServers(): Promise<FrpServer[]> {
-  return (await FrpServers()) ?? []
-}
 export async function getFrpConns(): Promise<FrpConn[]> {
   return (await FrpConns()) ?? []
 }
-export function upsertFrpServer(s: FrpServer): Promise<void> {
-  return UpsertFrpServer(frp.Server.createFrom({ Name: s.name, Addr: s.addr, Token: s.token }))
-}
 export function upsertFrpConn(c: FrpConn): Promise<void> {
-  return UpsertFrpConn(frp.Conn.createFrom({ Name: c.name, Server: c.server, SK: c.sk, Proxy: c.proxy, User: c.user, Path: c.path }))
-}
-export function deleteFrpServer(name: string): Promise<void> {
-  return DeleteFrpServer(name)
+  // createFrom 构造器只认小写驼峰 key（Pascal key 会全灭成 undefined——2026-11-02 空记录事故）
+  return UpsertFrpConn(
+    frp.Conn.createFrom({
+      name: c.name,
+      alias: c.alias,
+      type: c.type,
+      serverAddr: c.serverAddr,
+      serverPort: c.serverPort,
+      token: c.token,
+      serverName: c.serverName,
+      secretKey: c.secretKey,
+      remotePort: c.remotePort,
+      user: c.user,
+      path: c.path,
+    })
+  )
 }
 export function deleteFrpConn(name: string): Promise<void> {
   return DeleteFrpConn(name)
 }
-export async function getSSHHosts(): Promise<string[]> {
+/** SSHHost SSH 主机条目（fromSshConfig=true 来自 ~/.ssh/config 自动发现，不可手动移除）。 */
+export interface SSHHost {
+  name: string
+  fromSshConfig: boolean
+}
+export async function getSSHHosts(): Promise<SSHHost[]> {
   return (await SSHHosts()) ?? []
 }
 export function addSSHHost(host: string): Promise<void> {
@@ -308,7 +336,7 @@ export function openFileTab(path: string, tailLines: number, follow: boolean): P
   return OpenFileTab([path], tailLines, follow)
 }
 
-/** usageRecent 源热点 key 列表（file:/ssh: 前缀，衰减分降序），本地面板数据源。 */
+/** usageRecent 源热点 key 列表（四类键：file:/ssh:/frp:/k8sres: 前缀，衰减分降序）。 */
 export function usageRecent(): Promise<string[]> {
   return UsageRecent()
 }

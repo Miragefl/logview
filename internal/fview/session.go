@@ -56,9 +56,19 @@ type metaEvent struct {
 	TabID      string `json:"tabId"`
 	Label      string `json:"label"`
 	ParserName string `json:"parserName"`
-	Repaint    bool   `json:"repaint"`
+	// ParserFields 当前解析器可产出字段集(FieldProducer 断言取;nil=解析器未声明,前端不裁剪)
+	ParserFields []string `json:"parserFields,omitempty"`
+	Repaint      bool     `json:"repaint"`
 	// Follow 非空时表示跟随态变更（SetFollow 广播；其余场景为 nil 不序列化）
 	Follow *bool `json:"follow,omitempty"`
+}
+
+// parserFieldsOf 取解析器可产出字段集(可选能力;未实现或 nil 解析器返回 nil)。
+func parserFieldsOf(p parser.Parser) []string {
+	if fp, ok := p.(parser.FieldProducer); ok {
+		return fp.Fields()
+	}
+	return nil
 }
 
 type openedEvent struct {
@@ -97,6 +107,7 @@ type tab struct {
 
 	mu         sync.Mutex
 	parserName string
+	curParser  parser.Parser // 当前选定解析器(仅 ingestLoop 协程读写;meta 推送 parserFields 用)
 	pend       []LineDTO   // 待 flush 行
 	flushTimer *time.Timer // 尾批兜底（流安静时 50ms 后必 flush）
 	lastFlush  time.Time
@@ -327,7 +338,7 @@ func (t *tab) ingestLoop(ctx context.Context, ch <-chan []model.RawLine, m *Mana
 			if !ok {
 				// 源读毕（file EOF / 管道结束）：flush 尾批并广播最终 meta
 				t.flush(m)
-				m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: t.parserName})
+				m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: t.parserName, ParserFields: parserFieldsOf(t.curParser)})
 				return
 			}
 			t.processBatch(batch, m)
@@ -360,13 +371,19 @@ func (t *tab) processBatch(batch []model.RawLine, m *Manager) {
 	t.maybeFlush(m)
 }
 
-// onParserSwitch 解析器切换处理：仅"已有解析器之后再切换"（plain→结构化等）触发
-// 回灌重解析与 repaint 全量重发；首次选定（""→x）无视觉变化，不重发。
+// onParserSwitch 解析器切换处理："已有解析器之后再切换"（plain→结构化等）触发
+// 回灌重解析与 repaint 全量重发；首次选定（""→x）无视觉变化不 repaint,
+// 但发 meta 带解析器字段集——tail 模式永不 EOF,不发则前端列裁剪永不生效。
 func (t *tab) onParserSwitch(p parser.Parser, m *Manager) {
 	name := p.Name()
 	prev := t.parserName
 	t.parserName = name
-	if prev == "" || prev == name {
+	t.curParser = p
+	if prev == name {
+		return
+	}
+	if prev == "" {
+		m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: name, ParserFields: parserFieldsOf(p)})
 		return
 	}
 	t.mu.Lock()
@@ -397,7 +414,7 @@ func (t *tab) onParserSwitch(p parser.Parser, m *Manager) {
 	}
 	t.mu.Unlock()
 
-	m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: name, Repaint: true})
+	m.emit("tab:meta", metaEvent{TabID: t.id, Label: t.label, ParserName: name, ParserFields: parserFieldsOf(p), Repaint: true})
 	for _, dtos := range batches {
 		m.emit("tab:lines", linesEvent{TabID: t.id, Lines: dtos, FirstSeq: dtos[0].Seq})
 	}

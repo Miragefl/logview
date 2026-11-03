@@ -17,6 +17,11 @@ func NewJSONParser(name string) *JSONParser {
 
 func (p *JSONParser) Name() string { return p.name }
 
+// Fields 可产出字段集固定六个(与 jsonFields 的 json key 一致,值可能空但字段可产出)。
+func (p *JSONParser) Fields() []string {
+	return []string{"time", "level", "thread", "traceId", "logger", "message"}
+}
+
 type jsonFields struct {
 	Time    string `json:"time"`
 	Level   string `json:"level"`

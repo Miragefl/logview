@@ -12,8 +12,10 @@ import (
 )
 
 func TestStartTunnelReal(t *testing.T) {
-	sv := Server{Addr: os.Getenv("FRPS_ADDR"), Token: os.Getenv("FRPS_TOKEN")}
-	tun, err := StartTunnel(sv, os.Getenv("FRP_SK"), os.Getenv("FRP_PROXY"))
+	host, port := SplitServerAddr(os.Getenv("FRPS_ADDR"))
+	c := Conn{Type: TypeSTCP, ServerAddr: host, ServerPort: port,
+		Token: os.Getenv("FRPS_TOKEN"), ServerName: os.Getenv("FRP_PROXY"), SecretKey: os.Getenv("FRP_SK")}
+	tun, err := StartTunnel(c)
 	if err != nil {
 		t.Fatal(err)
 	}

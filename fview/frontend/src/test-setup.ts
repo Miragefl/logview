@@ -30,3 +30,8 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver =
     ResizeObserverStub
 }
+
+// jsdom 无 scrollIntoView：键盘导航跟随滚动(SearchPopup/BrowseDialog/书签列表)给空 stub
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function scrollIntoViewStub() {}
+}

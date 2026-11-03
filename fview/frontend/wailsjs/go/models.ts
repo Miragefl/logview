@@ -2,9 +2,14 @@ export namespace frp {
 	
 	export class Conn {
 	    name: string;
-	    server: string;
-	    sk: string;
-	    proxy: string;
+	    alias: string;
+	    type: string;
+	    serverAddr: string;
+	    serverPort: number;
+	    token: string;
+	    serverName: string;
+	    secretKey: string;
+	    remotePort: number;
 	    user: string;
 	    path: string;
 	
@@ -15,27 +20,16 @@ export namespace frp {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
-	        this.server = source["server"];
-	        this.sk = source["sk"];
-	        this.proxy = source["proxy"];
+	        this.alias = source["alias"];
+	        this.type = source["type"];
+	        this.serverAddr = source["serverAddr"];
+	        this.serverPort = source["serverPort"];
+	        this.token = source["token"];
+	        this.serverName = source["serverName"];
+	        this.secretKey = source["secretKey"];
+	        this.remotePort = source["remotePort"];
 	        this.user = source["user"];
 	        this.path = source["path"];
-	    }
-	}
-	export class Server {
-	    name: string;
-	    addr: string;
-	    token: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Server(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.addr = source["addr"];
-	        this.token = source["token"];
 	    }
 	}
 
@@ -154,6 +148,20 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.isDir = source["isDir"];
+	    }
+	}
+	export class SSHHostDTO {
+	    name: string;
+	    fromSshConfig: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHHostDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.fromSshConfig = source["fromSshConfig"];
 	    }
 	}
 

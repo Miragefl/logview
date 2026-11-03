@@ -39,6 +39,14 @@ describe('fitField', () => {
     expect(fitField('level', 'WARNING', 5)).toBe('WARNING')
   })
 
+  it('无宽配置字段(width=0)原文直出不炸——source 列曾因 repeat 负数 RangeError 炸整行渲染(第三轮验收⑥)', () => {
+    expect(fitField('source', 'local:test-app.log', 0)).toBe('local:test-app.log')
+    expect(fitField('source', '', 0)).toBe('')
+    // DEFAULT_WIDTHS 补了 source 默认宽,headerCells/layoutLine 正常出列
+    expect(DEFAULT_WIDTHS.source).toBeGreaterThan(0)
+    expect(headerCells(['source'], {})[0].field).toBe('source')
+  })
+
   it('空值 = width 个空格占位(列对齐不塌)', () => {
     expect(fitField('thread', '', 10)).toBe('          ')
   })

@@ -231,30 +231,34 @@ type frpTunnelHandle interface {
 	Cleanup() error
 }
 
-// startFRPTunnel 可注入的隧道启动（测试替换；生产走 AcquireTunnel 复用同参数存活隧道）。后续任务使用。
-var startFRPTunnel = func(server frp.Server, sk, proxy string) (frpTunnelHandle, error) {
-	return frp.AcquireTunnel(server, sk, proxy)
+// startFRPTunnel 可注入的隧道启动（测试替换；生产走 AcquireTunnel 复用同参数存活隧道）。
+var startFRPTunnel = func(c frp.Conn) (frpTunnelHandle, error) {
+	return frp.AcquireTunnel(c)
 }
 
 type frpTunnelMsg struct {
 	conn   frp.Conn
-	tunnel frpTunnelHandle
+	tunnel frpTunnelHandle // tcp 直连为 nil
 	err    error
 }
 
 // fetchFRPTunnelCmd 异步建隧道（阻塞最长 10s，必须异步）。
-// 已存记录与表单新建统一进目录浏览（起始目录取 conn.Path 父目录）。
-func fetchFRPTunnelCmd(server frp.Server, conn frp.Conn) tea.Cmd {
+// 已存记录与表单新建统一进目录浏览（起始目录取 conn.Path 父目录）；
+// tcp 零配置直连——不建隧道直接进浏览。
+func fetchFRPTunnelCmd(conn frp.Conn) tea.Cmd {
 	return func() tea.Msg {
-		t, err := startFRPTunnel(server, conn.SK, conn.Proxy)
+		if conn.Type == frp.TypeTCP {
+			return frpTunnelMsg{conn: conn}
+		}
+		t, err := startFRPTunnel(conn)
 		return frpTunnelMsg{conn: conn, tunnel: t, err: err}
 	}
 }
 
-// fetchFRPDirCmd 异步拉取 frp 隧道远端目录。
-func fetchFRPDirCmd(user string, port int, path, password string) tea.Cmd {
+// fetchFRPDirCmd 异步拉取 frp 远端目录（stcp 经隧道 127.0.0.1:port；tcp 直连 serverAddr:remotePort）。
+func fetchFRPDirCmd(user, host string, port int, path, password string) tea.Cmd {
 	return func() tea.Msg {
-		entries, err := stream.SSHListDirWithPort(user+"@127.0.0.1", port, path, password)
+		entries, err := stream.SSHListDirWithPort(stream.FRPDefaultUser(user)+"@"+host, port, path, password)
 		if err != nil {
 			return candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:" + path, err: err}
 		}
@@ -271,7 +275,7 @@ func fetchFRPDirCmd(user string, port int, path, password string) tea.Cmd {
 }
 
 // frpConnCandidates FRP L0 候选：+ 新建连接 恒在首位，其后已存记录（频次降序）。
-// label 只展示 proxy + 上次访问目录（Name 与 proxy 默认相同，重复显示是噪音）。
+// label：展示别名（空回落 name）+ 类型/关键参数 + 上次访问目录（frp 官方字段，所见即 frpc 参数）。
 func frpConnCandidates(filter string) []sourceCandidate {
 	var conns []sourceCandidate
 	for _, c := range frpStore().Conns {
@@ -279,8 +283,18 @@ func frpConnCandidates(filter string) []sourceCandidate {
 		if path == "" {
 			path = "（未选过日志）"
 		}
+		var key string
+		if c.Type == frp.TypeTCP {
+			key = "tcp " + c.ServerAddr + ":" + fmt.Sprintf("%d", c.RemotePort)
+		} else {
+			key = "stcp " + c.ServerName + "@" + c.ServerAddr
+		}
+		disp := c.Alias
+		if disp == "" {
+			disp = c.Name
+		}
 		conns = append(conns, sourceCandidate{
-			label: c.Proxy + "  " + path,
+			label: disp + "  [" + key + "]  " + path,
 			value: c.Name,
 		})
 	}
@@ -295,19 +309,10 @@ func frpConnCandidates(filter string) []sourceCandidate {
 	return out
 }
 
-// frpServerCandidates 表单 step0 候选：手动输入 恒在首位，其后已存服务器。
-// 手动建的服务器 Name 默认 = 地址，两者相同只显示一个（防同行重复）。
-func frpServerCandidates(filter string) []sourceCandidate {
-	out := []sourceCandidate{{label: "手动输入新服务器…", value: "+manual"}}
-	f := strings.ToLower(strings.TrimSpace(filter))
-	for _, s := range frpStore().Servers {
-		label := s.Name
-		if s.Name != s.Addr {
-			label = s.Name + "  " + s.Addr
-		}
-		if f == "" || strings.Contains(strings.ToLower(label), f) {
-			out = append(out, sourceCandidate{label: label, value: s.Name})
-		}
+// frpTypeCandidates 表单 step0 候选：连接类型（stcp 加密点对点 / tcp 服务器端口直连）。
+func frpTypeCandidates() []sourceCandidate {
+	return []sourceCandidate{
+		{label: "stcp  加密点对点（需 serverName + secretKey，拉 visitor）", value: frp.TypeSTCP},
+		{label: "tcp   frps 端口直连（需 remotePort，零配置不拉 frpc）", value: frp.TypeTCP},
 	}
-	return out
 }

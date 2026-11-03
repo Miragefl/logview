@@ -1,4 +1,4 @@
-// 统一搜索弹窗 store 测试(验收反馈③):弹窗态 + 会话级搜索历史
+// 搜索态 store 测试:常驻条聚焦/词管理框 + 会话级搜索历史
 // (cap 20、去重提升到最上、最新在上——与 TUI addSearchHistory 语义一致)。
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -9,14 +9,24 @@ describe('useSearchStore', () => {
     setActivePinia(createPinia())
   })
 
-  it('弹窗态:open 切分区/close 收起/tab 轮换', () => {
+  it('常驻条聚焦态:focusBar/blurBar 翻转(第六轮 SLS 式改造)', () => {
     const s = useSearchStore()
-    expect(s.show).toBe(false)
-    s.open(1)
-    expect(s.show).toBe(true)
-    expect(s.tab).toBe(1)
-    s.close()
-    expect(s.show).toBe(false)
+    expect(s.barFocused).toBe(false)
+    s.focusBar()
+    expect(s.barFocused).toBe(true)
+    s.blurBar()
+    expect(s.barFocused).toBe(false)
+  })
+
+  it('词管理框态:openWords/closeWords 模式驱动', () => {
+    const s = useSearchStore()
+    expect(s.wordsShow).toBe('')
+    s.openWords('hl')
+    expect(s.wordsShow).toBe('hl')
+    s.openWords('hide')
+    expect(s.wordsShow).toBe('hide')
+    s.closeWords()
+    expect(s.wordsShow).toBe('')
   })
 
   it('addSearchHistory:最新在最上,重复词提到最上', () => {

@@ -6,3 +6,26 @@ body,
   margin: 0;
   overflow: hidden;
 }
+
+/* 图标基类三档（全项目唯一正本，2026-11-03 统一）：inline SVG、24 viewBox、
+   描边 1.7 跟随文字色（验收⑦体系推广）；.ico=16px 行内默认、.ico-lg=22px 导航级、
+   .ico-sm=12px 词 chip 内。布局附加（vertical-align/margin 等）由各组件 scoped 追加。 */
+.ico {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* 行内与文字混排的基线下沉(SearchBar/Toolbar 原scoped追加收编为全局) */
+  vertical-align: -3px;
+}
+.ico-lg {
+  width: 22px;
+  height: 22px;
+}
+.ico-sm {
+  width: 12px;
+  height: 12px;
+}

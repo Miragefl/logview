@@ -31,4 +31,20 @@ describe('useUiStore', () => {
     expect(s2.fontSize).toBe(15)
     expect(s2.lineHeight).toBe(1.8)
   })
+
+  it('弹窗栈:open/close 维护 modalOpen 与 topDialog,重复 open 不叠(第三轮验收②)', () => {
+    const s = useUiStore()
+    expect(s.modalOpen).toBe(false)
+    expect(s.topDialog).toBe('')
+    s.dialogOpen('search')
+    s.dialogOpen('settings')
+    s.dialogOpen('search') // 重复登记幂等
+    expect(s.dialogs).toHaveLength(2)
+    expect(s.modalOpen).toBe(true)
+    expect(s.topDialog).toBe('settings')
+    s.dialogClose('settings')
+    expect(s.topDialog).toBe('search')
+    s.dialogClose('search')
+    expect(s.modalOpen).toBe(false)
+  })
 })

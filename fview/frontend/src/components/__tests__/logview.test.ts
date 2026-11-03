@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import naive from 'naive-ui'
+import { NDropdown } from 'naive-ui'
+import { useFieldsStore } from '../../stores/fields'
 
 vi.mock('../../lib/backend', () => ({
   matchLines: vi.fn().mockResolvedValue([0, 2]), // buffer 索引域
@@ -34,9 +36,6 @@ vi.mock('../../lib/backend', () => ({
 
 import * as backend from '../../lib/backend'
 import Toolbar from '../logview/Toolbar.vue'
-import SearchPopup from '../logview/SearchPopup.vue'
-import { useTabsStore } from '../../stores/tabs'
-import { useSearchStore } from '../../stores/searchStore'
 
 function mountC(c: Parameters<typeof mount>[0], props?: Record<string, unknown>) {
   return mount(c as never, { props: props as never, global: { plugins: [naive] } })
@@ -49,39 +48,21 @@ describe('Critical 修复回归', () => {
     ;(backend.matchLines as ReturnType<typeof vi.fn>).mockResolvedValue([0, 2])
   })
 
-  it('C1: 搜索命中索引域(buffer idx)转为镜像 seq 域下发', async () => {
-    const tabs = useTabsStore()
-    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
-    // 镜像 seq 从 100 起（模拟裁头后稳态：seq≠索引）
-    tabs.applyLines({ tabId: 't1', lines: makeLines(100, 3) })
+  // C1(搜索命中索引域→seq 域换算)已随 SearchPopup 退役迁至 searchbar.test.ts
+  // (第六轮 SLS 式常驻条改造),同断言覆盖。
 
-    // 搜索逻辑已迁统一弹窗 SearchPopup(验收反馈③);NModal teleport 到 body,
-    // 直接从 body 取原生 input 驱动事件
-    const search = useSearchStore()
-    search.open(0)
-    const w = mount(SearchPopup, { global: { plugins: [naive] } })
-    await new Promise((r) => setTimeout(r, 0))
-
-    const input = document.body.querySelector('input')
-    expect(input).toBeTruthy()
-    input!.value = 'err'
-    input!.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 0))
-    input!.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }))
-    await new Promise((r) => setTimeout(r, 0))
-
-    const emitted = w.emitted('search')
-    expect(emitted).toBeTruthy()
-    // 索引 [0,2] → seq [100,102]（不得把索引当 seq 下发）
-    expect(emitted![0][0]).toEqual({ hitSeqs: [100, 102], words: ['err'] })
-  })
-
-  it('C2: 字段显隐只写 fields 配置，不得污染 rules.yaml hides 键', async () => {
-    const w = mountC(Toolbar, { levelMode: 'A', fields: ['time', 'level', 'message'] })
-    await new Promise((r) => setTimeout(r, 0)) // getFields 加载
-    const vm = w.vm as unknown as { toggleField: (name: string) => Promise<void> }
-    await vm.toggleField('time')
-    expect(backend.saveFields).toHaveBeenCalled()
+  it('C2: 字段勾选只走覆盖层 emit,不写 rules.yaml(含 hides 红线)', async () => {
+    // 2026-11-03 字段显示重构:F 勾选改写单日志覆盖(localStorage),rules.yaml 默认层只在设置中心
+    const fieldsStore = useFieldsStore()
+    fieldsStore.all = [
+      { name: 'time', visible: true, width: 12 },
+      { name: 'level', visible: true, width: 5 },
+      { name: 'message', visible: true, width: 0 },
+    ]
+    const w = mountC(Toolbar, { configured: ['time', 'level', 'message'] })
+    w.findComponent(NDropdown).vm.$emit('select', 'time')
+    expect(w.emitted('override-fields')![0]).toEqual([['level', 'message']])
+    expect(backend.saveFields).not.toHaveBeenCalled() // 覆盖层不碰 rules.yaml
     expect(backend.saveHides).not.toHaveBeenCalled() // 红线：字段名不得写 hides
   })
 })

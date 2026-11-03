@@ -22,7 +22,7 @@ func TestPickFreePort(t *testing.T) {
 }
 
 func TestVisitorTOML(t *testing.T) {
-	got := visitorTOML(Server{Addr: "frps.example.com:7000", Token: "tk"}, "sk1", "ssh-a", 6022)
+	got := visitorTOML(Conn{ServerAddr: "frps.example.com", ServerPort: 7000, Token: "tk", ServerName: "ssh-a", SecretKey: "sk1"}, 6022)
 	for _, want := range []string{
 		`serverAddr = "frps.example.com"`,
 		"serverPort = 7000",
@@ -40,7 +40,7 @@ func TestVisitorTOML(t *testing.T) {
 }
 
 func TestVisitorTOMLDefaultPort(t *testing.T) {
-	got := visitorTOML(Server{Addr: "frps.example.com"}, "", "p", 1)
+	got := visitorTOML(Conn{ServerAddr: "frps.example.com", ServerName: "p"}, 1)
 	if !strings.Contains(got, "serverPort = 7000") {
 		t.Errorf("无端口地址应默认 7000:\n%s", got)
 	}
@@ -173,20 +173,20 @@ func TestAcquireTunnelReuseAndRefcount(t *testing.T) {
 
 	calls := 0
 	orig := startTunnelFn
-	startTunnelFn = func(Server, string, string) (*Tunnel, error) {
+	startTunnelFn = func(Conn) (*Tunnel, error) {
 		calls++
 		return &Tunnel{port: port, tail: newLogTail()}, nil
 	}
 	t.Cleanup(func() { startTunnelFn = orig })
 
-	s := Server{Addr: "frps.example.com:7000", Token: "tk"}
+	s := Conn{ServerAddr: "frps.example.com", ServerPort: 7000, Token: "tk", ServerName: "p", SecretKey: "sk"}
 
 	// 同参数两次 Acquire → 同一对象，只建一次
-	t1, err := AcquireTunnel(s, "sk", "p")
+	t1, err := AcquireTunnel(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t2, err := AcquireTunnel(s, "sk", "p")
+	t2, err := AcquireTunnel(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestAcquireTunnelReuseAndRefcount(t *testing.T) {
 
 	// 释放一次（refs 2→1）：frpc 不杀、注册表保留，仍可复用
 	t1.Cleanup()
-	t3, err := AcquireTunnel(s, "sk", "p")
+	t3, err := AcquireTunnel(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestAcquireTunnelReuseAndRefcount(t *testing.T) {
 	// 释放到 0：注册表清除，下次新建
 	t2.Cleanup()
 	t3.Cleanup()
-	t4, err := AcquireTunnel(s, "sk", "p")
+	t4, err := AcquireTunnel(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,20 +215,20 @@ func TestAcquireTunnelReuseAndRefcount(t *testing.T) {
 		t.Fatalf("引用归零后应重新建隧道: calls=%d", calls)
 	}
 
-	// 不同参数（sk 不同）→ 不同隧道
-	t5, err := AcquireTunnel(s, "sk2", "p")
+	// 不同参数（secretKey 不同）→ 不同隧道
+	t5, err := AcquireTunnel(Conn{ServerAddr: s.ServerAddr, ServerPort: s.ServerPort, Token: s.Token, ServerName: "p", SecretKey: "sk2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if t5 == t4 {
-		t.Fatal("不同 sk 不应复用")
+		t.Fatal("不同 secretKey 不应复用")
 	}
 
 	// 死隧道驱逐：端口关闭后复用失败 → 新建
 	t4.Cleanup()
 	t5.Cleanup()
 	l.Close() // 模拟 frpc 死亡（bind 端口关闭）
-	t6, err := AcquireTunnel(s, "sk", "p")
+	t6, err := AcquireTunnel(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestAcquireTunnelReuseAndRefcount(t *testing.T) {
 		t.Fatalf("KillAll 后注册表应空且 closed，n=%d closed=%v", n, closed)
 	}
 	// closed 后不再接受新隧道
-	if _, err := AcquireTunnel(s, "sk", "p"); err == nil {
+	if _, err := AcquireTunnel(s); err == nil {
 		t.Fatal("closed 后 Acquire 应报错")
 	}
 }

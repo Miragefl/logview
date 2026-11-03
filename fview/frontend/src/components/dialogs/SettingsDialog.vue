@@ -1,13 +1,16 @@
 <script setup lang="ts">
 // 设置中心：左导航三分类（外观/解析规则/关于），字段显隐在工具栏不进此（避免双入口）。
-import { ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
+import { useUiStore } from '../../stores/ui'
 import SettingsAppearance from './SettingsAppearance.vue'
 import SettingsRules from './SettingsRules.vue'
 import SettingsAbout from './SettingsAbout.vue'
 
-defineProps<{ show: boolean }>()
+const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>()
+
+const ui = useUiStore()
 
 type Page = 'appearance' | 'rules' | 'about'
 const page = ref<Page>('appearance')
@@ -17,6 +20,31 @@ const navItems: { key: Page; label: string; icon: string }[] = [
   { key: 'rules', label: '解析规则', icon: 'rules' },
   { key: 'about', label: '关于', icon: 'about' },
 ]
+
+// 弹窗登记(键盘层让位)+ ESC 兜底关闭(第三轮验收②:naive 的 esc
+// 依赖焦点管理,焦点在 body 时关不掉,自己监听才可靠)
+function onDocKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && ui.topDialog === 'settings') {
+    emit('update:show', false)
+  }
+}
+watch(
+  () => props.show,
+  (v) => {
+    if (v) {
+      ui.dialogOpen('settings')
+      document.addEventListener('keydown', onDocKey)
+    } else {
+      ui.dialogClose('settings')
+      document.removeEventListener('keydown', onDocKey)
+    }
+  },
+  { immediate: true }
+)
+onBeforeUnmount(() => {
+  ui.dialogClose('settings')
+  document.removeEventListener('keydown', onDocKey)
+})
 </script>
 
 <template>
@@ -37,19 +65,19 @@ const navItems: { key: Page; label: string; icon: string }[] = [
           @click="page = i.key"
         >
           <!-- 外观:调色板 -->
-          <svg v-if="i.icon === 'palette'" viewBox="0 0 24 24" class="ico">
+          <svg v-if="i.icon === 'palette'" viewBox="0 0 24 24" class="ico ico-lg">
             <path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-.9 2-2 0-1.4-1-1.6-1-2.6 0-.9.7-1.4 1.8-1.4H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z" />
             <circle cx="7.5" cy="11" r="0.6" />
             <circle cx="11" cy="7.5" r="0.6" />
             <circle cx="15.5" cy="8.5" r="0.6" />
           </svg>
           <!-- 解析规则:列表+尖括号 -->
-          <svg v-else-if="i.icon === 'rules'" viewBox="0 0 24 24" class="ico">
+          <svg v-else-if="i.icon === 'rules'" viewBox="0 0 24 24" class="ico ico-lg">
             <path d="M4 6h16M4 12h10M4 18h7" />
             <path d="M17 14l-2.5 2.5L17 19M21 14l-2.5 2.5L21 19" />
           </svg>
           <!-- 关于:info -->
-          <svg v-else viewBox="0 0 24 24" class="ico">
+          <svg v-else viewBox="0 0 24 24" class="ico ico-lg">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 11v5" />
             <circle cx="12" cy="8" r="0.6" />
@@ -93,14 +121,8 @@ const navItems: { key: Page; label: string; icon: string }[] = [
   font-size: 13px;
 }
 /* 与 SidebarRail 同款描边图标 */
+/* 图标基类收编 style.css 全局正本(2026-11-03 统一),此处仅留 flex 布局附加 */
 .ico {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
   flex: none;
 }
 .nav-item:hover {

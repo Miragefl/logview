@@ -23,6 +23,7 @@ go test -tags frpintegration ./internal/frp/ -run TestStartTunnelReal -v
 
 - 无 lint 配置(无 .golangci.yml),无测试类 CI;`.github/workflows/` 仅有 Gitee 镜像同步。
 - 发布走 `script/release.sh [patch|minor|major]`(goreleaser + brew tap);日常体验版构建见 PROJECT-CONTEXT.md 的 test_build_cmd。
+- fview 桌面版本地验收包:`cd fview && wails build` 后将 `build/bin/fview.app` 拷贝到 `~/Documents/` 交付(先删旧包再 cp -R,防嵌套残留;md5 双端核对,与 TUI nightly 同目录习惯)。
 
 ## 架构
 

@@ -22,7 +22,8 @@ patterns:
 #   - parse: 可选，设为 json 则按 JSON 解析
 rules:
   - name: java-logback
-    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - ?{message}'
+    # logger 列右补齐空格不定长,{logger}\s+- 容忍多空格(第三轮验收③)
+    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger}\s+-\s+?{message}'
   # 无日期时间戳的简单日志（HH:mm:ss[.SSS] 级别 消息）：time: 搜索按当日时分窗口
   - name: simple-time-level
     pattern: '{hmsTime}\s+{simpleLevel}\s+{message}'

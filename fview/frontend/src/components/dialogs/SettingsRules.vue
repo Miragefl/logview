@@ -115,14 +115,16 @@ async function persistPatterns() {
           </span>
         </li>
       </ul>
-      <NButton size="tiny" class="rules-add" @click="openAdd">＋ 新增规则</NButton>
+      <NButton size="tiny" class="rules-add" @click="openAdd">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg> 新增规则
+      </NButton>
     </section>
 
     <section>
       <h4>字段片段 patterns（time/thread 等字段的正则）</h4>
       <div class="pat-rows">
         <div v-for="(regex, name) in patterns" :key="name" class="pat-row">
-          <span class="pat-name">{name}</span>
+          <span class="pat-name">{{ name }}</span>
           <input
             class="pat-regex mono"
             :value="regex"
@@ -131,13 +133,17 @@ async function persistPatterns() {
               patDirty = true
             "
           />
-          <a class="op danger" title="删除片段" @click="removePattern(name as string)">&times;</a>
+          <a class="op danger" title="删除片段" @click="removePattern(name as string)">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </a>
         </div>
       </div>
       <div class="pat-add-row">
         <input v-model="newPat.name" class="pat-name-input mono" placeholder="片段名" />
         <input v-model="newPat.regex" class="pat-regex mono" placeholder="正则（如 (?P<time>\\d+)）" />
-        <NButton size="tiny" @click="addPattern">＋</NButton>
+        <NButton size="tiny" @click="addPattern">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+        </NButton>
       </div>
       <div class="foot">
         <span class="hint">

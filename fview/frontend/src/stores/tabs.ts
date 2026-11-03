@@ -7,6 +7,8 @@ import type { FoldRange } from '../lib/folds'
 export interface TabState {
   info: TabInfo
   lines: LineDTO[]
+  /** 解析器可产出字段集(tab:meta 推送;null=后端未发不裁剪,['message']=纯文本) */
+  parserFields: string[] | null
   /** 折叠组(tab:folds 推送/懒拉,seq 域) */
   folds: FoldRange[]
   /** 已折叠组的 startSeq(会话级) */
@@ -73,7 +75,7 @@ export const useTabsStore = defineStore('tabs', {
     /** register 新 tab 注册（前端打开动作先登记，tab:opened 随后到达时去重）。 */
     register(info: TabInfo) {
       if (!this.tabs.some((t) => t.info.id === info.id)) {
-        this.tabs.push({ info, lines: [], folds: [], collapsed: [], bookmarks: [] })
+        this.tabs.push({ info, lines: [], parserFields: null, folds: [], collapsed: [], bookmarks: [] })
       }
       this.activeId = info.id
     },
@@ -123,11 +125,13 @@ export const useTabsStore = defineStore('tabs', {
       t.collapsed = []
       t.bookmarks = []
     },
-    /** applyMeta 更新 tab 元信息（label/跟随态；EOF 终态也走这里）。 */
-    applyMeta(ev: { tabId: string; label: string; parserName: string; follow?: boolean | null }) {
+    /** applyMeta 更新 tab 元信息（label/跟随态/解析器字段集；EOF 终态也走这里）。
+     * follow-only meta 不带 parserFields(后端 omitempty),undefined 跳过不清已有值。 */
+    applyMeta(ev: { tabId: string; label: string; parserName: string; parserFields?: string[]; follow?: boolean | null }) {
       const t = this.tabs.find((x) => x.info.id === ev.tabId)
       if (!t) return
       t.info.label = ev.label
+      if (ev.parserFields !== undefined) t.parserFields = ev.parserFields
       if (ev.follow != null) t.info.follow = ev.follow
     },
     /** toggleFollow 本地切换（Go 侧同步由调用方负责）。 */

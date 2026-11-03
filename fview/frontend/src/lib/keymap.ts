@@ -35,12 +35,23 @@ export type KeyAction =
   | 'help'
   | 'clear'
   | 'escape'
+  | 'sources'
+  | 'settings'
+  | 'activate'
+  | 'closeTab'
+  | 'tabSwitch'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'navDown'
+  | 'navUp'
   | 'pending'
   | 'none'
 
 export interface KeyEventLike {
   key: string
   ctrlKey: boolean
+  /** cmd(macOS meta)仅白名单键接管,见 META_OK_KEYS */
+  metaKey?: boolean
 }
 
 export interface KeyState {
@@ -87,6 +98,9 @@ const SIMPLE_MAP: Record<string, KeyResult> = {
   '#': { action: 'lineNumbers' },
   '?': { action: 'help' },
   C: { action: 'clear' },
+  q: { action: 'sources' },
+  ',': { action: 'settings' },
+  Enter: { action: 'activate' },
   Escape: { action: 'escape' },
 }
 
@@ -95,7 +109,19 @@ const CTRL_MAP: Record<string, KeyResult> = {
   u: { action: 'halfUp' },
   f: { action: 'pageDown' },
   b: { action: 'pageUp' },
+  w: { action: 'closeTab' },
+  j: { action: 'navDown' },
+  k: { action: 'navUp' },
+  '=': { action: 'zoomIn' },
+  '+': { action: 'zoomIn' },
+  '-': { action: 'zoomOut' },
+  ',': { action: 'settings' },
 }
+
+/** META_OK_KEYS cmd(macOS)接管白名单:字号/设置/tab 数字(第七轮验收①③);
+ *  其余仅 ctrl——cmd+w 走 mac 原生菜单(fview/menu.go 注册 ⌘W,事件路由
+ *  shortcut:closeTab 由 App.vue 订阅关 tab),keymap 不认,防漏进 vim 单键。 */
+const META_OK_KEYS = new Set(['=', '+', '-', ',', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
 
 const Z_MAP: Record<string, KeyResult> = {
   t: { action: 'anchorTop' },
@@ -103,11 +129,17 @@ const Z_MAP: Record<string, KeyResult> = {
   b: { action: 'anchorBottom' },
 }
 
-/** resolveKey 按键 → 动作;st.pendingZ 由本函数维护(z 序列)。 */
+/** resolveKey 按键 → 动作;st.pendingZ 由本函数维护(z 序列)。
+ *  ctrl+1..9 切 tab(浏览器惯例,第四轮验收③全键盘);
+ *  cmd 系白名单键(字号/设置/tab 数字)与 ctrl 等价,其余 cmd 交给系统。 */
 export function resolveKey(e: KeyEventLike, st: KeyState): KeyResult {
-  if (e.ctrlKey) {
+  if (e.ctrlKey || e.metaKey) {
     st.pendingZ = false
-    return CTRL_MAP[e.key] ?? { action: 'none' }
+    // ctrl 走全表;cmd 仅白名单键接管,其余 none(不得漏进单键映射——
+    // cmd 按下时用户意图不是 vim 单键;cmd+w 已由原生菜单接管)
+    const ok = e.ctrlKey || META_OK_KEYS.has(e.key)
+    if (ok && /^[1-9]$/.test(e.key)) return { action: 'tabSwitch', arg: e.key }
+    return (ok ? CTRL_MAP[e.key] : undefined) ?? { action: 'none' }
   }
   if (st.pendingZ) {
     st.pendingZ = false

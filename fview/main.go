@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -24,7 +25,9 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
+		// mac 注册 App 菜单(⌘Q 退出)+文件>关闭标签页 ⌘W 原生菜单（非 darwin 为 nil，ctrl+w 走 webview）
+		Menu:      buildAppMenu(runtime.GOOS, app.shortcutCloseTab, app.menuQuit),
+		OnStartup: app.startup,
 		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,

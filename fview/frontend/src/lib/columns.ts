@@ -11,15 +11,17 @@ export const DEFAULT_WIDTHS: Record<string, number> = {
   thread: 10,
   traceId: 12,
   logger: 20,
+  source: 16,
 }
 
-/** HEADER_LABELS 表头中文标签。 */
-const HEADER_LABELS: Record<string, string> = {
+/** HEADER_LABELS 表头中文标签(SettingsAppearance 默认字段勾选组复用)。 */
+export const HEADER_LABELS: Record<string, string> = {
   time: '时间',
   level: '级别',
   thread: '线程',
   traceId: '追踪ID',
   logger: '日志器',
+  source: '源',
   message: '内容',
 }
 
@@ -104,6 +106,9 @@ export function fitField(field: string, val: string, width: number): string {
   if (field === 'level') {
     return displayWidth(val) >= width ? val : val + ' '.repeat(width - displayWidth(val))
   }
+  // 无宽配置的字段(如自定义列)不定宽:原文直出,不补不截——
+  // 否则截断加 … 后 repeat 负数会 RangeError 炸整行渲染(第三轮验收⑥)
+  if (width <= 0) return val
   if (!val) return ' '.repeat(width)
   let v = field === 'logger' ? abbreviateLogger(val) : val
   if (field === 'time' && displayWidth(v) > width) {

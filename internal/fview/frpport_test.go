@@ -8,34 +8,53 @@ import (
 	"github.com/justfun/logview/internal/frp"
 )
 
-// TestFRPLookup 连接引用缺失服务器时返回含连接名的明确错误（Task 17 Step 1）。
+// TestFRPLookup 连接不存在/必需字段缺失时返回含连接名的明确错误。
 func TestFRPLookup(t *testing.T) {
 	st := &frp.Store{}
-	_, _, err := FRPLookup(st, "edge-1")
+	_, err := FRPLookup(st, "edge-1")
 	if err == nil || !strings.Contains(err.Error(), "edge-1") {
 		t.Fatalf("连接不存在应报含连接名的错误，实际: %v", err)
 	}
-	st.UpsertConn(frp.Conn{Name: "edge-1", Server: "missing"})
-	_, _, err = FRPLookup(st, "edge-1")
-	if err == nil || !strings.Contains(err.Error(), "edge-1") {
-		t.Fatalf("引用缺失服务器应报含连接名的错误，实际: %v", err)
+	// stcp 缺 serverName/secretKey
+	st.UpsertConn(frp.Conn{Name: "edge-1", Type: frp.TypeSTCP, ServerAddr: "x:7000"})
+	_, err = FRPLookup(st, "edge-1")
+	if err == nil || !strings.Contains(err.Error(), "serverName/secretKey") {
+		t.Fatalf("stcp 缺 serverName/secretKey 应报错，实际: %v", err)
 	}
-	st.UpsertServer(frp.Server{Name: "srv", Addr: "x:7000", Token: "t"})
-	st.UpsertConn(frp.Conn{Name: "edge-1", Server: "srv", SK: "sk", Proxy: "p", User: "root"})
-	conn, srv, err := FRPLookup(st, "edge-1")
-	if err != nil || conn.Name != "edge-1" || srv.Addr != "x:7000" {
-		t.Fatalf("正常查找: conn=%v srv=%v err=%v", conn, srv, err)
+	// tcp 缺 remotePort
+	st.UpsertConn(frp.Conn{Name: "edge-2", Type: frp.TypeTCP, ServerAddr: "x:7000"})
+	_, err = FRPLookup(st, "edge-2")
+	if err == nil || !strings.Contains(err.Error(), "remotePort") {
+		t.Fatalf("tcp 缺 remotePort 应报错，实际: %v", err)
+	}
+	// 缺 serverAddr
+	st.UpsertConn(frp.Conn{Name: "edge-3", Type: frp.TypeTCP, RemotePort: 6000})
+	_, err = FRPLookup(st, "edge-3")
+	if err == nil || !strings.Contains(err.Error(), "serverAddr") {
+		t.Fatalf("缺 serverAddr 应报错，实际: %v", err)
+	}
+	// 完整 tcp/stcp 通过
+	st.UpsertConn(frp.Conn{Name: "ok-tcp", Type: frp.TypeTCP, ServerAddr: "x:7000", RemotePort: 6000})
+	if _, err := FRPLookup(st, "ok-tcp"); err != nil {
+		t.Fatalf("完整 tcp 应通过: %v", err)
+	}
+	st.UpsertConn(frp.Conn{Name: "ok-stcp", Type: frp.TypeSTCP, ServerAddr: "x:7000", ServerName: "p", SecretKey: "sk"})
+	if _, err := FRPLookup(st, "ok-stcp"); err != nil {
+		t.Fatalf("完整 stcp 应通过: %v", err)
 	}
 }
 
-// TestFRPBrowseHost FRP 浏览的 SSH 目标必须带连接用户名（Final Review C1：
-// 丢 user@ 会以本地用户名连远端 sshd，认证死循环）。
-func TestFRPBrowseHost(t *testing.T) {
-	if got := FRPBrowseHost(frp.Conn{User: "root"}); got != "root@127.0.0.1" {
-		t.Errorf("FRPBrowseHost = %q, 期望 root@127.0.0.1", got)
+// TestFRPBrowseTarget FRP 浏览的 SSH 目标必须带连接用户名（Final Review C1：
+// 丢 user@ 会以本地用户名连远端 sshd，认证死循环）；stcp 走隧道端口，tcp 直连 remotePort。
+func TestFRPBrowseTarget(t *testing.T) {
+	if host, port := FRPBrowseTarget(frp.Conn{Type: frp.TypeSTCP, User: "root"}, 6022); host != "root@127.0.0.1" || port != 6022 {
+		t.Errorf("stcp 目标 = %s:%d, 期望 root@127.0.0.1:6022", host, port)
 	}
-	if got := FRPBrowseHost(frp.Conn{User: ""}); got != "root@127.0.0.1" {
-		t.Errorf("空用户应兜底 root, 实际 %q", got)
+	if host, _ := FRPBrowseTarget(frp.Conn{Type: frp.TypeSTCP}, 6022); host != "root@127.0.0.1" {
+		t.Errorf("空用户应兜底 root, 实际 %q", host)
+	}
+	if host, port := FRPBrowseTarget(frp.Conn{Type: frp.TypeTCP, ServerAddr: "frps.example.com", RemotePort: 6000}, 0); host != "root@frps.example.com" || port != 6000 {
+		t.Errorf("tcp 目标 = %s:%d, 期望 root@frps.example.com:6000", host, port)
 	}
 }
 

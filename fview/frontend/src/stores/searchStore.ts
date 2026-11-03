@@ -1,4 +1,4 @@
-// 统一搜索弹窗 store(验收反馈③):搜索/高亮/隐藏三合一弹窗态 +
+// 搜索态 store(第六轮 SLS 式常驻条改造):常驻条聚焦态 + 高亮/隐藏词管理框态 +
 // 会话级搜索历史(内存 cap 20,去重提升,最新在上——与 TUI addSearchHistory
 // 语义一致;高亮/隐藏词频走共享 usage.json,不在此)。
 import { defineStore } from 'pinia'
@@ -8,26 +8,29 @@ const SEARCH_HISTORY_CAP = 20
 
 export const useSearchStore = defineStore('search', {
   state: () => ({
-    /** 弹窗显隐 */
-    show: false,
-    /** 当前分区:0=搜索 1=高亮 2=隐藏(Tab 键轮换) */
-    tab: 0,
+    /** 常驻搜索条聚焦态(/ 键聚焦,Esc 失焦) */
+    barFocused: false,
+    /** 高亮/隐藏词管理弹窗:''关 'hl'高亮 'hide'隐藏 */
+    wordsShow: '' as '' | 'hl' | 'hide',
     /** 会话级搜索历史(最新在上,不落盘) */
     history: [] as string[],
   }),
   actions: {
-    /** open 打开弹窗并定位分区(0/1/2)。 */
-    open(tab = 0) {
-      this.tab = tab
-      this.show = true
+    /** focusBar 聚焦常驻搜索条(/、f 键)。 */
+    focusBar() {
+      this.barFocused = true
     },
-    /** close 收起弹窗。 */
-    close() {
-      this.show = false
+    /** blurBar 失焦(词保留,查询态不动)。 */
+    blurBar() {
+      this.barFocused = false
     },
-    /** cycleTab Tab 键轮换分区。 */
-    cycleTab() {
-      this.tab = (this.tab + 1) % 3
+    /** openWords 打开高亮/隐藏词管理框。 */
+    openWords(mode: 'hl' | 'hide') {
+      this.wordsShow = mode
+    },
+    /** closeWords 关闭管理框。 */
+    closeWords() {
+      this.wordsShow = ''
     },
     /** addSearchHistory 记一条搜索:去重提到最上,cap 20 丢最旧,空串不入。 */
     addSearchHistory(q: string) {

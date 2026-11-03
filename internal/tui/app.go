@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/justfun/logview/internal/buffer"
 	"github.com/justfun/logview/internal/export"
+	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/model"
 	"github.com/justfun/logview/internal/parser"
 	"github.com/justfun/logview/internal/stacktrace"
@@ -146,9 +147,9 @@ type App struct {
 	sshPwPath       string // 待重连的路径
 	sshPwFromPicker bool   // 来源：picker 目录浏览（确认后回目录浏览而非 tail）
 	sshPwUser       string // frp 场景的 ssh 用户名（密码确认后重拉目录用）
-	sshPwFRPPort    int    // >0 = frp 浏览来源的密码框（端口随隧道，需单独记）
-	sshPwFRPServer  string // frp 浏览来源暂存的服务器名（openSourcePicker 全量重置，确认后回填供记录保存）
-	sshPwFRPSK      string // frp 浏览来源暂存的 sk（同上）
+	sshPwFRPPort  int        // >0 = frp 浏览来源的密码框（浏览目标端口，需单独记）
+	sshPwFRPHost  string     // frp 浏览来源暂存的目标 host（openSourcePicker 全量重置，确认后回填）
+	sshPwFRPConn  *frp.Conn  // frp 浏览来源暂存的连接快照（确认后回填供记录保存）
 
 	sshPasswords map[string]string // host → password 内存缓存（会话内免重输，不落盘）
 
@@ -184,18 +185,23 @@ type App struct {
 	pickerSshFocus     int // SSH 主机层焦点：0=主机 1=路径
 
 	pickerFRPLevel      int    // FRP 层级：0=连接列表 1=新建表单 2=远程目录
-	pickerFRPStep       int    // 表单步骤：0=选服务器 1=新地址 2=token 3=sk 4=proxy 5=user
+	pickerFRPStep       int    // 表单步骤（按 type 释义见 pickerFRPFormEnter：0=type 1=serverAddr 2=token 3=secretKey|remotePort 4=serverName|user 5=user）
 	pickerFRPInput      string // FRP 搜索/表单输入
 	pickerFRPCursor     int
-	pickerFRPServerName string // 已选/新建的服务器名
-	pickerFRPServerAddr string // 新服务器地址（表单暂存）
-	pickerFRPSK         string
-	pickerFRPProxy      string
-	pickerFRPUser       string
+	pickerFRPFormType   string // 表单暂存：连接类型 stcp/tcp
+	pickerFRPServerAddr string // 表单暂存：serverAddr（原始输入，含 :port 提交时拆）
+	pickerFRPToken      string // 表单暂存：auth.token
+	pickerFRPSecretKey  string // 表单暂存：stcp secretKey
+	pickerFRPSName      string // 表单暂存：stcp serverName（提供方 proxies name）
+	pickerFRPRemotePort int    // 表单暂存：tcp remotePort
+	pickerFRPUser       string // 表单暂存/浏览目标：SSH 用户
 	pickerFRPDir        string          // 远程浏览当前目录
-	pickerFRPConnName   string          // 直达场景选中的记录名（空=新建）
+	pickerFRPConnName   string          // 当前连接名（frpPwKey/breadcrumb/confirm 保存）
 	pickerFRPErr        string          // L2 目录拉取失败的首行错误（成功回填清空；空列表时显示而非误报"空目录"）
-	pickerFRPTunnel     frpTunnelHandle // 浏览期间常驻隧道（确认后移交 FRPSource）
+	pickerFRPHost       string          // 浏览目标 host：stcp=127.0.0.1（隧道）；tcp=serverAddr 直连
+	pickerFRPPort       int             // 浏览目标端口：stcp=隧道本地端口；tcp=remotePort
+	pickerFRPCur        *frp.Conn       // 当前连接完整快照（confirm 保存记录 / 密码框暂存；比零散字段组回可靠）
+	pickerFRPTunnel     frpTunnelHandle // stcp 浏览期间常驻隧道（确认后移交 FRPSource）；tcp 直连为 nil
 
 	pickerPathInput  string
 	pickerPathCursor int
@@ -545,16 +551,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 有意不钳制：本消息只可能来自 FRP tab 可见的建连流程，且下方已完成 FRP 浏览态初始化——钳制回本地 tab 反而会渲染出半初始化状态
 		a.sourceTab = 3
 		a.pickerFRPLevel = 2
-		a.pickerFRPTunnel = msg.tunnel
-		a.pickerFRPUser = msg.conn.User
-		a.pickerFRPProxy = msg.conn.Proxy
-		// 无条件落位：跨建连残留的旧名会错位 frpPwKey/confirm 保存（终审 F1）
-		a.pickerFRPConnName = msg.conn.Name
-		a.pickerFRPDir = frpBrowseRoot(msg.conn.Path)
+		conn := msg.conn
+		cur := conn
+		a.pickerFRPCur = &cur
+		a.pickerFRPConnName = conn.Name
+		a.pickerFRPUser = conn.User
+		a.pickerFRPDir = frpBrowseRoot(conn.Path)
 		a.pickerCandidates = nil
 		a.pickerCursor = 0
 		a.pickerLoading = true
-		return a, fetchFRPDirCmd(msg.conn.User, msg.tunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords["frp:"+msg.conn.Name])
+		if conn.Type == frp.TypeTCP {
+			// tcp 直连：无 frpc/隧道，目标就是 frps 暴露的 remotePort
+			a.pickerFRPTunnel = nil
+			a.pickerFRPHost = conn.ServerAddr
+			a.pickerFRPPort = conn.RemotePort
+			return a, fetchFRPDirCmd(conn.User, conn.ServerAddr, conn.RemotePort, a.pickerFRPDir, a.sshPasswords["frp:"+conn.Name])
+		}
+		// stcp：经隧道本地端口访问
+		a.pickerFRPTunnel = msg.tunnel
+		a.pickerFRPHost = "127.0.0.1"
+		a.pickerFRPPort = msg.tunnel.LocalPort()
+		return a, fetchFRPDirCmd(conn.User, a.pickerFRPHost, a.pickerFRPPort, a.pickerFRPDir, a.sshPasswords["frp:"+conn.Name])
 	}
 	return a, nil
 }

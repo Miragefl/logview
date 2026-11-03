@@ -51,8 +51,9 @@ func (a *App) confirmSSHPw() tea.Cmd {
 	host, path, pw := a.sshPwHost, a.sshPwPath, a.sshPwInput
 	fromPicker := a.sshPwFromPicker
 	frpPort, frpUser := a.sshPwFRPPort, a.sshPwUser
-	frpServer, frpSK := a.sshPwFRPServer, a.sshPwFRPSK
+	frpHost, frpConn := a.sshPwFRPHost, a.sshPwFRPConn
 	a.sshPwFRPPort = 0 // 先清标记，防 closeSSHPw 误杀隧道
+	a.sshPwFRPConn = nil
 	a.closeSSHPw()
 	if pw == "" || host == "" {
 		return nil
@@ -69,16 +70,18 @@ func (a *App) confirmSSHPw() tea.Cmd {
 		a.openSourcePicker(3)
 		a.pickerFRPLevel = 2
 		a.pickerFRPTunnel = t
-		a.pickerFRPServerName = frpServer // 回填：后续 confirmFRPPicker 保存记录用
-		a.pickerFRPSK = frpSK
+		a.pickerFRPHost = frpHost
+		a.pickerFRPPort = frpPort
+		if frpConn != nil { // 回填：后续 confirmFRPPicker 保存记录用
+			a.pickerFRPCur = frpConn
+			a.pickerFRPConnName = frpConn.Name
+		}
 		a.pickerFRPDir = path
 		a.pickerFRPUser = frpUser
-		a.pickerFRPProxy = strings.TrimPrefix(host, "frp:")
-		a.pickerFRPConnName = strings.TrimPrefix(host, "frp:")
 		a.pickerCandidates = nil
 		a.pickerCursor = 0
 		a.pickerLoading = true
-		return fetchFRPDirCmd(frpUser, frpPort, path, pw)
+		return fetchFRPDirCmd(frpUser, frpHost, frpPort, path, pw)
 	}
 	if fromPicker {
 		// 回到 picker 的远程目录层，带密码重拉目录列表（原 SSH 逻辑不变）
@@ -151,19 +154,25 @@ func (a *App) promptSSHPwForHost(target string) {
 
 // promptFRPPw frp 目录浏览认证失败：弹密码框（隧道保留，确认后继续浏览）。
 func (a *App) promptFRPPw() {
-	if a.pickerFRPTunnel == nil || a.pickerFRPUser == "" {
+	if a.pickerFRPPort == 0 || a.pickerFRPUser == "" {
 		return
 	}
+	// 浏览态三件套先暂存：closeSourcePicker 会清理（tunnel/host/port/快照同待遇）
 	t := a.pickerFRPTunnel
-	a.pickerFRPTunnel = nil // 暂摘下，防 closeSourcePicker 清理
+	host, port := a.pickerFRPHost, a.pickerFRPPort
+	cur := a.pickerFRPCur
+	a.pickerFRPTunnel = nil
 	a.closeSourcePicker()
 	a.pickerFRPTunnel = t
+	a.pickerFRPHost = host
+	a.pickerFRPPort = port
+	a.pickerFRPCur = cur
 	a.sshPwHost = a.frpPwKey()
 	a.sshPwPath = a.pickerFRPDir
 	a.sshPwUser = a.pickerFRPUser
-	a.sshPwFRPPort = t.LocalPort()
-	a.sshPwFRPServer = a.pickerFRPServerName // 暂存：confirmSSHPw 重开 picker 会被 openSourcePicker 清空
-	a.sshPwFRPSK = a.pickerFRPSK
+	a.sshPwFRPPort = port
+	a.sshPwFRPHost = host
+	a.sshPwFRPConn = cur // 暂存：confirmSSHPw 重开 picker 会被 openSourcePicker 清空
 	a.sshPwFromPicker = true
 	a.sshPwMode = true
 	a.sshPwInput = ""

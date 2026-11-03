@@ -6,6 +6,7 @@ import { resolveKey } from './keymap'
 interface FakeEvent {
   key: string
   ctrlKey?: boolean
+  metaKey?: boolean
   shiftKey?: boolean
 }
 
@@ -56,7 +57,15 @@ describe('resolveKey 全表(TUI 对齐)', () => {
     [{ key: '?' }, 'help'],
     [{ key: 'C' }, 'clear'],
     [{ key: 'Escape' }, 'escape'],
-    [{ key: 'q' }, 'none'],
+    // 全键盘操作(第四轮验收③)
+    [{ key: 'q' }, 'sources'],
+    [{ key: ',' }, 'settings'],
+    [{ key: 'w', ctrlKey: true }, 'closeTab'],
+    [{ key: 'j', ctrlKey: true }, 'navDown'],
+    [{ key: 'k', ctrlKey: true }, 'navUp'],
+    [{ key: '=', ctrlKey: true }, 'zoomIn'],
+    [{ key: '-', ctrlKey: true }, 'zoomOut'],
+    [{ key: 'Enter' }, 'activate'],
     [{ key: 'a' }, 'none'], // 小写 a 不再是级别
     [{ key: 'i' }, 'none'],
     [{ key: 'z' }, 'pending'], // z 置 pending 态,见下组
@@ -92,5 +101,26 @@ describe('resolveKey 全表(TUI 对齐)', () => {
     resolveKey(k('z'), st)
     expect(resolveKey(k('d', { ctrlKey: true }), st).action).toBe('halfDown')
     expect(st.pendingZ).toBe(false)
+  })
+
+  it('ctrl+1..9 切 tab,arg 带序号;ctrl+0 无绑定(第四轮验收③)', () => {
+    const st = { pendingZ: false }
+    expect(resolveKey(k('1', { ctrlKey: true }), st)).toEqual({ action: 'tabSwitch', arg: '1' })
+    expect(resolveKey(k('9', { ctrlKey: true }), st)).toEqual({ action: 'tabSwitch', arg: '9' })
+    expect(resolveKey(k('0', { ctrlKey: true }), st).action).toBe('none')
+  })
+
+  it('cmd 系键位(第七轮验收①③):cmd+=/- 字号、cmd+, 设置;cmd+w/j/k 不接(系统键不可拦)', () => {
+    const st = { pendingZ: false }
+    expect(resolveKey(k('=', { metaKey: true }), st).action).toBe('zoomIn')
+    expect(resolveKey(k('+', { metaKey: true }), st).action).toBe('zoomIn')
+    expect(resolveKey(k('-', { metaKey: true }), st).action).toBe('zoomOut')
+    expect(resolveKey(k(',', { metaKey: true }), st).action).toBe('settings')
+    expect(resolveKey(k(',', { ctrlKey: true }), st).action).toBe('settings')
+    expect(resolveKey(k('1', { metaKey: true }), st)).toEqual({ action: 'tabSwitch', arg: '1' })
+    // cmd 系统键不接管:cmd+w 关窗/cmd+j 等交给系统,应用不拦
+    expect(resolveKey(k('w', { metaKey: true }), st).action).toBe('none')
+    expect(resolveKey(k('j', { metaKey: true }), st).action).toBe('none')
+    expect(resolveKey(k('d', { metaKey: true }), st).action).toBe('none')
   })
 })

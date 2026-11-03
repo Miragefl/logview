@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -521,4 +522,175 @@ func TestOpenTabDisplayInfo(t *testing.T) {
 		t.Errorf("空 display 应保持空(前端回落 label),得到 %q", ts[0].Display)
 	}
 	_ = m.CloseTab(id2)
+}
+
+// metas 返回全部 tab:meta 事件快照(测试辅助:断言 parserFields 推送)。
+func (c *collector) metas() []metaEvent {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := []metaEvent{}
+	for _, e := range c.events {
+		if e.name == "tab:meta" {
+			if m, ok := e.data.(metaEvent); ok {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}
+
+// waitMetas 轮询等待 meta 事件数达到 want(首次选定/升级/EOF 均异步 emit)。
+func waitMetas(t *testing.T, c *collector, want int) []metaEvent {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ms := c.metas(); len(ms) >= want {
+			return ms
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("等待 %d 个 tab:meta 超时,当前 %d", want, len(c.metas()))
+	return nil
+}
+
+// findMeta 按 ParserName 找首个匹配 meta(emit 顺序:首次选定 < 升级 < EOF)。
+func findMeta(ms []metaEvent, parserName string) (metaEvent, bool) {
+	for _, m := range ms {
+		if m.ParserName == parserName {
+			return m, true
+		}
+	}
+	return metaEvent{}, false
+}
+
+// stubParser 不实现 FieldProducer 的解析器(测 nil 路径:parserFields 缺省)。
+type stubParser struct{}
+
+func (stubParser) Name() string { return "stub" }
+func (stubParser) Parse(raw model.RawLine) *model.ParsedLine {
+	pl := &model.ParsedLine{Raw: raw}
+	pl.InitBase(raw.Text)
+	pl.SetStdSpan(model.FieldMessage, 0, len(raw.Text))
+	return pl
+}
+
+// TestMetaFirstParserChoiceCarriesParserFields 首次选定解析器即发 meta 带 parserFields——
+// tail 模式永不 EOF,不发则前端列裁剪永不生效(纯文本日志空列白占宽)。
+func TestMetaFirstParserChoiceCarriesParserFields(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	m.SetParsers([]parser.Parser{logbackTestParser(t)})
+
+	id, err := m.OpenTab(&feedStream{label: "a.log", batches: [][]model.RawLine{
+		mkBatch(1, 1, func(i int) string {
+			return fmt.Sprintf("2026-10-30 12:00:%02d.000 [main] [t-1] ERROR com.example.F - err-%d", 1, i)
+		}),
+	}}, "", "")
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 1)
+	ms := waitMetas(t, c, 1)
+
+	mm, ok := findMeta(ms, "java-logback")
+	if !ok {
+		t.Fatalf("未收到 java-logback 的 meta: %+v", ms)
+	}
+	want := []string{"time", "thread", "traceId", "level", "logger", "message"}
+	if !reflect.DeepEqual(mm.ParserFields, want) {
+		t.Fatalf("ParserFields = %v, want %v", mm.ParserFields, want)
+	}
+	if mm.Repaint {
+		t.Fatalf("首次选定不应 repaint: %+v", mm)
+	}
+}
+
+// TestMetaParserFieldsNilForNonProducer 解析器不实现 FieldProducer → parserFields 为 nil(前端语义=不裁剪)。
+func TestMetaParserFieldsNilForNonProducer(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	m.SetParsers([]parser.Parser{stubParser{}})
+
+	id, err := m.OpenTab(&feedStream{label: "b.log", batches: [][]model.RawLine{
+		mkBatch(1, 1, func(i int) string { return fmt.Sprintf("line-%d", i) }),
+	}}, "", "")
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 1)
+	ms := waitMetas(t, c, 1)
+
+	mm, ok := findMeta(ms, "stub")
+	if !ok {
+		t.Fatalf("未收到 stub 的 meta: %+v", ms)
+	}
+	if mm.ParserFields != nil {
+		t.Fatalf("ParserFields = %v, want nil", mm.ParserFields)
+	}
+}
+
+// TestMetaParserSwitchCarriesParserFields 升级切换(plain→结构化)的 repaint meta 同带新解析器
+// parserFields;升级前 plain 首次选定的 meta 带 ["message"]。
+func TestMetaParserSwitchCarriesParserFields(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	m.SetParsers([]parser.Parser{logbackTestParser(t), plainTestParser(t)})
+
+	logbackLine := func(i int) string {
+		return fmt.Sprintf("2026-10-30 12:00:%02d.000 [main] [t-1] ERROR com.example.F - err-%d", i%60, i)
+	}
+	id, err := m.OpenTab(&feedStream{label: "mixed.log", batches: [][]model.RawLine{
+		mkBatch(1, 50, func(i int) string { return fmt.Sprintf("plain-%d", i) }),
+		mkBatch(51, 50, logbackLine),
+	}}, "", "")
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 100)
+
+	// plain 首次选定(50 行降级):meta 带 ["message"]
+	pm, ok := findMeta(c.metas(), "plain-text")
+	if !ok {
+		t.Fatalf("未收到 plain-text 首次选定 meta: %+v", c.metas())
+	}
+	if !reflect.DeepEqual(pm.ParserFields, []string{"message"}) {
+		t.Fatalf("plain ParserFields = %v, want [message]", pm.ParserFields)
+	}
+	// 升级 repaint:meta 带新解析器完整字段集
+	mm, ok := findMeta(c.metas(), "java-logback")
+	if !ok {
+		t.Fatalf("未收到升级 meta: %+v", c.metas())
+	}
+	want := []string{"time", "thread", "traceId", "level", "logger", "message"}
+	if !reflect.DeepEqual(mm.ParserFields, want) {
+		t.Fatalf("升级 ParserFields = %v, want %v", mm.ParserFields, want)
+	}
+	if !mm.Repaint {
+		t.Fatalf("升级 meta 应带 repaint: %+v", mm)
+	}
+}
+
+// TestMetaEOFCarriesParserFields EOF 终态 meta 同带 parserFields(钉子:该发射点被误删时测试挂)。
+func TestMetaEOFCarriesParserFields(t *testing.T) {
+	c := &collector{}
+	m := NewManager(c.emit, 1000)
+	m.SetParsers([]parser.Parser{logbackTestParser(t)})
+	id, err := m.OpenTab(&feedStream{label: "eof.log", batches: [][]model.RawLine{
+		mkBatch(1, 1, func(i int) string {
+			return fmt.Sprintf("2026-10-30 12:00:%02d.000 [main] [t-1] ERROR com.example.F - err-%d", 2, i)
+		}),
+	}}, "", "")
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	waitLines(t, m, c, id, 1)
+	ms := waitMetas(t, c, 2) // 首次选定 + EOF 各一条
+	last := ms[len(ms)-1]
+	want := []string{"time", "thread", "traceId", "level", "logger", "message"}
+	if last.ParserName != "java-logback" || !reflect.DeepEqual(last.ParserFields, want) {
+		t.Fatalf("EOF meta = %+v, want java-logback 全字段集", last)
+	}
+	if last.Repaint {
+		t.Fatalf("EOF meta 不应 repaint: %+v", last)
+	}
 }

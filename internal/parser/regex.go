@@ -27,6 +27,18 @@ func NewRegexParser(name, pattern string) (*RegexParser, error) {
 
 func (p *RegexParser) Name() string { return p.name }
 
+// Fields 可产出字段 = 命名捕获组名(去空名保声明序;RE2 编译期拒绝重名组,无需去重)。
+func (p *RegexParser) Fields() []string {
+	out := make([]string, 0, len(p.groups))
+	for _, g := range p.groups {
+		if g == "" { // 匿名捕获组
+			continue
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
 func (p *RegexParser) Parse(raw model.RawLine) *model.ParsedLine {
 	cleaned := model.StripANSI(raw.Text)
 	idx := p.re.FindStringSubmatchIndex(cleaned)

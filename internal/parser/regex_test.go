@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/justfun/logview/internal/model"
@@ -50,5 +51,27 @@ func TestRegexParserName(t *testing.T) {
 	p, _ := NewRegexParser("my-rule", `(?P<message>.*)`)
 	if p.Name() != "my-rule" {
 		t.Errorf("Name() = %q, want %q", p.Name(), "my-rule")
+	}
+}
+
+func TestRegexParserFields(t *testing.T) {
+	p, err := NewRegexParser("t", `(?P<time>\S+) \[(?P<thread>[^\]]+)\] (?P<level>\w+) (?P<message>.*)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Fields()
+	want := []string{"time", "thread", "level", "message"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Fields() = %v, want %v", got, want)
+	}
+}
+
+func TestRegexParserFieldsSkipsAnonymous(t *testing.T) {
+	// 匿名捕获组 SubexpName 为空串,Fields() 必须跳过(RE2 拒绝重名组,无需去重)
+	p, _ := NewRegexParser("t", `(\d+) (?P<time>\S+)`)
+	got := p.Fields()
+	want := []string{"time"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Fields() = %v, want %v", got, want)
 	}
 }

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/justfun/logview/internal/model"
@@ -40,5 +41,13 @@ func TestJSONParserName(t *testing.T) {
 	p := NewJSONParser("my-json")
 	if p.Name() != "my-json" {
 		t.Errorf("Name() = %q, want 'my-json'", p.Name())
+	}
+}
+func TestJSONParserFields(t *testing.T) {
+	// JSON 解析可产出字段集固定六个(与 jsonFields 的 json key 一致)
+	p := NewJSONParser("json-log")
+	want := []string{"time", "level", "thread", "traceId", "logger", "message"}
+	if !reflect.DeepEqual(p.Fields(), want) {
+		t.Fatalf("Fields() = %v, want %v", p.Fields(), want)
 	}
 }

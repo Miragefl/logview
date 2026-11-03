@@ -5,9 +5,11 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useThemeStore } from './themes'
 import { useTabsStore } from './stores/tabs'
 import { useUiStore } from './stores/ui'
-import { clearTab, foldRanges, getFields, subscribeTabEvents } from './lib/backend'
-import type { FieldConfig } from './lib/backend'
+import { useFieldsStore } from './stores/fields'
+import { clearTab, foldRanges, subscribeTabEvents } from './lib/backend'
 import { fieldsWidths } from './lib/columns'
+import { effectiveFields } from './lib/fieldvis'
+import { loadOverrides, persistOverrides } from './lib/fieldOverride'
 import { resolveKey } from './lib/keymap'
 import type { KeyAction } from './lib/keymap'
 import type { LevelFilterMode } from './lib/filter'
@@ -15,10 +17,13 @@ import TabBar from './components/tabs/TabBar.vue'
 import Welcome from './components/Welcome.vue'
 import SidebarRail from './components/sources/SidebarRail.vue'
 import SettingsDialog from './components/dialogs/SettingsDialog.vue'
+import BrowseDialog from './components/sources/BrowseDialog.vue'
+import { closeTab, onShortcutCloseTab } from './lib/backend'
 import Toolbar from './components/logview/Toolbar.vue'
+import SearchBar from './components/logview/SearchBar.vue'
+import WordsPopup from './components/logview/WordsPopup.vue'
 import LogView from './components/logview/LogView.vue'
 import StatusBar from './components/logview/StatusBar.vue'
-import SearchPopup from './components/logview/SearchPopup.vue'
 import HelpModal from './components/logview/HelpModal.vue'
 import { useSearchStore } from './stores/searchStore'
 
@@ -28,17 +33,25 @@ const ui = useUiStore()
 const searchStore = useSearchStore()
 
 // ---- 跨组件交互状态（App 为接线员） ----
-const ALL_FIELDS = ['time', 'level', 'thread', 'traceId', 'logger', 'message']
 const search = reactive({ hitSeqs: [] as number[], words: [] as string[] })
 const hitSeqSet = ref(new Set<number>())
 const levelMode = ref<LevelFilterMode>('A')
-const fields = ref<string[]>([...ALL_FIELDS])
-/** allFieldsCfg 字段全量配置(含 rules.yaml 列宽覆盖),分栏 widths 数据源。 */
-const allFieldsCfg = ref<FieldConfig[]>([])
-const colWidths = computed(() => fieldsWidths(allFieldsCfg.value, fields.value))
+// fieldsStore 为 rules.yaml fields 前端正本(默认层+列宽)
+const fieldsStore = useFieldsStore()
+/** overrides 单日志字段覆盖(localStorage 按源全称键控;同源多 tab 共享视为特性)。 */
+const overrides = ref<Record<string, string[]>>(loadOverrides())
+/** configuredFields 当前 tab 未裁剪配置:覆盖 ?? 默认层。 */
+const configuredFields = computed(() => {
+  const src = tabs.active?.info.info ?? ''
+  return overrides.value[src] ?? fieldsStore.defaults
+})
+/** fields 实际显示列 = configuredFields ∩ 当前 tab 解析器能力(列按能力显隐,null 不裁剪)。 */
+const fields = computed(() => effectiveFields(configuredFields.value, tabs.active?.parserFields ?? null))
+const colWidths = computed(() => fieldsWidths(fieldsStore.all, fields.value))
 
 const logviewRef = ref<InstanceType<typeof LogView> | null>(null)
 const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
+const railRef = ref<InstanceType<typeof SidebarRail> | null>(null)
 
 // 设置中心（Task 10 接入对话框，先占位开关）
 const settingsShow = ref(false)
@@ -51,6 +64,30 @@ function onSearch(payload: { hitSeqs: number[]; words: string[] }) {
   search.hitSeqs = payload.hitSeqs
   search.words = payload.words
   hitSeqSet.value = new Set(payload.hitSeqs)
+}
+
+// 切 tab 清空搜索过滤(final review I4):seq 是 per-tab 域,旧 tab 的命中集
+// 会串扰新 tab 的行过滤;输入词 q 留在 SearchBar 不动(切回重按回车即可)。
+watch(
+  () => tabs.activeId,
+  () => onSearch({ hitSeqs: [], words: [] })
+)
+
+/** onColWidths 表头拖拽列宽落盘(第七轮验收②):走 fieldsStore 单源写回
+ *  rules.yaml fields[].width(TUI 同源生效);失败 store 内回滚保本地宽。 */
+function onColWidths(w: Record<string, number>) {
+  fieldsStore.setWidths(w).catch(() => {
+    /* 落盘失败保本地宽,下次拖拽重试 */
+  })
+}
+
+/** onOverrideFields 工具栏 F 覆盖写回 localStorage:null=恢复默认(删覆盖键)。 */
+function onOverrideFields(v: string[] | null) {
+  const src = tabs.active?.info.info
+  if (!src) return
+  if (v === null) delete overrides.value[src]
+  else overrides.value[src] = v
+  persistOverrides(overrides.value)
 }
 
 // ---- 字体变量注入（日志区字号/等宽字体走 CSS 变量） ----
@@ -79,10 +116,24 @@ function isTyping(e: KeyboardEvent): boolean {
 const keyState = { pendingZ: false }
 function onKeydown(e: KeyboardEvent) {
   if (isTyping(e)) return
+  // 弹窗打开时全局键让位,由各弹窗自理(ESC 关闭等,第三轮验收②)——
+  // 否则 ESC 走 exitVisual、j/k 穿透弹窗动日志光标
+  if (ui.modalOpen) return
   const { action, arg } = resolveKey(e, keyState)
   if (action === 'none' || action === 'pending') return
-  if (action === 'search' || action === 'highlight' || action === 'hide') {
-    e.preventDefault() // 阻止浏览器快速搜索(/)等默认行为
+  // 阻止浏览器默认行为(/ 快速搜索、ctrl+w/数字等系统键)
+  if (
+    action === 'search' ||
+    action === 'highlight' ||
+    action === 'hide' ||
+    action === 'closeTab' ||
+    action === 'tabSwitch' ||
+    action === 'zoomIn' ||
+    action === 'zoomOut' ||
+    action === 'navDown' ||
+    action === 'navUp'
+  ) {
+    e.preventDefault()
   }
   dispatchKey(action, arg)
 }
@@ -139,13 +190,14 @@ function dispatchKey(action: KeyAction, arg?: string) {
       lv?.cursorToHit(-1)
       break
     case 'search':
-      searchStore.open(0)
+      // SLS 式常驻条(第六轮):/、f 聚焦输入框
+      searchStore.focusBar()
       break
     case 'highlight':
-      searchStore.open(1)
+      searchStore.openWords('hl')
       break
     case 'hide':
-      searchStore.open(2)
+      searchStore.openWords('hide')
       break
     case 'level':
       // 级别档位 = 大写 E/W/I/D/A(小写已释放给折叠/换行/详情,对齐 TUI)
@@ -176,6 +228,40 @@ function dispatchKey(action: KeyAction, arg?: string) {
     }
     case 'escape':
       lv?.exitVisual()
+      break
+    // ---- 全键盘操作(第四轮验收③) ----
+    case 'sources':
+      railRef.value?.cyclePane()
+      break
+    case 'settings':
+      settingsShow.value = !settingsShow.value
+      break
+    case 'activate':
+      lv?.bookmarkActivate()
+      break
+    case 'closeTab': {
+      const id = tabs.activeId
+      if (id) closeTab(id).then(() => tabs.remove(id)).catch(() => {})
+      break
+    }
+    case 'tabSwitch': {
+      const i = Number(arg) - 1
+      if (tabs.tabs[i]) tabs.activeId = tabs.tabs[i].info.id
+      break
+    }
+    case 'zoomIn':
+      ui.fontSize = Math.min(28, ui.fontSize + 1)
+      ui.persist()
+      break
+    case 'zoomOut':
+      ui.fontSize = Math.max(9, ui.fontSize - 1)
+      ui.persist()
+      break
+    case 'navDown':
+      lv?.bookmarkNav(1)
+      break
+    case 'navUp':
+      lv?.bookmarkNav(-1)
       break
     case 'lineNumbers':
       lv?.toggleLineNum()
@@ -209,6 +295,9 @@ function dispatchKey(action: KeyAction, arg?: string) {
 
 onMounted(async () => {
   theme.init()
+  // mac 菜单 ⌘W → 关当前 tab（原生菜单路由,不经 keydown,故不受 modalOpen
+  // 让位约束——浏览器惯例:弹窗开着 ⌘W 照样关）
+  onShortcutCloseTab(() => dispatchKey('closeTab'))
   subscribeTabEvents({
     onOpened: (ev) => {
       tabs.applyOpened(ev)
@@ -227,17 +316,8 @@ onMounted(async () => {
       if (wasActive) onSearch({ hitSeqs: [], words: [] })
     },
   })
-  // 字段显隐按 rules.yaml 的 fields.Visible 校正（与 TUI 同源；hides 是行级隐藏词不得混用）
-  try {
-    const fs = (await getFields()) ?? []
-    allFieldsCfg.value = fs
-    const visible = new Set(fs.filter((f) => f.visible).map((f) => f.name))
-    if (visible.size > 0) {
-      fields.value = ALL_FIELDS.filter((f) => visible.has(f))
-    }
-  } catch {
-    /* 默认全显 */
-  }
+  // rules.yaml fields 拉取进 fieldsStore 单源(默认层+列宽;hides 是行级隐藏词不得混用)
+  fieldsStore.load()
   document.addEventListener('keydown', onKeydown)
 })
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
@@ -250,15 +330,20 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         <TabBar />
       </header>
       <div class="body">
-        <SidebarRail @open-settings="settingsShow = true" />
+        <SidebarRail ref="railRef" @open-settings="settingsShow = true" />
         <main class="main">
           <Welcome v-if="tabs.tabs.length === 0" />
           <template v-else>
             <Toolbar
               ref="toolbarRef"
-              v-model:level-mode="levelMode"
-              :fields="fields"
-              @update:fields="(f: string[]) => (fields = f)"
+              :configured="configuredFields"
+              @override-fields="onOverrideFields"
+            />
+            <SearchBar
+              :hit-count="search.hitSeqs.length"
+              :level-mode="levelMode"
+              @search="onSearch"
+              @update:level-mode="(m: LevelFilterMode) => (levelMode = m)"
             />
             <LogView
               ref="logviewRef"
@@ -267,14 +352,24 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               :level-mode="levelMode"
               :fields="fields"
               :widths="colWidths"
+              @update:widths="onColWidths"
             />
-            <StatusBar :hit-count="search.hitSeqs.length" :copied="copied" />
+            <StatusBar :copied="copied" />
           </template>
         </main>
       </div>
     </div>
     <SettingsDialog v-model:show="settingsShow" />
-    <SearchPopup v-if="tabs.tabs.length" @search="onSearch" />
+    <!-- 全局目录浏览弹窗（SSH/FRP 面板与欢迎页最近源共用单例，ui.browse 驱动） -->
+    <BrowseDialog
+      :show="ui.browse.show"
+      :mode="ui.browse.mode"
+      :host="ui.browse.host"
+      :conn-name="ui.browse.connName"
+      :init-path="ui.browse.initPath"
+      @update:show="(v: boolean) => !v && ui.closeBrowse()"
+    />
+    <WordsPopup v-if="tabs.tabs.length" />
     <HelpModal v-model:show="helpShow" />
   </n-config-provider>
 </template>

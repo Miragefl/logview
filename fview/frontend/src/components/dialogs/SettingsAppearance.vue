@@ -1,13 +1,20 @@
 <script setup lang="ts">
-// 外观页：主题（全局多配色，壳+日志区一起换）/ 系统字体下拉 / 字号 / 行高。
-import { onMounted, ref } from 'vue'
+// 外观页：主题下拉（全局多配色，壳+日志区一起换）/ 默认字段显示 / 系统字体下拉 / 字号 / 行高。
+// 字段默认层写 rules.yaml(与 TUI 共享)；单日志覆盖在工具栏 F,两层互不沾。
+import { computed, onMounted, ref } from 'vue'
 import { NInputNumber, NSelect } from 'naive-ui'
 import { useThemeStore } from '../../themes'
 import { useUiStore } from '../../stores/ui'
+import { useFieldsStore } from '../../stores/fields'
+import { HEADER_LABELS } from '../../lib/columns'
 import { systemFonts } from '../../lib/backend'
 
 const theme = useThemeStore()
 const ui = useUiStore()
+const fieldsStore = useFieldsStore()
+
+/** themeOptions 主题下拉项(nameList 单源,选择即 theme.apply 即时生效)。 */
+const themeOptions = computed(() => theme.nameList.map((n) => ({ label: n, value: n })))
 
 const fontOptions = ref<{ label: string; value: string }[]>([])
 
@@ -15,6 +22,9 @@ const fontOptions = ref<{ label: string; value: string }[]>([])
 onMounted(async () => {
   if (!theme.nameList.length) {
     theme.init()
+  }
+  if (!fieldsStore.loaded) {
+    fieldsStore.load()
   }
   // 系统字体下拉（枚举失败保底 monospace）
   try {
@@ -35,18 +45,26 @@ function onFontChange(v: string | null) {
   <div class="appearance">
     <section>
       <h4>主题（与 TUI rules.yaml 共享）</h4>
-      <div class="themes">
-        <button
-          v-for="n in theme.nameList"
-          :key="n"
-          class="theme-chip"
-          :class="{ on: theme.name === n }"
-          @click="theme.apply(n)"
-        >
-          {{ n }}
-        </button>
-        <span v-if="!theme.nameList.length" class="hint">主题列表为空</span>
+      <NSelect
+        :value="theme.name"
+        size="small"
+        :options="themeOptions"
+        @update:value="(v: string) => theme.apply(v)"
+      />
+    </section>
+    <section>
+      <h4>默认字段显示</h4>
+      <div class="field-opts">
+        <label v-for="f in fieldsStore.all" :key="f.name" class="field-opt" :title="f.name">
+          <input
+            type="checkbox"
+            :checked="f.visible"
+            :disabled="f.name === 'message'"
+            @change="fieldsStore.setVisibility(f.name, !f.visible)"
+          />{{ HEADER_LABELS[f.name] ?? f.name }}
+        </label>
       </div>
+      <p class="hint">所有日志初始显示（与 TUI 共享 rules.yaml）；单个日志可在工具栏「字段」单独调整。</p>
     </section>
     <!-- 字体独占整行:长字体名完整可见(验收反馈⑧);字号/行高第二行二等分 -->
     <section>
@@ -83,7 +101,7 @@ function onFontChange(v: string | null) {
         />
       </div>
     </section>
-    <p class="hint">主题切换即时生效（含原生标题栏亮暗）；字体/字号/行高仅桌面端保存（localStorage）。</p>
+    <p class="hint">主题切换即时生效（含原生标题栏亮暗）；字段默认/字体/字号/行高仅桌面端保存。</p>
   </div>
 </template>
 
@@ -99,23 +117,21 @@ h4 {
   color: var(--dim, #8b98a9);
   font-weight: normal;
 }
-.themes {
+.field-opts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 14px;
 }
-.theme-chip {
-  border: 1px solid var(--popup-border, #2a3547);
-  background: var(--popup-bg, #0f1520);
-  color: var(--fg, #c8d3e0);
-  border-radius: 4px;
-  padding: 4px 12px;
-  cursor: pointer;
+.field-opt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
+  cursor: pointer;
+  color: var(--fg, #c8d3e0);
 }
-.theme-chip.on {
-  border-color: var(--accent, #4a8fe0);
-  color: var(--accent, #4a8fe0);
+.field-opt input {
+  accent-color: var(--accent, #4a8fe0);
 }
 .row {
   display: flex;

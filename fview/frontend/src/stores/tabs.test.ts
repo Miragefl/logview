@@ -125,3 +125,25 @@ describe('useTabsStore', () => {
     expect(s.tabs[1].info.display).toBe('')
   })
 })
+
+describe('parserFields(tab:meta 透传)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('applyMeta 带 parserFields 存入 tab;register 初始为 null', () => {
+    const s = useTabsStore()
+    s.applyOpened({ tabId: 't1', label: 'app.log' })
+    expect(s.tabs[0].parserFields).toBeNull()
+    s.applyMeta({ tabId: 't1', label: 'app.log', parserName: 'java-logback', parserFields: ['time', 'message'] })
+    expect(s.tabs[0].parserFields).toEqual(['time', 'message'])
+  })
+
+  it('follow-only meta 不带 parserFields 时不清已有值(omitempty→undefined 跳过)', () => {
+    const s = useTabsStore()
+    s.applyOpened({ tabId: 't1', label: 'app.log' })
+    s.applyMeta({ tabId: 't1', label: 'app.log', parserName: 'java-logback', parserFields: ['time'] })
+    s.applyMeta({ tabId: 't1', label: 'app.log', parserName: 'java-logback', follow: false })
+    expect(s.tabs[0].parserFields).toEqual(['time'])
+  })
+})

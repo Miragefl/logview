@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // 欢迎页：无 tab 时显示，最近源快捷入口（usage.json 热点，与 TUI 共享）。
-// file: 项可点击直接开 tab；其他源类型（ssh: 等）提示走左侧面板。
+// 四类键全可点（openRecent 分派）：file/ssh/frp/k8sres 有密码直开、无密码弹浏览。
 import { onMounted, ref } from 'vue'
-import { openFileTab, usageRecent, usageTouch } from '../lib/backend'
+import { usageRecent } from '../lib/backend'
+import { openRecent, recentLabel } from '../lib/recent'
 
 const recent = ref<string[]>([])
 
@@ -13,21 +14,6 @@ onMounted(async () => {
     recent.value = []
   }
 })
-
-// file: 前缀剥掉显示路径；其他前缀（ssh: 等）原样显示
-function displayKey(key: string): string {
-  return key.startsWith('file:') ? key.slice(5) : key
-}
-
-async function open(k: string) {
-  if (!k.startsWith('file:')) return
-  try {
-    await openFileTab(k.slice(5), 0, true)
-    await usageTouch(k)
-  } catch {
-    /* 打开失败静默 */
-  }
-}
 </script>
 
 <template>
@@ -35,14 +21,8 @@ async function open(k: string) {
     <h1 class="title">fview</h1>
     <p class="subtitle">左侧图标条选择日志源，或从最近使用开始：</p>
     <ul v-if="recent.length" class="recent">
-      <li
-        v-for="k in recent.slice(0, 8)"
-        :key="k"
-        :class="{ clickable: k.startsWith('file:') }"
-        :title="k.startsWith('file:') ? '点击打开' : '从左侧对应面板打开'"
-        @click="open(k)"
-      >
-        {{ displayKey(k) }}
+      <li v-for="k in recent.slice(0, 8)" :key="k" class="clickable" :title="k" @click="openRecent(k)">
+        {{ recentLabel(k) }}
       </li>
     </ul>
     <p v-else class="empty">暂无最近记录——先打开一个日志文件</p>

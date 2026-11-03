@@ -148,14 +148,14 @@ var (
 // startTunnelFn 可注入的隧道构建（测试替换真实 frpc 启动）。
 var startTunnelFn = StartTunnel
 
-func tunnelKey(server Server, sk, proxy string) string {
-	return server.Addr + "\x00" + server.Token + "\x00" + proxy + "\x00" + sk
+func tunnelKey(c Conn) string {
+	return c.ServerAddr + "\x00" + fmt.Sprint(c.ServerPort) + "\x00" + c.Token + "\x00" + c.ServerName + "\x00" + c.SecretKey
 }
 
-// AcquireTunnel 获取隧道：同 key 存活则复用（引用 +1，省 10s 建连等待），
-// 否则新建并注册。Cleanup 释放引用，归零自动杀 frpc。
-func AcquireTunnel(server Server, sk, proxy string) (*Tunnel, error) {
-	key := tunnelKey(server, sk, proxy)
+// AcquireTunnel 获取隧道（仅 stcp；tcp 直连不走这里）：同 key 存活则复用
+//（引用 +1，省 10s 建连等待），否则新建并注册。Cleanup 释放引用，归零自动杀 frpc。
+func AcquireTunnel(c Conn) (*Tunnel, error) {
+	key := tunnelKey(c)
 	regMu.Lock()
 	if t := registry[key]; t != nil && t.alive() {
 		t.refs++
@@ -164,7 +164,7 @@ func AcquireTunnel(server Server, sk, proxy string) (*Tunnel, error) {
 	}
 	regMu.Unlock()
 
-	t, err := startTunnelFn(server, sk, proxy)
+	t, err := startTunnelFn(c)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +206,10 @@ func pickFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
+// SplitServerAddr 拆 "host:port"（无端口/非法端口默认 7000，与 frps 默认一致）。
+// v1 迁移与 TUI 向导的单行地址输入共用。
+func SplitServerAddr(addr string) (string, int) { return splitHostPort(addr) }
+
 // splitHostPort 拆 addr；无端口/非法端口默认 7000。
 func splitHostPort(addr string) (string, int) {
 	host, portStr, err := net.SplitHostPort(addr)
@@ -221,26 +225,29 @@ func splitHostPort(addr string) (string, int) {
 }
 
 // visitorTOML 生成 frpc visitor 配置（serverAddr/serverPort/token + stcp visitor 块）。
-func visitorTOML(server Server, sk, proxyName string, bindPort int) string {
-	host, port := splitHostPort(server.Addr)
+func visitorTOML(c Conn, bindPort int) string {
+	port := c.ServerPort
+	if port == 0 { // 防御：未经 normalizeConn 的裸 Conn（默认 7000 与 frps 默认一致）
+		port = 7000
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "serverAddr = %q\n", host)
+	fmt.Fprintf(&b, "serverAddr = %q\n", c.ServerAddr)
 	fmt.Fprintf(&b, "serverPort = %d\n", port)
-	if server.Token != "" {
-		fmt.Fprintf(&b, "auth.token = %q\n", server.Token)
+	if c.Token != "" {
+		fmt.Fprintf(&b, "auth.token = %q\n", c.Token)
 	}
 	b.WriteString("\n[[visitors]]\n")
-	fmt.Fprintf(&b, "name = %q\n", "logview-"+proxyName)
+	fmt.Fprintf(&b, "name = %q\n", "logview-"+c.ServerName)
 	b.WriteString("type = \"stcp\"\n")
-	fmt.Fprintf(&b, "serverName = %q\n", proxyName)
-	fmt.Fprintf(&b, "secretKey = %q\n", sk)
+	fmt.Fprintf(&b, "serverName = %q\n", c.ServerName)
+	fmt.Fprintf(&b, "secretKey = %q\n", c.SecretKey)
 	b.WriteString("bindAddr = \"127.0.0.1\"\n")
 	fmt.Fprintf(&b, "bindPort = %d\n", bindPort)
 	return b.String()
 }
 
-// StartTunnel 启动 frpc visitor：自动挑端口、写临时配置、等待本地端口就绪。
-func StartTunnel(server Server, sk, proxyName string) (*Tunnel, error) {
+// StartTunnel 启动 frpc visitor（stcp 专用）：自动挑端口、写临时配置、等待本地端口就绪。
+func StartTunnel(c Conn) (*Tunnel, error) {
 	if _, err := exec.LookPath("frpc"); err != nil {
 		return nil, fmt.Errorf("未找到 frpc，请先安装 frp (https://github.com/fatedier/frp)")
 	}
@@ -253,7 +260,7 @@ func StartTunnel(server Server, sk, proxyName string) (*Tunnel, error) {
 		return nil, err
 	}
 	cfg := filepath.Join(dir, "visitor.toml")
-	if err := os.WriteFile(cfg, []byte(visitorTOML(server, sk, proxyName, port)), 0600); err != nil {
+	if err := os.WriteFile(cfg, []byte(visitorTOML(c, port)), 0600); err != nil {
 		os.RemoveAll(dir)
 		return nil, err
 	}

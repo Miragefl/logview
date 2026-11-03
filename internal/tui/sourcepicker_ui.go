@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,10 +53,12 @@ func (a *App) openSourcePicker(tab int) {
 	a.pickerFRPStep = 0
 	a.pickerFRPInput = ""
 	a.pickerFRPCursor = 0
-	a.pickerFRPServerName = ""
+	a.pickerFRPFormType = ""
 	a.pickerFRPServerAddr = ""
-	a.pickerFRPSK = ""
-	a.pickerFRPProxy = ""
+	a.pickerFRPToken = ""
+	a.pickerFRPSecretKey = ""
+	a.pickerFRPSName = ""
+	a.pickerFRPRemotePort = 0
 	a.pickerFRPUser = ""
 	a.pickerFRPDir = ""
 	a.pickerFRPConnName = ""
@@ -83,6 +86,9 @@ func (a *App) closeSourcePicker() {
 		a.pickerFRPTunnel.Cleanup()
 		a.pickerFRPTunnel = nil
 	}
+	a.pickerFRPHost = ""
+	a.pickerFRPPort = 0
+	a.pickerFRPCur = nil
 }
 
 // visiblePickerCandidates 当前 tab/level 的可见候选。
@@ -154,8 +160,8 @@ func (a *App) visiblePickerCandidates() []sourceCandidate {
 		case 0:
 			return frpConnCandidates(a.pickerFRPInput)
 		case 1:
-			if a.pickerFRPStep == 0 {
-				return frpServerCandidates(a.pickerFRPInput)
+			if a.pickerFRPStep == 0 { // type 选择（候选列表；其余步骤纯输入框）
+				return frpTypeCandidates()
 			}
 			return nil
 		default:
@@ -327,12 +333,12 @@ func (a *App) pickerTabEnterCmd() tea.Cmd {
 	return nil
 }
 
-// frpCurName 当前 frp 连接名（记录名或 proxy 名）。
+// frpCurName 当前 frp 连接名（记录名；新建未落名时回落表单 serverName）。
 func (a *App) frpCurName() string {
 	if a.pickerFRPConnName != "" {
 		return a.pickerFRPConnName
 	}
-	return a.pickerFRPProxy
+	return a.pickerFRPSName
 }
 
 // frpPwKey frp 密码内存缓存 key。
@@ -405,17 +411,12 @@ func (a *App) pickerBackspace() tea.Cmd {
 		case 1:
 			a.pickerFRPInput = ""
 			if a.pickerFRPStep > 0 {
-				// 选已存服务器直达 step3 时未走过 step1/2：返回直接回 step0
-				if a.pickerFRPStep == 3 && a.pickerFRPServerAddr == "" {
-					a.pickerFRPStep = 0
-				} else {
-					a.pickerFRPStep--
-				}
+				a.pickerFRPStep--
 			} else {
 				a.pickerFRPLevel = 0
 			}
 		case 2:
-			if a.pickerFRPTunnel == nil {
+			if a.pickerFRPPort == 0 { // 未初始化浏览目标（stcp 隧道未就绪/tcp 未落位）
 				a.pickerFRPLevel = 0
 				return nil
 			}
@@ -423,7 +424,7 @@ func (a *App) pickerBackspace() tea.Cmd {
 				a.pickerFRPDir = parentPath(a.pickerFRPDir)
 				a.pickerCandidates = nil
 				a.pickerLoading = true
-				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
+				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPHost, a.pickerFRPPort, a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
 			}
 			a.closeFRPBrowse()
 		}
@@ -476,12 +477,12 @@ func (a *App) pickerEnter() tea.Cmd {
 	}
 
 	// FRP 目录层：过滤框输入以 / 开头 → 路径直达（同 SSH）
-	if a.sourceTab == 3 && a.pickerFRPLevel == 2 && a.pickerFRPTunnel != nil && strings.HasPrefix(a.pickerDirFilter, "/") {
+	if a.sourceTab == 3 && a.pickerFRPLevel == 2 && a.pickerFRPPort != 0 && strings.HasPrefix(a.pickerDirFilter, "/") {
 		path := strings.TrimSuffix(a.pickerDirFilter, "/")
 		if path == "" {
 			path = "/"
 		}
-		if _, err := stream.SSHListDirWithPort(a.pickerFRPUser+"@127.0.0.1", a.pickerFRPTunnel.LocalPort(), path, a.sshPasswords[a.frpPwKey()]); err != nil {
+		if _, err := stream.SSHListDirWithPort(a.pickerFRPUser+"@"+a.pickerFRPHost, a.pickerFRPPort, path, a.sshPasswords[a.frpPwKey()]); err != nil {
 			// 路径不存在或不可读：当作文件尝试打开
 			a.pickerRemotePath = path
 			a.pickerDirFilter = ""
@@ -492,7 +493,7 @@ func (a *App) pickerEnter() tea.Cmd {
 		a.pickerCursor = 0
 		a.pickerDirFilter = ""
 		a.pickerLoading = true
-		return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), path, a.sshPasswords[a.frpPwKey()])
+		return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPHost, a.pickerFRPPort, path, a.sshPasswords[a.frpPwKey()])
 	}
 
 	if a.pickerCursor >= len(cands) {
@@ -625,22 +626,17 @@ func (a *App) pickerEnter() tea.Cmd {
 			if !ok {
 				return nil
 			}
-			server, ok := frpStore().FindServer(conn.Server)
-			if !ok {
-				a.appendErrorLine(fmt.Sprintf("frp 记录 %s 引用的服务器 %s 不存在", conn.Name, conn.Server))
-				return nil
-			}
+			// 完整快照落位（confirm 保存记录 / 密码框暂存都以它为准，比零散字段组回可靠）
+			cur := conn
+			a.pickerFRPCur = &cur
 			a.pickerFRPConnName = conn.Name
 			a.pickerFRPUser = conn.User
-			a.pickerFRPSK = conn.SK
-			a.pickerFRPProxy = conn.Proxy
-			a.pickerFRPServerName = conn.Server
 			a.pickerLoading = true
-			return fetchFRPTunnelCmd(server, conn)
+			return fetchFRPTunnelCmd(conn)
 		case 1:
 			return a.pickerFRPFormEnter(cand)
 		default: // 远程目录浏览
-			if a.pickerFRPTunnel == nil {
+			if a.pickerFRPPort == 0 {
 				return nil
 			}
 			if cand.value == ".." {
@@ -652,7 +648,7 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerCandidates = nil
 				a.pickerCursor = 0
 				a.pickerLoading = true
-				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
+				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPHost, a.pickerFRPPort, a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
 			}
 			if cand.dir {
 				a.pickerFRPDir = strings.TrimSuffix(a.pickerFRPDir, "/") + "/" + cand.value
@@ -660,7 +656,7 @@ func (a *App) pickerEnter() tea.Cmd {
 				a.pickerCursor = 0
 				a.pickerLoading = true
 				a.pickerDirFilter = ""
-				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPTunnel.LocalPort(), a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
+				return fetchFRPDirCmd(a.pickerFRPUser, a.pickerFRPHost, a.pickerFRPPort, a.pickerFRPDir, a.sshPasswords[a.frpPwKey()])
 			}
 			a.pickerRemotePath = strings.TrimSuffix(a.pickerFRPDir, "/") + "/" + cand.value
 			return a.confirmFRPPicker() // Task 8 实现
@@ -669,7 +665,9 @@ func (a *App) pickerEnter() tea.Cmd {
 	return nil
 }
 
-// pickerFRPFormEnter 表单各步骤 Enter 提交（step5 提交建隧道由后续任务接管）。
+// pickerFRPFormEnter 表单各步骤 Enter 提交（官方字段逐项收集）。
+// 步骤按 type 释义：0=type 1=serverAddr 2=token；stcp：3=secretKey 4=serverName 5=user；
+// tcp：3=remotePort 4=user（无 step5）。最后一步提交建连（stcp 拉隧道 / tcp 直连）。
 func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
 	input := strings.TrimSpace(a.pickerFRPInput)
 	next := func(step int) {
@@ -678,75 +676,89 @@ func (a *App) pickerFRPFormEnter(cand sourceCandidate) tea.Cmd {
 		a.pickerCursor = 0
 	}
 	switch a.pickerFRPStep {
-	case 0: // 选服务器
-		if cand.value == "+manual" {
-			next(1)
-		} else {
-			a.pickerFRPServerName = cand.value
-			a.pickerFRPServerAddr = "" // 清残留：手动输入中途返回后残留会使 step3 回退跳级失效
-			next(3) // 已存服务器有 token，直接到 sk
+	case 0: // 连接类型（候选列表选择）
+		if cand.value != frp.TypeSTCP && cand.value != frp.TypeTCP {
+			return nil
 		}
-	case 1: // 新服务器地址
+		a.pickerFRPFormType = cand.value
+		next(1)
+	case 1: // serverAddr（host[:port]，端口缺省 7000）
 		if input == "" {
 			return nil
 		}
 		a.pickerFRPServerAddr = input
-		a.pickerFRPServerName = input // 默认名 = 地址
 		next(2)
-	case 2: // token（可空）
-		frpStore().UpsertServer(frp.Server{
-			Name:  a.pickerFRPServerName,
-			Addr:  a.pickerFRPServerAddr,
-			Token: input,
-		})
-		if err := frpStore().Save(); err != nil {
-			a.appendErrorLine(fmt.Sprintf("frp 服务器保存失败: %v", err))
-		}
+	case 2: // auth token（可空回车跳过）
+		a.pickerFRPToken = input
 		next(3)
-	case 3: // sk
-		if input == "" {
+	case 3:
+		if a.pickerFRPFormType == frp.TypeTCP { // remotePort
+			port, err := strconv.Atoi(input)
+			if err != nil || port <= 0 || port > 65535 {
+				return nil
+			}
+			a.pickerFRPRemotePort = port
+			next(4)
 			return nil
 		}
-		a.pickerFRPSK = input
+		if input == "" { // stcp secretKey 必填
+			return nil
+		}
+		a.pickerFRPSecretKey = input
 		next(4)
-	case 4: // proxy
-		if input == "" {
+	case 4:
+		if a.pickerFRPFormType == frp.TypeTCP { // user → 提交
+			if input == "" {
+				return nil
+			}
+			a.pickerFRPUser = input
+			return a.submitFRPForm()
+		}
+		if input == "" { // stcp serverName 必填
 			return nil
 		}
-		a.pickerFRPProxy = input
+		a.pickerFRPSName = input
 		next(5)
-	case 5: // user → 提交建隧道
+	case 5: // stcp user → 提交
 		if input == "" {
 			return nil
 		}
 		a.pickerFRPUser = input
-		a.pickerFRPInput = ""
-		server, ok := frpStore().FindServer(a.pickerFRPServerName)
-		if !ok {
-			a.appendErrorLine(fmt.Sprintf("frp 服务器 %s 不存在", a.pickerFRPServerName))
-			return nil
-		}
-		conn := frp.Conn{Name: a.pickerFRPProxy, Server: a.pickerFRPServerName,
-			SK: a.pickerFRPSK, Proxy: a.pickerFRPProxy, User: input}
-		// 隧道一打通就先存记录：中途放弃（Esc/Backspace/退出）不丢配置，
-		// L0 可直接重选（此前只在选文件确认时保存，没走到那步配置就丢）
-		if old, ok := frpStore().FindConn(conn.Name); ok && old.Path != "" {
-			conn.Path = old.Path // 同名重建：保留已确认的日志路径
-		}
-		frpStore().UpsertConn(conn)
-		if err := frpStore().Save(); err != nil {
-			a.appendErrorLine(fmt.Sprintf("frp 记录保存失败: %v", err))
-		}
-		a.pickerLoading = true
-		return fetchFRPTunnelCmd(server, conn)
+		return a.submitFRPForm()
 	}
 	return nil
 }
 
-// confirmFRPPicker FRP 确认建流：保存记录（含 Path）→ 隧道移交 FRPSource。
+// submitFRPForm 表单收尾：组连接（官方字段平铺）→ 先存记录（中途放弃不丢配置，
+// L0 可直接重选）→ 建连（stcp 拉 visitor 隧道 / tcp 零配置直连）。
+func (a *App) submitFRPForm() tea.Cmd {
+	a.pickerFRPInput = ""
+	host, port := frp.SplitServerAddr(a.pickerFRPServerAddr)
+	name := a.pickerFRPSName // stcp 默认名 = serverName（与远端 proxies name 对齐）
+	if a.pickerFRPFormType == frp.TypeTCP {
+		name = host // tcp 默认名 = frps 地址
+	}
+	conn := frp.Conn{
+		Name: name, Type: a.pickerFRPFormType,
+		ServerAddr: host, ServerPort: port, Token: a.pickerFRPToken,
+		ServerName: a.pickerFRPSName, SecretKey: a.pickerFRPSecretKey,
+		RemotePort: a.pickerFRPRemotePort, User: a.pickerFRPUser,
+	}
+	if old, ok := frpStore().FindConn(conn.Name); ok && old.Path != "" {
+		conn.Path = old.Path // 同名重建：保留已确认的日志路径
+	}
+	frpStore().UpsertConn(conn)
+	if err := frpStore().Save(); err != nil {
+		a.appendErrorLine(fmt.Sprintf("frp 记录保存失败: %v", err))
+	}
+	a.pickerLoading = true
+	return fetchFRPTunnelCmd(conn)
+}
+
+// confirmFRPPicker FRP 确认建流：快照补 Path 落库 → stcp 隧道移交 FRPSource / tcp 直连 FRPDirectSource。
 func (a *App) confirmFRPPicker() tea.Cmd {
-	tunnel := a.pickerFRPTunnel
-	if tunnel == nil {
+	cur := a.pickerFRPCur
+	if cur == nil || a.pickerFRPPort == 0 {
 		return nil
 	}
 	path := strings.TrimSpace(a.pickerRemotePath)
@@ -756,24 +768,31 @@ func (a *App) confirmFRPPicker() tea.Cmd {
 	if path == "" {
 		return nil
 	}
-	name := a.pickerFRPConnName
-	if name == "" {
-		name = a.pickerFRPProxy
-	}
-	user := a.pickerFRPUser
-	frpStore().UpsertConn(frp.Conn{
-		Name: name, Server: a.pickerFRPServerName, SK: a.pickerFRPSK,
-		Proxy: a.pickerFRPProxy, User: user, Path: path,
-	})
+	saved := *cur
+	saved.Path = path
+	frpStore().UpsertConn(saved)
 	if err := frpStore().Save(); err != nil {
 		a.appendErrorLine(fmt.Sprintf("frp 记录保存失败: %v", err))
 	}
-	BumpUsage(usageFRPConn + name)
-	a.pickerFRPTunnel = nil // 隧道移交 FRPSource，防 closeSourcePicker 清理
+	BumpUsage(usageFRPConn + saved.Name)
+	pw := a.sshPasswords["frp:"+saved.Name]
+	tunnel := a.pickerFRPTunnel
+	a.pickerFRPTunnel = nil // 隧道移交 FRPSource（tcp 无隧道），防 closeSourcePicker 清理
 	a.closeSourcePicker()
-	src := stream.NewFRPSource(name, tunnel, user, path, 200)
+	if saved.Type == frp.TypeTCP {
+		src := stream.NewFRPDirectSource(saved.Name, saved.ServerAddr, saved.RemotePort, saved.User, path, 200)
+		src.SetBufferLines(a.bufSize)
+		if pw != "" {
+			src.SetPassword(pw)
+		}
+		return a.ReplaceStream(src)
+	}
+	if tunnel == nil {
+		return nil
+	}
+	src := stream.NewFRPSource(saved.Name, tunnel, saved.User, path, 200)
 	src.SetBufferLines(a.bufSize) // gz 归档传回行数对齐本地 ring 容量
-	if pw := a.sshPasswords["frp:"+name]; pw != "" {
+	if pw != "" {
 		src.SetPassword(pw)
 	}
 	return a.ReplaceStream(src)
@@ -835,29 +854,17 @@ func (a *App) frpDirErrText(err error) string {
 	return s
 }
 
-// pickerDeleteFRP C-x 删除：FRP L0 删连接记录，L1 step0 删服务器（被引用时拒绝）。
-// 删除后持久化并收敛光标；+new/+manual 占位项不可删。
+// pickerDeleteFRP C-x 删除：FRP L0 删连接记录。
+// 删除后持久化并收敛光标；+new 占位项与表单/浏览层不可删。
 func (a *App) pickerDeleteFRP(cands []sourceCandidate) tea.Cmd {
 	if a.sourceTab != 3 || a.pickerCursor >= len(cands) {
 		return nil
 	}
 	cand := cands[a.pickerCursor]
-	if a.pickerFRPLevel == 0 {
-		if cand.value == "+new" {
-			return nil
-		}
-		if !frpStore().DeleteConn(cand.value) {
-			return nil
-		}
-	} else if a.pickerFRPLevel == 1 && a.pickerFRPStep == 0 {
-		if cand.value == "+manual" {
-			return nil
-		}
-		if err := frpStore().DeleteServer(cand.value); err != nil {
-			a.appendErrorLine(fmt.Sprintf("frp 服务器删除失败: %v", err))
-			return nil
-		}
-	} else {
+	if a.pickerFRPLevel != 0 || cand.value == "+new" {
+		return nil
+	}
+	if !frpStore().DeleteConn(cand.value) {
 		return nil
 	}
 	if err := frpStore().Save(); err != nil {
@@ -1076,20 +1083,30 @@ func (a *App) buildSourcePickerLines(vl int) []string {
 			} else {
 				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 10))
 			}
-		case 1: // L1：新建表单（逐字段单输入框）
-		prompts := []string{
-			"选择 frps 服务器", "新服务器地址 host:port", "token（可空）",
-			"sk (secret key，与远端 stcp 的 sk 一致)",
-			"proxy 名称（远端 stcp 服务名，即 server-name）", "ssh 用户名",
-		}
-			content.WriteString(DetailLabelStyle.Render(prompts[a.pickerFRPStep]+": ") +
+		case 1: // L1：新建表单（官方字段逐项收集，tcp/stcp 步骤集不同）
+			prompts := map[string][]string{
+				frp.TypeTCP: {
+					"连接类型", "serverAddr（frps 地址 host[:port]）", "token（可空）",
+					"remotePort（frps 暴露端口）", "ssh 用户名",
+				},
+				frp.TypeSTCP: {
+					"连接类型", "serverAddr（frps 地址 host[:port]）", "token（可空）",
+					"secretKey（与远端 stcp 的 sk 一致）",
+					"serverName（远端 stcp 服务名，即 proxies.name）", "ssh 用户名",
+				},
+			}
+			pl := prompts[a.pickerFRPFormType]
+			if len(pl) == 0 {
+				pl = prompts[frp.TypeSTCP]
+			}
+			prompt := "连接类型"
+			if a.pickerFRPStep < len(pl) {
+				prompt = pl[a.pickerFRPStep]
+			}
+			content.WriteString(DetailLabelStyle.Render(prompt+": ") +
 				a.inputLine(a.pickerFRPInput, a.pickerFRPCursor, "") + "\n\n")
 			if a.pickerFRPStep == 0 {
-				if len(cands) == 0 {
-					content.WriteString(keycapHint(" 无保存的服务器") + "\n")
-				} else {
-					content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
-				}
+				content.WriteString(renderCandidateList(cands, a.pickerCursor, nil, 8))
 			}
 		default: // L2：远程目录浏览
 			content.WriteString(" " + BreadcrumbStyle.Render(" frp:"+a.frpCurName()+" ") + breadcrumbChain(a.pickerFRPDir) + "\n")

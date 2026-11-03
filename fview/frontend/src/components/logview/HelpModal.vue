@@ -1,14 +1,18 @@
 <script setup lang="ts">
 // 键位速查弹窗(? 键):内容与 lib/keymap.ts 对齐;任意键/点击遮罩关闭。
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { useUiStore } from '../../stores/ui'
 
-defineProps<{ show: boolean }>()
+const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>()
+
+const ui = useUiStore()
 
 function close() {
   emit('update:show', false)
 }
 function onKey(e: KeyboardEvent) {
+  if (!props.show) return
   if (e.key === 'Escape') {
     e.stopPropagation()
   }
@@ -16,6 +20,12 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => document.addEventListener('keydown', onKey, true))
 onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true))
+// 弹窗栈登记(全局键让位,第三轮验收②)
+watch(
+  () => props.show,
+  (v) => (v ? ui.dialogOpen('help') : ui.dialogClose('help')),
+  { immediate: true }
+)
 
 const KEYS: [string, string][] = [
   ['j / k', '光标下移 / 上移一行'],
@@ -24,14 +34,20 @@ const KEYS: [string, string][] = [
   ['ctrl+f / ctrl+b, PgDn/PgUp', '下翻 / 上翻整页'],
   ['H / M / L', '光标跳可视区顶 / 中 / 底'],
   ['zt / zz / zb', '光标行置顶 / 居中 / 置底'],
-  ['n / N', '下一个 / 上一个搜索命中'],
-  ['/ 或 f, h, x', '搜索弹窗:搜索 / 高亮 / 隐藏分区(Tab 轮换,ctrl+R 历史)'],
+  ['n / N', '下一个 / 上一个命中(搜索优先,无搜索时高亮词)'],
+  ['/ 或 f', '聚焦搜索条(回车执行,清空回车恢复,Esc 失焦不清词)'],
+  ['h, x', '高亮 / 隐藏词管理框(ctrl+j/k 选中,d 删词,ctrl+R 历史)'],
   ['E / W / I / D / A', '级别档位:ERROR / ≥WARN / ≥INFO / DEBUG / 全部'],
   ['e', '折叠 / 展开光标处堆栈组'],
   ['d', '光标行详情(同双击)'],
   ['v / V, y, Esc', '可视选择 / 复制选中行 / 退出'],
-  ['m / \'', '光标行加书签 / 书签列表跳转'],
-  ['F', '字段显隐面板'],
+  ['m / \'', '光标行加书签 / 书签列表(ctrl+j/k 选中,Enter 跳转)'],
+  ['q', '源面板循环(本地→SSH→K8s→FRP→收起)'],
+  [', / cmd+,', '设置中心'],
+  ['ctrl+1..9 / cmd+1..9', '切换 tab'],
+  ['ctrl+w / ⌘w', '关闭 tab(mac 原生菜单)'],
+  ['ctrl+= / ctrl+-, cmd+= / cmd+-', '字号放大 / 缩小'],
+  ['F', '字段显隐面板(可连续勾选,点外部退出)'],
   ['#', '行号开关'],
   ['w', '换行开关(仅折 message 列)'],
   ['C', '清屏(缓冲全清)'],
@@ -50,7 +66,7 @@ const KEYS: [string, string][] = [
             <td class="d">{{ desc }}</td>
           </tr>
         </table>
-        <p class="hint">鼠标:双击行详情 · 右键隐藏 · 滚轮/拖拽滚动 · 点击折叠行展开</p>
+        <p class="hint">鼠标:双击行详情 · 右键隐藏 · 滚轮/拖拽滚动 · 点击折叠行展开 · 表头右缘拖动调列宽</p>
       </div>
     </div>
   </Teleport>

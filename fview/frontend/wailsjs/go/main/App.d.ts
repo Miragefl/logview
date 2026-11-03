@@ -19,19 +19,17 @@ export function CurrentTheme():Promise<string>;
 
 export function DeleteFrpConn(arg1:string):Promise<void>;
 
-export function DeleteFrpServer(arg1:string):Promise<void>;
-
 export function Fields():Promise<Array<parser.FieldConfig>>;
 
 export function FoldRanges(arg1:string):Promise<Array<fview.FoldRange>>;
 
 export function FrpConns():Promise<Array<frp.Conn>>;
 
-export function FrpServers():Promise<Array<frp.Server>>;
-
 export function GetLine(arg1:string,arg2:number):Promise<Record<string, string>>;
 
 export function GetMemStats():Promise<number>;
+
+export function GetSavedPass(arg1:string):Promise<string>;
 
 export function Hides():Promise<Array<string>>;
 
@@ -67,11 +65,13 @@ export function Rules():Promise<Array<parser.RuleConfig>>;
 
 export function SSHBrowse(arg1:string,arg2:string,arg3:string):Promise<Array<main.DirEntryDTO>>;
 
-export function SSHHosts():Promise<Array<string>>;
+export function SSHHosts():Promise<Array<main.SSHHostDTO>>;
 
 export function SaveFields(arg1:Array<parser.FieldConfig>):Promise<void>;
 
 export function SaveHides(arg1:Array<string>):Promise<void>;
+
+export function SavePass(arg1:string,arg2:string):Promise<void>;
 
 export function SavePatterns(arg1:Record<string, string>):Promise<void>;
 
@@ -90,8 +90,6 @@ export function ThemeCSS(arg1:string):Promise<Record<string, string>>;
 export function ThemeNames():Promise<Array<string>>;
 
 export function UpsertFrpConn(arg1:frp.Conn):Promise<void>;
-
-export function UpsertFrpServer(arg1:frp.Server):Promise<void>;
 
 export function UsageKeywords(arg1:string,arg2:string):Promise<Array<string>>;
 

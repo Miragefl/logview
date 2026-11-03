@@ -15,6 +15,29 @@ type fakeTunnel struct {
 func (f *fakeTunnel) LocalPort() int { return f.port }
 func (f *fakeTunnel) Cleanup() error { f.cleaned = true; return nil }
 
+// FRPDefaultUser：空用户兜底 root（FRP 场景约定）；非空原样。
+// 回归（2026-11-02）：空 user 裸拼 user@host 产出 "@host" 非法目标，ssh 打 usage。
+func TestFRPDefaultUser(t *testing.T) {
+	if got := FRPDefaultUser(""); got != "root" {
+		t.Errorf("空用户应兜底 root，实际 %q", got)
+	}
+	if got := FRPDefaultUser("ubuntu"); got != "ubuntu" {
+		t.Errorf("非空用户应原样，实际 %q", got)
+	}
+}
+
+// 两种形态的构造都必须兜底：inner host 不允许出现裸 "@host"。
+func TestFRPSourceEmptyUserFallsBackRoot(t *testing.T) {
+	s1 := NewFRPSource("a", &fakeTunnel{port: 6022}, "", "/x.log", 10)
+	if got := s1.inner.host; got != "root@127.0.0.1" {
+		t.Errorf("stcp 空 user 应拼 root@127.0.0.1，实际 %q", got)
+	}
+	s2 := NewFRPDirectSource("b", "frps.example.com", 6000, "", "/y.log", 10)
+	if got := s2.inner.host; got != "root@frps.example.com" {
+		t.Errorf("tcp 空 user 应拼 root@frps.example.com，实际 %q", got)
+	}
+}
+
 func TestFRPSourceStreamsAndCleansTunnel(t *testing.T) {
 	bin := fakeSSHScript(t, "frp tail line")
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))

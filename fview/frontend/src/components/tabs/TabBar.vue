@@ -22,8 +22,9 @@ const tabs = useTabsStore()
         class="close"
         title="关闭"
         @click.stop="closeTab(t.info.id).then(() => tabs.remove(t.info.id)).catch(() => {})"
-        >&times;</span
       >
+        <svg class="ico" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
+      </span>
     </button>
   </div>
 </template>
@@ -67,10 +68,11 @@ const tabs = useTabsStore()
   opacity: 0.5;
   font-size: 11px;
 }
+/* 关闭钮:svg 走全局 .ico(16px 描边 1.7,style.css 正本);弃 &times; 字形——视觉直径仅字号六成 */
 .close {
+  display: inline-flex;
   border-radius: 3px;
-  padding: 0 4px;
-  line-height: 1;
+  padding: 0 5px;
 }
 .close:hover {
   background: var(--accent, #3a4a61);

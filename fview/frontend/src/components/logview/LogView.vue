@@ -36,6 +36,10 @@ const props = defineProps<{
   widths?: Record<string, number>
 }>()
 
+const emit = defineEmits<{
+  (e: 'update:widths', widths: Record<string, number>): void
+}>()
+
 const tabs = useTabsStore()
 const ann = useAnnotationsStore()
 const ui = useUiStore()
@@ -45,13 +49,19 @@ const viewportH = ref(400)
 const viewportW = ref(0)
 const scrollTop = ref(0)
 
-/** filteredLines 级别档位 + 行级隐藏后的可见行（虚拟滚动的数据底座）。 */
+/** filteredLines 级别档位 + 行级隐藏 + 搜索过滤后的可见行（虚拟滚动的数据底座）。
+ * 搜索过滤对齐 TUI recomputeView:命中集非空时只保留命中行(第三轮验收⑤)。 */
 const filteredLines = computed<LineDTO[]>(() => {
   const t = tabs.active
   if (!t) return []
-  if (props.levelMode === 'A' && ann.hideRules.length === 0) return t.lines
+  if (props.levelMode === 'A' && ann.hideRules.length === 0 && props.hitSeqs.size === 0) {
+    return t.lines
+  }
   return t.lines.filter(
-    (l) => levelFilter(props.levelMode, l.level) && !ann.hidden(l)
+    (l) =>
+      levelFilter(props.levelMode, l.level) &&
+      !ann.hidden(l) &&
+      (props.hitSeqs.size === 0 || props.hitSeqs.has(l.seq))
   )
 })
 
@@ -122,12 +132,15 @@ watch(
   { immediate: true }
 )
 
-/** heightsArr 变高模型(wrap 关闭时 null = 等高路径零回退)。 */
+/** heightsArr 变高模型(wrap 关闭时 null = 等高路径零回退);缓存 miss 现算兜底。 */
 const heightsArr = computed<number[] | null>(() => {
   void rowsVer.value
   if (!ui.wrap) return null
   return viewItems.value.map((it) =>
-    it.type === 'fold' ? 1 : wrapRows.get(it.ln.seq) ?? 1
+    it.type === 'fold'
+      ? 1
+      : wrapRows.get(it.ln.seq) ??
+        Math.max(1, wrapSegments(it.ln.message, msgWidthCh.value).length)
   )
 })
 const hi = computed(() => new HeightIndex(heightsArr.value ?? [], rowH.value))
@@ -142,8 +155,39 @@ function rowHeightAt(i: number): number {
   return heightsArr.value ? hi.value.rowsAt(i) * rowH.value : rowH.value
 }
 
-/** colsW 生效列宽（分栏渲染,验收反馈②）。 */
-const colsW = computed<Record<string, number>>(() => props.widths ?? DEFAULT_WIDTHS)
+/** colsW 生效列宽（分栏渲染,验收反馈②）;拖拽中优先本地态——
+ *  mousemove 只改渲染列宽,mouseup 才 emit 落盘(wrap 行高全量重算一次,拖拽 60fps 不卡)。 */
+const dragW = ref<Record<string, number> | null>(null)
+const colsW = computed<Record<string, number>>(() => dragW.value ?? props.widths ?? DEFAULT_WIDTHS)
+
+// ---- 表头列宽拖拽(第七轮验收②):把手 mousedown → document move/up → 落盘 ----
+let dragField = ''
+let dragX0 = 0
+let dragW0 = 0
+function startDrag(e: MouseEvent, field: string) {
+  if (e.button !== 0) return
+  dragField = field
+  dragX0 = e.clientX
+  dragW0 = colsW.value[field] ?? 0
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', endDrag)
+}
+function onDragMove(e: MouseEvent) {
+  if (!dragField) return
+  const ch = Math.max(4, dragW0 + Math.round((e.clientX - dragX0) / charPx.value))
+  dragW.value = { ...colsW.value, [dragField]: ch }
+}
+function endDrag() {
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', endDrag)
+  if (dragW.value) emit('update:widths', dragW.value)
+  dragField = ''
+  dragW.value = null
+}
+onBeforeUnmount(() => {
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', endDrag)
+})
 /** headCells 表头行（与数据列同宽对齐,sticky 置顶）。 */
 const headCells = computed(() => headerCells(props.fields, colsW.value))
 /** cellsOf 行分栏（可视区内逐行调用,纯函数）。 */
@@ -390,19 +434,30 @@ function anchorCursor(pos: 't' | 'z' | 'b') {
   }
 }
 
-/** cursorToHit n/N:光标跳上/下一个搜索命中(过滤域查找;目标在折叠组内先展开,跳后居中)。 */
+/** cursorToHit n/N:光标跳上/下一个搜索命中;无搜索时回落高亮词命中行
+ * (第五轮验收:高亮后 n/N 也要能跳;高亮词匹配大小写敏感,对齐渲染层 splitSpans)。
+ * 目标在折叠组内先展开,跳后居中。 */
 function cursorToHit(dir: 1 | -1) {
-  if (props.hitSeqs.size === 0) return
+  // 命中集:搜索优先;空集且有高亮词时按词现扫(按键频次低,不做常驻缓存)
+  let hits = props.hitSeqs
+  if (hits.size === 0 && ann.highlights.length > 0) {
+    hits = new Set(
+      filteredLines.value
+        .filter((l) => ann.highlights.some((h) => (l.message || l.raw).includes(h.word)))
+        .map((l) => l.seq)
+    )
+  }
+  if (hits.size === 0) return
   const arr = filteredLines.value
   const cur = viewItems.value[cursorIdx.value]
   const refSeq = cur && cur.type === 'line' ? cur.ln.seq : (viewItems.value[range.value[0]] as { ln?: LineDTO } | undefined)?.ln?.seq ?? 0
   let targetSeq = -1
   if (dir === 1) {
-    const hit = arr.find((l) => l.seq > refSeq && props.hitSeqs.has(l.seq))
+    const hit = arr.find((l) => l.seq > refSeq && hits.has(l.seq))
     targetSeq = hit?.seq ?? -1
   } else {
     for (let i = arr.length - 1; i >= 0; i--) {
-      if (props.hitSeqs.has(arr[i].seq) && arr[i].seq < refSeq) {
+      if (hits.has(arr[i].seq) && arr[i].seq < refSeq) {
         targetSeq = arr[i].seq
         break
       }
@@ -509,6 +564,31 @@ function exitVisual() {
   bmShow.value = false
 }
 
+// visual 态同步 ui store(状态栏 VISUAL 徽标,第三轮验收⑨)
+watch(
+  () => visual.value.active,
+  (v) => (ui.visualActive = v)
+)
+
+// Esc 兜底:kwModal/detail/bmShow 非模态层(App 全局键已因弹窗栈让位,此处接管;第三轮验收②)
+function onDocEsc(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  if (kwModal.value.show) kwModal.value.show = false
+  else if (detail.value.show) detail.value.show = false
+  else if (bmShow.value) bmShow.value = false
+}
+onMounted(() => document.addEventListener('keydown', onDocEsc))
+onBeforeUnmount(() => document.removeEventListener('keydown', onDocEsc))
+// kwModal/detail 进弹窗栈(全局 vim 键让位)
+watch(
+  () => kwModal.value.show,
+  (v) => (v ? ui.dialogOpen('kw') : ui.dialogClose('kw'))
+)
+watch(
+  () => detail.value.show,
+  (v) => (v ? ui.dialogOpen('detail') : ui.dialogClose('detail'))
+)
+
 /** yankSelection y:复制选中区间原文(raw 换行拼接),返回行数(0=无选择)。 */
 function yankSelection(): number {
   const r = visualRange.value
@@ -542,6 +622,7 @@ function toggleBookmark() {
 /** showBookmarks ':书签列表开关。 */
 function showBookmarks() {
   bmShow.value = !bmShow.value
+  bmSel.value = -1
 }
 
 /** gotoBookmark 跳书签(折叠组自动展开,居中)。 */
@@ -559,6 +640,24 @@ function gotoBookmark(seq: number) {
 const showLineNum = ref(false)
 function toggleLineNum() {
   showLineNum.value = !showLineNum.value
+}
+
+// ---- 书签列表键盘导航(第四轮验收③:ctrl+j/k 选中+Enter 跳转) ----
+const bmSel = ref(-1)
+/** bookmarkNav ctrl+j/k:列表开着时移动选中,返回是否消费(未开列表 false 交回全局)。 */
+function bookmarkNav(delta: number): boolean {
+  if (!bmShow.value) return false
+  const n = bmItems.value.length
+  if (n === 0) return true
+  bmSel.value = Math.min(n - 1, Math.max(0, bmSel.value < 0 ? (delta > 0 ? 0 : n - 1) : bmSel.value + delta))
+  return true
+}
+/** bookmarkActivate Enter:跳转选中书签(未选中不动作)。 */
+function bookmarkActivate() {
+  if (bmShow.value && bmSel.value >= 0 && bmItems.value[bmSel.value]) {
+    gotoBookmark(bmItems.value[bmSel.value].seq)
+    bmSel.value = -1
+  }
 }
 
 defineExpose({
@@ -579,21 +678,34 @@ defineExpose({
   toggleBookmark,
   showBookmarks,
   toggleLineNum,
+  bookmarkNav,
+  bookmarkActivate,
 })
 </script>
 
 <template>
   <div ref="scrollEl" class="logview" @scroll="onScroll">
-    <!-- 分栏表头（sticky 置顶,与数据列同宽对齐,验收反馈②） -->
+    <!-- 分栏表头（sticky 置顶,与数据列同宽对齐,验收反馈②;gutter 占位与数据行同构,第三轮验收⑦） -->
     <div v-if="filteredLines.length" class="row header">
+      <span class="gutter"
+        ><span>&nbsp;</span><span v-if="showLineNum" class="lnum">{{ ' '.repeat(6) }} │</span></span
+      >
       <span
         v-for="c in headCells"
         :key="c.field"
         class="cell"
         :class="'f-' + c.field"
         :style="cellW(c.field)"
-        >{{ c.text }}</span
       >
+        {{ c.text }}
+        <!-- 列宽拖拽把手(第七轮验收②):message 弹性列无把手 -->
+        <span
+          v-if="c.field !== 'message'"
+          class="col-handle"
+          title="拖动调整列宽(落盘 rules.yaml,TUI 同源)"
+          @mousedown="startDrag($event, c.field)"
+        ></span>
+      </span>
     </div>
     <div class="spacer" :style="{ height: totalH + 'px' }"></div>
     <!-- 行用全局 top 定位;.rows 不再做 translateY(双重补偿会让滚动一屏后花屏,Final #1) -->
@@ -624,11 +736,24 @@ defineExpose({
           >
         </span>
         <template v-for="c in cellsOf(item.ln)" :key="c.field">
-          <span v-if="c.field === 'message'" class="cell f-msg" :class="{ wrapping: ui.wrap }">
-            <template v-for="(s, si) in renderSpans(item.ln.message)" :key="si">
-              <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
-              <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
-              <template v-else>{{ s.text }}</template>
+          <span v-if="c.field === 'message'" class="cell f-msg">
+            <!-- w 换行:按 wrapSegments 模型切段逐段渲染,模型即像素——
+                 CSS pre-wrap 真折行与 JS 行数估算双轨口径漂移会行重叠(第三轮验收⑧) -->
+            <template v-if="ui.wrap">
+              <div v-for="(seg, wi) in wrapSegments(c.text, msgWidthCh)" :key="wi" class="wline">
+                <template v-for="(s, si) in renderSpans(seg)" :key="si">
+                  <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
+                  <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
+                  <template v-else>{{ s.text }}</template>
+                </template>
+              </div>
+            </template>
+            <template v-else>
+              <template v-for="(s, si) in renderSpans(item.ln.message)" :key="si">
+                <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
+                <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
+                <template v-else>{{ s.text }}</template>
+              </template>
             </template>
           </span>
           <span
@@ -645,9 +770,15 @@ defineExpose({
 
     <!-- 书签列表(' 键) -->
     <div v-if="bmShow" class="bm-panel">
-      <div class="bm-head">书签(Esc 关闭,m 添加)</div>
+      <div class="bm-head">书签(Esc 关闭,m 添加 · ctrl+j/k 选中,Enter 跳转)</div>
       <ul>
-        <li v-for="b in bmItems" :key="b.seq" @click="gotoBookmark(b.seq)">
+        <li
+          v-for="(b, i) in bmItems"
+          :key="b.seq"
+          :class="{ sel: i === bmSel }"
+          @click="gotoBookmark(b.seq)"
+          @mousemove="bmSel = i"
+        >
           <span class="bseq">#{{ b.seq }}</span>
           <span class="blabel">{{ b.label }}</span>
         </li>
@@ -712,6 +843,8 @@ defineExpose({
   position: absolute;
   left: 0;
   right: 0;
+  display: flex;
+  align-items: flex-start;
   height: v-bind('rowH + "px"');
   line-height: v-bind('rowH + "px"');
   white-space: pre;
@@ -738,12 +871,11 @@ defineExpose({
   background: var(--visual, #005f2f);
   box-shadow: inset 2px 0 0 var(--accent, #7dc4e4);
 }
-/* 分栏:固定列定宽 + 两空格分隔;message 弹性 */
+/* 分栏:固定列定宽 + 两空格分隔;message 弹性(flex 行布局,多行块顶对齐) */
 .cell {
-  display: inline-block;
+  flex: none;
   overflow: hidden;
   white-space: pre;
-  vertical-align: bottom;
 }
 .cell + .cell {
   margin-left: 2ch;
@@ -754,10 +886,11 @@ defineExpose({
   overflow: visible;
   white-space: pre;
 }
-/* w 换行:message 列 CSS 软换行,续行自然对齐列起点 */
-.f-msg.wrapping {
-  white-space: pre-wrap;
-  word-break: break-all;
+/* w 换行:模型切段每段一行(高度=行高,与 heightsArr 同源) */
+.wline {
+  height: v-bind('rowH + "px"');
+  line-height: v-bind('rowH + "px"');
+  white-space: pre;
 }
 /* 行首 gutter:书签 ▸ / 行号(TUI 前缀风格) */
 .gutter {
@@ -802,8 +935,12 @@ defineExpose({
   border-radius: 4px;
   cursor: pointer;
 }
-.bm-panel li:hover {
+.bm-panel li:hover,
+.bm-panel li.sel {
   background: var(--popup-bg, #1f2c3f);
+}
+.bm-panel li.sel {
+  box-shadow: inset 2px 0 0 var(--accent, #7dc4e4);
 }
 .bseq {
   color: var(--accent, #7dc4e4);
@@ -842,6 +979,23 @@ defineExpose({
 }
 .row.header .cell {
   white-space: pre;
+  position: relative;
+  overflow: visible; /* 覆盖 .cell 的 hidden,把手可悬出右缘 */
+}
+/* 列宽拖拽把手 */
+.col-handle {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 7px;
+  height: calc(100% + 4px);
+  cursor: col-resize;
+  z-index: 2;
+}
+.col-handle:hover,
+.col-handle:active {
+  background: var(--accent, #7dc4e4);
+  opacity: 0.7;
 }
 .f-time {
   color: var(--time, #5d7292);

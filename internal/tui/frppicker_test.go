@@ -29,6 +29,12 @@ type fakeFRPTunnelLog struct {
 
 func (f *fakeFRPTunnelLog) RecentLog() string { return f.log }
 
+// stcpConn 测试常用 stcp 连接。
+func stcpConn(name string) frp.Conn {
+	return frp.Conn{Name: name, Type: frp.TypeSTCP, ServerAddr: "frps.example.com", ServerPort: 7000,
+		Token: "tk", ServerName: name, SecretKey: "sk1", User: "root"}
+}
+
 // setupFRPStore 注入临时 frp store，返回 store 文件路径（落盘断言用）；
 // 隔离 HOME 防历史 usage.json 频次影响排序断言。
 // cleanup 时清 usage 缓存：避免本测试的临时 HOME 缓存残留，导致后续测试 BumpUsage
@@ -43,7 +49,6 @@ func setupFRPStore(t *testing.T, conns ...frp.Conn) string {
 	t.Cleanup(frp.ResetStoreForTest)
 	t.Cleanup(func() { frpStoreRef = nil })
 	st := frp.LoadStore()
-	st.UpsertServer(frp.Server{Name: "s1", Addr: "frps.example.com:7000", Token: "tk"})
 	for _, c := range conns {
 		st.UpsertConn(c)
 	}
@@ -54,8 +59,10 @@ func setupFRPStore(t *testing.T, conns ...frp.Conn) string {
 // FRP tab L0：+ 新建连接恒在首位，已存记录随后（无频次时按名称序）；搜索过滤。
 func TestFRPTabConnectionList(t *testing.T) {
 	setupFRPStore(t,
-		frp.Conn{Name: "client-a", Server: "s1", SK: "k", Proxy: "ssh-a", User: "root", Path: "/var/log/a.log"},
-		frp.Conn{Name: "client-b", Server: "s1", SK: "k", Proxy: "ssh-b", User: "root", Path: "/var/log/b.log"},
+		frp.Conn{Name: "client-a", Type: frp.TypeSTCP, ServerAddr: "frps.example.com", ServerPort: 7000,
+			ServerName: "ssh-a", SecretKey: "k", User: "root", Path: "/var/log/a.log"},
+		frp.Conn{Name: "client-b", Type: frp.TypeTCP, ServerAddr: "frps.example.com", ServerPort: 7000,
+			RemotePort: 6000, User: "root", Path: "/var/log/b.log"},
 	)
 	app := newTestApp()
 	app.openSourcePicker(3)
@@ -64,24 +71,44 @@ func TestFRPTabConnectionList(t *testing.T) {
 	if len(cands) != 3 || cands[0].value != "+new" || cands[1].value != "client-a" {
 		t.Fatalf("L0 应为 [+new, client-a, client-b]，实际 %v", cands)
 	}
-	// label 只展示 proxy + 上次访问目录（Name 重复是噪音）
-	if cands[1].label != "ssh-a  /var/log/a.log" {
-		t.Fatalf("记录 label 应为 proxy + 目录，实际 %q", cands[1].label)
+	// label：连接名 + [类型 关键参数（官方字段）] + 上次访问目录
+	if cands[1].label != "client-a  [stcp ssh-a@frps.example.com]  /var/log/a.log" {
+		t.Fatalf("stcp label 应含 serverName@serverAddr，实际 %q", cands[1].label)
 	}
-	// 搜索过滤（按 proxy 名）
-	app.pickerFRPInput = "ssh-b"
+	if cands[2].label != "client-b  [tcp frps.example.com:6000]  /var/log/b.log" {
+		t.Fatalf("tcp label 应含 serverAddr:remotePort，实际 %q", cands[2].label)
+	}
+	// 搜索过滤（client-b 是 tcp 连接，按 remotePort 摘要过滤）
+	app.pickerFRPInput = "6000"
 	cands = app.visiblePickerCandidates()
 	if len(cands) != 2 || cands[1].value != "client-b" {
 		t.Fatalf("过滤后应只剩 client-b，实际 %v", cands)
 	}
 	// 无 Path 记录占位提示
-	setupFRPStore(t, frp.Conn{Name: "x", Server: "s1", SK: "k", Proxy: "ssh-x", User: "root"})
+	setupFRPStore(t, stcpConn("x"))
 	app2 := newTestApp()
 	app2.openSourcePicker(3)
-	if c := app2.visiblePickerCandidates(); c[1].label != "ssh-x  （未选过日志）" {
+	if c := app2.visiblePickerCandidates(); !strings.Contains(c[1].label, "（未选过日志）") {
 		t.Fatalf("无 Path 应显示占位，实际 %q", c[1].label)
 	}
 }
+
+// 别名展示：L0 label 优先 alias（空回落 name）；value（主键）仍是 name。
+func TestFRPConnAliasDisplay(t *testing.T) {
+	c := stcpConn("client-a")
+	c.Alias = "办公隧道"
+	setupFRPStore(t, c)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	cands := app.visiblePickerCandidates()
+	if !strings.HasPrefix(cands[1].label, "办公隧道  [") {
+		t.Fatalf("label 应以别名开头，实际 %q", cands[1].label)
+	}
+	if cands[1].value != "client-a" {
+		t.Fatalf("主键应仍是 name，实际 %q", cands[1].value)
+	}
+}
+
 // 4 tab 循环：Tab 4 次回原位，再 1 次到下一个 tab（% 4 生效）。
 func TestSourcePickerFourTabs(t *testing.T) {
 	app := newTestApp()
@@ -105,36 +132,27 @@ func typeRunes(app *App, s string) {
 	}
 }
 
-// 表单 step0：+manual 恒在首位，已存服务器随后；选已存服务器直达 step3(sk)，
-// Backspace 逐级返回（未走过的 step1/2 跳过）。
-func TestFRPFormServerSelect(t *testing.T) {
+// 表单 step0：连接类型候选（stcp/tcp），选择后进 serverAddr；Backspace 逐级返回。
+func TestFRPFormTypeSelect(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
-	// L0 Enter（光标 0 = + 新建连接）→ 表单 step 0
+	// L0 Enter（光标 0 = + 新建连接）→ 表单 step0（type 选择）
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 0 {
 		t.Fatalf("应进入表单 step0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
 	}
 	cands := app.visiblePickerCandidates()
-	if len(cands) != 2 || cands[0].value != "+manual" || cands[1].value != "s1" {
-		t.Fatalf("step0 候选应为 [+manual, s1]，实际 %v", cands)
+	if len(cands) != 2 || cands[0].value != frp.TypeSTCP || cands[1].value != frp.TypeTCP {
+		t.Fatalf("step0 候选应为 [stcp, tcp]，实际 %v", cands)
 	}
-	if cands[1].label != "s1  frps.example.com:7000" {
-		t.Fatalf("命名服务器 label 应为 名 + 地址，实际 %q", cands[1].label)
-	}
-	// Name = Addr（手动输入创建）时同行不重复
-	frpStore().UpsertServer(frp.Server{Name: "frps.x.com:7000", Addr: "frps.x.com:7000"})
-	if c := app.visiblePickerCandidates(); c[len(c)-1].label != "frps.x.com:7000" {
-		t.Fatalf("Name=Addr 应只显示一个，实际 %q", c[len(c)-1].label)
-	}
-	// 选 s1（光标 1）→ 直接跳 sk（step 3）
+	// 选 tcp（光标 1）→ step1(serverAddr)
 	app.Update(tea.KeyMsg{Type: tea.KeyDown})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if app.pickerFRPStep != 3 || app.pickerFRPServerName != "s1" {
-		t.Fatalf("选已存服务器应到 step3(sk)，实际 step=%d server=%q", app.pickerFRPStep, app.pickerFRPServerName)
+	if app.pickerFRPStep != 1 || app.pickerFRPFormType != frp.TypeTCP {
+		t.Fatalf("选 tcp 应到 step1 且记录类型，实际 step=%d type=%q", app.pickerFRPStep, app.pickerFRPFormType)
 	}
-	// Backspace 回 step0，再 Backspace 回 L0
+	// Backspace 逐级返回：step1→step0→L0（线性，无 v1 的跳级特判）
 	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	if app.pickerFRPStep != 0 {
 		t.Fatalf("Backspace 应回 step0，实际 %d", app.pickerFRPStep)
@@ -145,30 +163,26 @@ func TestFRPFormServerSelect(t *testing.T) {
 	}
 }
 
-// 表单手动输入路径：地址 → token（保存服务器）→ sk → proxy → user（空值不提交）。
-func TestFRPFormNewServerAndFields(t *testing.T) {
+// 表单 stcp 全流程：type → serverAddr → token(可空) → secretKey → serverName → user（空值不提交）。
+func TestFRPFormSTCPFields(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 光标 0 = +manual → step1
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0(type)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 光标 0 = stcp → step1
 	if app.pickerFRPStep != 1 {
-		t.Fatalf("应到 step1(地址)，实际 %d", app.pickerFRPStep)
+		t.Fatalf("应到 step1(serverAddr)，实际 %d", app.pickerFRPStep)
 	}
 	typeRunes(app, "frps2.example.com:7000")
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2 token
 	typeRunes(app, "tk2")
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step3，保存服务器
-	sv, ok := frpStore().FindServer("frps2.example.com:7000")
-	if !ok || sv.Addr != "frps2.example.com:7000" || sv.Token != "tk2" {
-		t.Fatalf("新服务器应已保存，实际 %+v ok=%v", sv, ok)
-	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step3 secretKey
 	typeRunes(app, "sk1")
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step4
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step4 serverName
 	typeRunes(app, "ssh-x")
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5
-	if app.pickerFRPSK != "sk1" || app.pickerFRPProxy != "ssh-x" {
-		t.Fatalf("字段未暂存: sk=%q proxy=%q", app.pickerFRPSK, app.pickerFRPProxy)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step5 user
+	if app.pickerFRPSecretKey != "sk1" || app.pickerFRPSName != "ssh-x" {
+		t.Fatalf("字段未暂存: secretKey=%q serverName=%q", app.pickerFRPSecretKey, app.pickerFRPSName)
 	}
 	// user 留空 Enter：不提交
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -177,46 +191,44 @@ func TestFRPFormNewServerAndFields(t *testing.T) {
 	}
 }
 
-// 手动输入地址中途返回 L0 后再选已存服务器：残留 ServerAddr 会使 step3 回退
-// 跳级失效（回退走到 step2），空 token Enter 会用残留地址覆盖已存服务器记录。
-func TestFRPFormBackspaceAfterManual(t *testing.T) {
+// 表单 tcp 流程：step3=remotePort（非数字/越界不前进），step4=user 即提交（无 step5）。
+func TestFRPFormTCPFields(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
-	// Enter(+new)→step0，Enter(+manual)→step1，输入地址→step2（ServerAddr 残留）
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	typeRunes(app, "frps2.example.com:7000")
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if app.pickerFRPStep != 2 {
-		t.Fatalf("应到 step2(token)，实际 %d", app.pickerFRPStep)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
+	app.Update(tea.KeyMsg{Type: tea.KeyDown})  // 光标 → tcp
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step1
+	typeRunes(app, "frps.example.com")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2 token
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 空 token → step3 remotePort
+	if app.pickerFRPStep != 3 {
+		t.Fatalf("tcp 应到 step3(remotePort)，实际 %d", app.pickerFRPStep)
 	}
-	// Backspace×3：step2→step1→step0→L0
+	// 非数字不前进
+	typeRunes(app, "abc")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerFRPStep != 3 {
+		t.Fatalf("非数字端口不应前进，实际 step=%d", app.pickerFRPStep)
+	}
+	// 输入框内容需清掉再输入：Backspace 逐字符删 "abc"
 	for i := 0; i < 3; i++ {
 		app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
-	if app.pickerFRPLevel != 0 {
-		t.Fatalf("三次 Backspace 应回 L0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
+	typeRunes(app, "6000")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step4 user
+	if app.pickerFRPStep != 4 || app.pickerFRPRemotePort != 6000 {
+		t.Fatalf("端口 6000 应进 step4，实际 step=%d port=%d", app.pickerFRPStep, app.pickerFRPRemotePort)
 	}
-	// 重进表单，选已存服务器 s1 → 直达 step3
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
-	app.Update(tea.KeyMsg{Type: tea.KeyDown})  // 光标 → s1
+	// user 空 Enter 不提交；填 user 提交（step4 即最后一步）
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if app.pickerFRPStep != 3 || app.pickerFRPServerName != "s1" {
-		t.Fatalf("选 s1 应到 step3(sk)，实际 step=%d server=%q", app.pickerFRPStep, app.pickerFRPServerName)
+	if app.pickerFRPStep != 4 || app.pickerLoading {
+		t.Fatalf("user 为空不应提交，实际 step=%d loading=%v", app.pickerFRPStep, app.pickerLoading)
 	}
-	// step3 由选已存服务器直达（未走 step1/2）：Backspace 应跳级回 step0，而非 step2
-	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 0 {
-		t.Fatalf("step3 Backspace 应跳级回 step0，实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
-	}
-	// 再走一遍同路径：s1 记录应保持 setup 写入的原值，未被残留地址覆盖
-	app.Update(tea.KeyMsg{Type: tea.KeyDown})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
-	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	sv, ok := frpStore().FindServer("s1")
-	if !ok || sv.Addr != "frps.example.com:7000" || sv.Token != "tk" {
-		t.Fatalf("s1 记录应保持原值(frps.example.com:7000/tk)，实际 %+v ok=%v", sv, ok)
+	typeRunes(app, "root")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step4 提交 → loading
+	if !app.pickerLoading {
+		t.Fatal("tcp 表单提交后应进入 loading")
 	}
 }
 
@@ -235,18 +247,22 @@ func TestCloseSourcePickerCleansFRPTunnel(t *testing.T) {
 	}
 }
 
+// stcp frpTunnelMsg：进 L2、隧道/host=127.0.0.1/隧道端口落位。
 func TestFRPTunnelMsgBrowseEntersDirLevel(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
 	fake := &fakeFRPTunnel{port: 6022}
-	conn := frp.Conn{Name: "ssh-x", Server: "s1", SK: "sk1", Proxy: "ssh-x", User: "root"}
+	conn := stcpConn("ssh-x")
 	app.Update(frpTunnelMsg{conn: conn, tunnel: fake})
 	if app.pickerFRPLevel != 2 || app.pickerFRPTunnel != fake || !app.pickerLoading {
 		t.Fatalf("隧道建立应进 L2 且 loading，实际 level=%d loading=%v", app.pickerFRPLevel, app.pickerLoading)
 	}
 	if app.pickerFRPUser != "root" || app.pickerFRPDir != "/" {
 		t.Fatalf("user/dir 应就位（无 Path 起始根目录）: %q %q", app.pickerFRPUser, app.pickerFRPDir)
+	}
+	if app.pickerFRPHost != "127.0.0.1" || app.pickerFRPPort != 6022 {
+		t.Fatalf("stcp 浏览目标应为 127.0.0.1:6022，实际 %s:%d", app.pickerFRPHost, app.pickerFRPPort)
 	}
 
 	// 目录候选回填
@@ -266,6 +282,29 @@ func TestFRPTunnelMsgBrowseEntersDirLevel(t *testing.T) {
 	}
 }
 
+// tcp frpTunnelMsg（无隧道）：host=serverAddr、port=remotePort 落位，隧道为 nil。
+func TestFRPTunnelMsgTCPDirect(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	conn := frp.Conn{Name: "nas", Type: frp.TypeTCP, ServerAddr: "frps.example.com", ServerPort: 7000,
+		RemotePort: 6000, User: "root", Path: "/var/log/nas.log"}
+	app.Update(frpTunnelMsg{conn: conn})
+	if app.pickerFRPLevel != 2 || app.pickerFRPTunnel != nil || !app.pickerLoading {
+		t.Fatalf("tcp 应进 L2（无隧道）且 loading，实际 level=%d tunnel=%v loading=%v",
+			app.pickerFRPLevel, app.pickerFRPTunnel != nil, app.pickerLoading)
+	}
+	if app.pickerFRPHost != "frps.example.com" || app.pickerFRPPort != 6000 {
+		t.Fatalf("tcp 浏览目标应为 frps.example.com:6000，实际 %s:%d", app.pickerFRPHost, app.pickerFRPPort)
+	}
+	if app.pickerFRPDir != "/var/log" { // Path 父目录
+		t.Fatalf("起始目录应为 /var/log，实际 %s", app.pickerFRPDir)
+	}
+	if app.pickerFRPCur == nil || app.pickerFRPCur.Name != "nas" {
+		t.Fatal("连接快照应落位")
+	}
+}
+
 func TestFRPTunnelMsgErrorSurfaces(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
@@ -277,13 +316,16 @@ func TestFRPTunnelMsgErrorSurfaces(t *testing.T) {
 	}
 }
 
+// stcp 表单提交后进入 loading 等隧道。
 func TestFRPFormSubmitStartsTunnel(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
-	app.Update(tea.KeyMsg{Type: tea.KeyDown})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // stcp → step1
+	typeRunes(app, "frps.example.com")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 空 token → step3
 	typeRunes(app, "sk1")
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	typeRunes(app, "ssh-x")
@@ -305,20 +347,27 @@ func fakeSSHBin(t *testing.T) {
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 }
 
+// enterFRPBrowseState 构造 stcp L2 浏览态（快照/host/port 就位，模拟 frpTunnelMsg 落位后的现场）。
+// 隧道参数收接口：fakeFRPTunnel/fakeFRPTunnelLog 均可传（后者保留 RecentLog 供诊断断言）。
+func enterFRPBrowseState(app *App, t frpTunnelHandle, conn frp.Conn) {
+	app.openSourcePicker(3)
+	cur := conn
+	app.pickerFRPLevel = 2
+	app.pickerFRPCur = &cur
+	app.pickerFRPTunnel = t
+	app.pickerFRPHost = "127.0.0.1"
+	app.pickerFRPPort = t.LocalPort()
+	app.pickerFRPUser = conn.User
+	app.pickerFRPConnName = conn.Name
+	app.pickerFRPDir = "/var/log"
+}
+
 func TestFRPConfirmSavesRecordAndSwitchesStream(t *testing.T) {
 	setupFRPStore(t)
 	fakeSSHBin(t) // 阻塞式假 ssh，避免真连 127.0.0.1
 	app := newTestApp()
-	app.openSourcePicker(3)
 	fake := &fakeFRPTunnel{port: 6022}
-	app.pickerFRPLevel = 2
-	app.pickerFRPTunnel = fake
-	app.pickerFRPServerName = "s1"
-	app.pickerFRPSK = "sk1"
-	app.pickerFRPProxy = "ssh-x"
-	app.pickerFRPUser = "root"
-	app.pickerFRPConnName = "ssh-x"
-	app.pickerFRPDir = "/var/log"
+	enterFRPBrowseState(app, fake, stcpConn("ssh-x"))
 	app.pickerCandidates = []sourceCandidate{{label: "app.log", value: "app.log"}}
 	app.pickerLoading = false
 
@@ -334,10 +383,44 @@ func TestFRPConfirmSavesRecordAndSwitchesStream(t *testing.T) {
 	if label != "frp://ssh-x/var/log/app.log" {
 		t.Fatalf("应切到 FRP 源，实际 %s", label)
 	}
-	// 记录已保存（含 Path）
+	// 记录已保存（含 Path，官方字段整体）
 	c, ok := frpStore().FindConn("ssh-x")
-	if !ok || c.Path != "/var/log/app.log" || c.Server != "s1" || c.SK != "sk1" {
+	if !ok || c.Path != "/var/log/app.log" || c.ServerAddr != "frps.example.com" ||
+		c.ServerName != "ssh-x" || c.SecretKey != "sk1" || c.Type != frp.TypeSTCP {
 		t.Fatalf("记录应整体保存，实际 %+v ok=%v", c, ok)
+	}
+}
+
+// tcp 确认建流：FRPDirectSource（无隧道），记录整体保存。
+func TestFRPConfirmTCPDirectSource(t *testing.T) {
+	setupFRPStore(t)
+	fakeSSHBin(t)
+	app := newTestApp()
+	conn := frp.Conn{Name: "nas", Type: frp.TypeTCP, ServerAddr: "frps.example.com", ServerPort: 7000,
+		RemotePort: 6000, User: "root"}
+	cur := conn
+	app.openSourcePicker(3)
+	app.pickerFRPLevel = 2
+	app.pickerFRPCur = &cur
+	app.pickerFRPHost = conn.ServerAddr
+	app.pickerFRPPort = conn.RemotePort
+	app.pickerFRPUser = conn.User
+	app.pickerFRPConnName = conn.Name
+	app.pickerFRPDir = "/var/log"
+	app.pickerCandidates = []sourceCandidate{{label: "app.log", value: "app.log"}}
+	app.pickerLoading = false
+
+	app.Update(tea.KeyMsg{Type: tea.KeyDown}) // 跳过 ../
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // confirm → FRPDirectSource
+	if app.sourcePickerMode {
+		t.Fatal("确认后应关闭选择器")
+	}
+	if label := app.stream.Label(); label != "frp://nas/var/log/app.log" {
+		t.Fatalf("应切到 FRP 直连源，实际 %s", label)
+	}
+	c, ok := frpStore().FindConn("nas")
+	if !ok || c.Type != frp.TypeTCP || c.RemotePort != 6000 || c.Path != "/var/log/app.log" {
+		t.Fatalf("tcp 记录应整体保存，实际 %+v ok=%v", c, ok)
 	}
 }
 
@@ -357,14 +440,17 @@ func TestFRPBrowseRoot(t *testing.T) {
 	}
 }
 
-// 表单 step5 提交即保存记录（此前仅选文件确认时保存，中途放弃配置就丢）。
+// 表单最后一步提交即保存记录（此前仅选文件确认时保存，中途放弃配置就丢）。
 func TestFRPFormSubmitSavesConnImmediately(t *testing.T) {
 	p := setupFRPStore(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
-	app.Update(tea.KeyMsg{Type: tea.KeyDown})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // stcp → step1
+	typeRunes(app, "frps.example.com:7000")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2
+	typeRunes(app, "tk")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step3
 	typeRunes(app, "sk1")
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	typeRunes(app, "ssh-z")
@@ -373,8 +459,9 @@ func TestFRPFormSubmitSavesConnImmediately(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5 提交
 
 	c, ok := frpStore().FindConn("ssh-z")
-	if !ok || c.Server != "s1" || c.SK != "sk1" || c.Proxy != "ssh-z" || c.User != "root" {
-		t.Fatalf("提交后应立即保存记录，实际 %+v ok=%v", c, ok)
+	if !ok || c.Type != frp.TypeSTCP || c.ServerAddr != "frps.example.com" || c.ServerPort != 7000 ||
+		c.Token != "tk" || c.SecretKey != "sk1" || c.ServerName != "ssh-z" || c.User != "root" {
+		t.Fatalf("提交后应立即保存记录（官方字段平铺），实际 %+v ok=%v", c, ok)
 	}
 	// 落盘验证：重载 store 仍在
 	frp.ResetStoreForTest()
@@ -386,7 +473,11 @@ func TestFRPFormSubmitSavesConnImmediately(t *testing.T) {
 
 // L0 选已存记录：建隧道后统一进目录浏览，起始目录 = 已存 Path 父目录。
 func TestFRPDirectRecordBrowses(t *testing.T) {
-	setupFRPStore(t, frp.Conn{Name: "client-a", Server: "s1", SK: "sk1", Proxy: "ssh-a", User: "root", Path: "/var/log/a.log"})
+	setupFRPStore(t, func() frp.Conn {
+		c := stcpConn("client-a")
+		c.Path = "/var/log/a.log"
+		return c
+	}())
 	fakeSSHBin(t)
 	app := newTestApp()
 	app.openSourcePicker(3)
@@ -396,10 +487,9 @@ func TestFRPDirectRecordBrowses(t *testing.T) {
 		t.Fatal("选已存记录应进入 loading 等隧道")
 	}
 	fake := &fakeFRPTunnel{port: 6022}
-	app.Update(frpTunnelMsg{
-		conn:   frp.Conn{Name: "client-a", Server: "s1", SK: "sk1", Proxy: "ssh-a", User: "root", Path: "/var/log/a.log"},
-		tunnel: fake,
-	})
+	c := stcpConn("client-a")
+	c.Path = "/var/log/a.log"
+	app.Update(frpTunnelMsg{conn: c, tunnel: fake})
 	if !app.sourcePickerMode || app.pickerFRPLevel != 2 {
 		t.Fatalf("应进 L2 目录浏览，实际 mode=%v level=%d", app.sourcePickerMode, app.pickerFRPLevel)
 	}
@@ -442,17 +532,9 @@ func TestFRPTailPasswordPromptAndRestart(t *testing.T) {
 }
 
 // enterFRPPwState 构造 frp 目录浏览认证失败 → 密码弹窗态（隧道保留）。
-// ServerName/SK 模拟 L0 选已存记录直达时就位（真实时序：浏览前已定）。
+// 连接快照/host/port 模拟 L0 选已存记录直达时就位（真实时序：浏览前已定）。
 func enterFRPPwState(app *App, fake *fakeFRPTunnel) {
-	app.openSourcePicker(3)
-	app.pickerFRPLevel = 2
-	app.pickerFRPTunnel = fake
-	app.pickerFRPServerName = "s1"
-	app.pickerFRPSK = "sk1"
-	app.pickerFRPUser = "root"
-	app.pickerFRPDir = "/var/log"
-	app.pickerFRPProxy = "ssh-x"
-	app.pickerFRPConnName = "ssh-x"
+	enterFRPBrowseState(app, fake, stcpConn("ssh-x"))
 	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/var/log",
 		err: fmt.Errorf("ssh: permission denied, please try again")})
 }
@@ -465,8 +547,7 @@ func TestFRPDirErrorSurfacesWithoutPwPrompt(t *testing.T) {
 	app.openSourcePicker(3)
 	app.pickerFRPLevel = 2
 	fake := &fakeFRPTunnel{port: 6022}
-	app.pickerFRPTunnel = fake
-	app.pickerFRPUser = "root"
+	enterFRPBrowseState(app, fake, stcpConn("ssh-x"))
 	app.pickerFRPDir = "/"
 
 	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
@@ -495,12 +576,9 @@ func TestFRPDirErrorSurfacesWithoutPwPrompt(t *testing.T) {
 func TestFRPDirConnErrAppendsFRPCLog(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
-	app.openSourcePicker(3)
-	app.pickerFRPLevel = 2
 	fake := &fakeFRPTunnelLog{log: "E proxy [ssh-a] not found"}
 	fake.port = 6022
-	app.pickerFRPTunnel = fake
-	app.pickerFRPUser = "root"
+	enterFRPBrowseState(app, fake, stcpConn("ssh-x"))
 	app.pickerFRPDir = "/"
 
 	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
@@ -517,10 +595,7 @@ func TestFRPDirConnErrAppendsFRPCLog(t *testing.T) {
 	}
 	// 隧道未实现 RecentLog（fakeFRPTunnel）：只显示原始错误，不崩
 	app2 := newTestApp()
-	app2.openSourcePicker(3)
-	app2.pickerFRPLevel = 2
-	app2.pickerFRPTunnel = &fakeFRPTunnel{port: 6022}
-	app2.pickerFRPUser = "root"
+	enterFRPBrowseState(app2, &fakeFRPTunnel{port: 6022}, stcpConn("ssh-x"))
 	app2.pickerFRPDir = "/"
 	app2.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
 		err: fmt.Errorf("ssh ls root@127.0.0.1: Connection reset by peer")})
@@ -533,12 +608,9 @@ func TestFRPDirConnErrAppendsFRPCLog(t *testing.T) {
 func TestFRPDirErrHintsProxyNotFound(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
-	app.openSourcePicker(3)
-	app.pickerFRPLevel = 2
 	fake := &fakeFRPTunnelLog{log: "[W] dialRawVisitorConn error: start new visitor connection error: custom listener for [8C32230C66ED] doesn't exist"}
 	fake.port = 6022
-	app.pickerFRPTunnel = fake
-	app.pickerFRPUser = "root"
+	enterFRPBrowseState(app, fake, stcpConn("ssh-x"))
 	app.pickerFRPDir = "/"
 	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
 		err: fmt.Errorf("ssh ls root@127.0.0.1: kex_exchange_identification: read: Connection reset by peer")})
@@ -572,8 +644,8 @@ func TestFRPPwEscCleansTunnel(t *testing.T) {
 	}
 }
 
-// frp 密码确认后回目录层：ServerName/SK 应保留，confirmFRPPicker 保存的记录不缺服务器/SK。
-func TestFRPPwConfirmKeepsServerForRecord(t *testing.T) {
+// frp 密码确认后回目录层：连接快照应保留，confirmFRPPicker 保存的记录字段完整。
+func TestFRPPwConfirmKeepsConnForRecord(t *testing.T) {
 	setupFRPStore(t)
 	fakeSSHBin(t) // confirmFRPPicker 建 FRPSource，避免真连
 	app := newTestApp()
@@ -587,18 +659,18 @@ func TestFRPPwConfirmKeepsServerForRecord(t *testing.T) {
 	if cmd := app.confirmSSHPw(); cmd == nil {
 		t.Fatal("确认密码应返回重拉目录的 cmd")
 	}
-	if app.pickerFRPServerName != "s1" || app.pickerFRPSK != "sk1" {
-		t.Fatalf("确认后应保留服务器/SK: server=%q sk=%q", app.pickerFRPServerName, app.pickerFRPSK)
+	if app.pickerFRPCur == nil || app.pickerFRPCur.ServerAddr != "frps.example.com" || app.pickerFRPCur.SecretKey != "sk1" {
+		t.Fatalf("确认后应保留连接快照，实际 %+v", app.pickerFRPCur)
 	}
 
-	// 回目录层后选文件确认 → 记录整体保存（Server/SK 非空）
+	// 回目录层后选文件确认 → 记录整体保存（官方字段非空）
 	app.pickerCandidates = []sourceCandidate{{label: "app.log", value: "app.log"}}
 	app.pickerLoading = false
 	app.Update(tea.KeyMsg{Type: tea.KeyDown})  // 跳过首位 ../
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选中 app.log → confirmFRPPicker
 	c, ok := frpStore().FindConn("ssh-x")
-	if !ok || c.Server != "s1" || c.SK != "sk1" {
-		t.Fatalf("记录应含服务器/SK，实际 %+v ok=%v", c, ok)
+	if !ok || c.ServerAddr != "frps.example.com" || c.SecretKey != "sk1" || c.ServerName != "ssh-x" {
+		t.Fatalf("记录应含官方字段，实际 %+v ok=%v", c, ok)
 	}
 }
 
@@ -606,15 +678,19 @@ func TestFRPPwConfirmKeepsServerForRecord(t *testing.T) {
 // 否则：① frpPwKey 错位（B 的密码缓存走 A 的 key）；② confirmFRPPicker 以旧名 UpsertConn，
 // ssh-x 旧记录被 B 的参数整体覆盖；③ 迟到 frpTunnelMsg 的 conn.Name 不生效。
 func TestFRPNewFormClearsStaleConnName(t *testing.T) {
-	setupFRPStore(t, frp.Conn{Name: "ssh-x", Server: "s1", SK: "sk1", Proxy: "ssh-x", User: "root", Path: "/var/log/x.log"})
+	connA := stcpConn("ssh-x")
+	connA.Path = "/var/log/x.log"
+	setupFRPStore(t, connA)
 	fakeSSHBin(t) // confirmFRPPicker 建 FRPSource，避免真连
 	app := newTestApp()
 	app.openSourcePicker(3)
 
-	// 第一次建连 A（表单 proxy=ssh-x）：提交后隧道建立，browse=true 进 L2 落位 ConnName
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0
-	app.Update(tea.KeyMsg{Type: tea.KeyDown})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	// 第一次建连 A（表单 serverName=ssh-x）：提交后隧道建立，进 L2 落位 ConnName
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → step0(type)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // stcp → step1
+	typeRunes(app, "frps.example.com")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 空 token → step3
 	typeRunes(app, "sk1")
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	typeRunes(app, "ssh-x")
@@ -622,17 +698,18 @@ func TestFRPNewFormClearsStaleConnName(t *testing.T) {
 	typeRunes(app, "root")
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step5 提交 → loading
 	fake1 := &fakeFRPTunnel{port: 6022}
-	app.Update(frpTunnelMsg{conn: frp.Conn{Name: "ssh-x", Server: "s1", SK: "sk1", Proxy: "ssh-x", User: "root"},
-		tunnel: fake1})
+	app.Update(frpTunnelMsg{conn: stcpConn("ssh-x"), tunnel: fake1})
 	if app.pickerFRPConnName != "ssh-x" {
 		t.Fatalf("前置：建连 A 后 ConnName 应为 ssh-x，实际 %q", app.pickerFRPConnName)
 	}
 	// 目录列表回填（清 loading）→ 根目录 Backspace → closeFRPBrowse 回 L0
 	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/",
 		items: []sourceCandidate{{label: "app.log", value: "app.log"}}})
+	app.pickerLoading = false
+	app.pickerFRPDir = "/" // 起始已是根（无 Path 记录），直接 Backspace 即退
 	app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	if app.pickerFRPLevel != 0 || app.pickerFRPTunnel != nil {
-		t.Fatalf("Backspace 应回 L0 并清隧道，实际 level=%d tunnel=%v", app.pickerFRPLevel, app.pickerFRPTunnel)
+		t.Fatalf("Backspace 应回 L0 并清隧道，实际 level=%d tunnel=%v", app.pickerFRPLevel, app.pickerFRPTunnel != nil)
 	}
 
 	// "+new" Enter 进表单：残留 ConnName 必须清空（旧记录名作废）
@@ -644,9 +721,11 @@ func TestFRPNewFormClearsStaleConnName(t *testing.T) {
 		t.Fatalf("+new 进表单应清除残留 ConnName，实际 %q", app.pickerFRPConnName)
 	}
 
-	// 走表单建连 B（proxy=ssh-y）：选 s1 → sk → proxy → user 提交
-	app.Update(tea.KeyMsg{Type: tea.KeyDown})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 选 s1 → step3
+	// 走表单建连 B（serverName=ssh-y）
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // stcp → step1
+	typeRunes(app, "frps.example.com")
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // → step2
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 空 token → step3
 	typeRunes(app, "sk2")
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	typeRunes(app, "ssh-y")
@@ -657,10 +736,11 @@ func TestFRPNewFormClearsStaleConnName(t *testing.T) {
 		t.Fatal("表单提交后应进入 loading 等隧道")
 	}
 
-	// 隧道建立（browse=true）：conn.Name 应无条件落位，密码 key 跟随 B
+	// 隧道建立：conn.Name 应无条件落位，密码 key 跟随 B
 	fake2 := &fakeFRPTunnel{port: 6023}
-	app.Update(frpTunnelMsg{conn: frp.Conn{Name: "ssh-y", Server: "s1", SK: "sk2", Proxy: "ssh-y", User: "root"},
-		tunnel: fake2})
+	connB := stcpConn("ssh-y")
+	connB.SecretKey = "sk2"
+	app.Update(frpTunnelMsg{conn: connB, tunnel: fake2})
 	if app.pickerFRPConnName != "ssh-y" {
 		t.Fatalf("建连 B 后 ConnName 应为 ssh-y，实际 %q", app.pickerFRPConnName)
 	}
@@ -678,11 +758,12 @@ func TestFRPNewFormClearsStaleConnName(t *testing.T) {
 		t.Fatal("确认后应关闭选择器")
 	}
 	old, ok := frpStore().FindConn("ssh-x")
-	if !ok || old.Server != "s1" || old.SK != "sk1" || old.Proxy != "ssh-x" || old.Path != "/var/log/x.log" {
+	if !ok || old.ServerName != "ssh-x" || old.SecretKey != "sk1" || old.Path != "/var/log/x.log" {
 		t.Fatalf("ssh-x 旧记录不应被建连 B 覆盖，实际 %+v ok=%v", old, ok)
 	}
 	rec, ok := frpStore().FindConn("ssh-y")
-	if !ok || rec.Server != "s1" || rec.SK != "sk2" || rec.Proxy != "ssh-y" || rec.User != "root" || rec.Path != "/var/log/app.log" {
+	if !ok || rec.ServerAddr != "frps.example.com" || rec.SecretKey != "sk2" || rec.ServerName != "ssh-y" ||
+		rec.User != "root" || rec.Path != "/var/log/app.log" {
 		t.Fatalf("ssh-y 应保存为新记录，实际 %+v ok=%v", rec, ok)
 	}
 }
@@ -691,13 +772,7 @@ func TestFRPBrowsePasswordPrompt(t *testing.T) {
 	setupFRPStore(t)
 	app := newTestApp()
 	fake := &fakeFRPTunnel{port: 6022}
-	app.openSourcePicker(3)
-	app.pickerFRPLevel = 2
-	app.pickerFRPTunnel = fake
-	app.pickerFRPUser = "root"
-	app.pickerFRPDir = "/var/log"
-	app.pickerFRPProxy = "ssh-x"
-	app.pickerFRPConnName = "ssh-x"
+	enterFRPBrowseState(app, fake, stcpConn("ssh-x"))
 
 	// 目录拉取认证失败 → 弹密码框（隧道保留）
 	app.Update(candidatesMsg{tab: 3, kind: "frpdir", ns: "frp:/var/log",
@@ -719,12 +794,11 @@ func TestFRPBrowsePasswordPrompt(t *testing.T) {
 	}
 }
 
-// C-x 删除：L0 删连接记录（+new 不可删、删除后落盘光标收敛）；
-// L1 step0 删服务器（被引用时拒绝、+manual 不可删、无引用时可删）。
+// C-x 删除：L0 删连接记录（+new 不可删、删除后落盘光标收敛）。
 func TestSourcePickerFRPDelete(t *testing.T) {
 	p := setupFRPStore(t,
-		frp.Conn{Name: "client-a", Server: "s1", SK: "k", Proxy: "ssh-a", User: "root", Path: "/var/log/a.log"},
-		frp.Conn{Name: "client-b", Server: "s1", SK: "k", Proxy: "ssh-b", User: "root", Path: "/var/log/b.log"},
+		func() frp.Conn { c := stcpConn("client-a"); c.Path = "/var/log/a.log"; return c }(),
+		func() frp.Conn { c := stcpConn("client-b"); c.Path = "/var/log/b.log"; return c }(),
 	)
 	app := newTestApp()
 	app.openSourcePicker(3)
@@ -748,32 +822,5 @@ func TestSourcePickerFRPDelete(t *testing.T) {
 	}
 	if _, ok := frpStore().FindConn("client-b"); !ok {
 		t.Fatal("client-b 应保留")
-	}
-
-	// L1 step0：s1 被 client-b 引用 → C-x 拒绝（先 C-k 回 +new 进表单）
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → L1 step0
-	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 0 {
-		t.Fatalf("应进 L1 step0，level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
-	}
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ}) // 光标到 s1
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	if len(frpStore().Servers) != 1 {
-		t.Fatal("被引用的服务器不应被删除")
-	}
-
-	// 删掉 client-b 后：s1 可删，列表只剩 +manual
-	app.openSourcePicker(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ}) // client-b
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new → L1 step0
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ}) // 光标到 s1
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	if len(frpStore().Servers) != 0 {
-		t.Fatal("无引用的服务器应可删除")
-	}
-	cands := app.visiblePickerCandidates()
-	if len(cands) != 1 || cands[0].value != "+manual" {
-		t.Fatalf("删空后应只剩 +manual，实际 %v", cands)
 	}
 }

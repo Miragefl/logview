@@ -26,20 +26,42 @@ type App struct {
 	mgr *fview.Manager
 	// browse FRP 浏览会话的幂等隧道注册表（Final Review C2/C3）
 	browse *fview.BrowseRegistry[*frp.Tunnel]
+	// passes 密码仓（keyring 钥匙串，测试可注入 fake，passstore.go）
+	passes passStore
 	// storeMu 连接库 CRUD 串行化（frp.Store 的 Upsert/Delete/Find 裸操作非线程安全，Final Review I1）
 	storeMu sync.Mutex
 }
 
 // NewApp 构造后端绑定根（emit 直连 Wails EventsEmit）。
 func NewApp() *App {
-	a := &App{browse: fview.NewBrowseRegistry[*frp.Tunnel]()}
+	a := &App{browse: fview.NewBrowseRegistry[*frp.Tunnel](), passes: newKeyringPassStore()}
 	a.mgr = fview.NewManager(func(event string, data any) {
-		if a.ctx != nil {
-			wruntime.EventsEmit(a.ctx, event, data)
-		}
+		a.safeEmit(event, data)
 	}, defaultBufSize)
 	a.loadParsers()
 	return a
+}
+
+// safeEmit Wails 事件广播（ctx 未注入时静默丢弃；Manager 流与菜单回调共用出口）。
+// data 必须带 ... 展开传入 EventsEmit：漏展开会把整个切片当单个 optionalData
+// 元素，前端回调收到 [X] 而非 X，tab 事件 payload 全嵌套变形（Final Review C1）。
+func (a *App) safeEmit(event string, data ...any) {
+	if a.ctx != nil {
+		wruntime.EventsEmit(a.ctx, event, data...)
+	}
+}
+
+// shortcutCloseTab mac 菜单 ⌘W 回调：广播 shortcut:closeTab，
+// 前端 App.vue 订阅后关闭当前激活 tab（与 ctrl+w / 点 X 同路，spec 2026-11-03）。
+func (a *App) shortcutCloseTab() {
+	a.safeEmit("shortcut:closeTab")
+}
+
+// menuQuit mac 菜单 ⌘Q 回调：退出应用（shutdown 钩子兜底杀全部 frpc visitor）。
+func (a *App) menuQuit() {
+	if a.ctx != nil {
+		wruntime.Quit(a.ctx)
+	}
 }
 
 // rulesPath 共享 rules.yaml 路径（与 TUI 同一份正本）。
@@ -125,6 +147,19 @@ func (a *App) SetFollow(tabID string, follow bool) error {
 // CloseTab 关闭 tab 并清理流资源。
 func (a *App) CloseTab(tabID string) error {
 	return a.mgr.CloseTab(tabID)
+}
+
+// GetSavedPass 取已存密码（空串=无；key 约定 ssh:{host} / frp:{connName}）。
+func (a *App) GetSavedPass(key string) string {
+	return a.passes.Get(key)
+}
+
+// SavePass 存密码（空密码不入库——密钥认证/免密不产生垃圾条目；改密重写同 key 覆盖）。
+func (a *App) SavePass(key, pass string) error {
+	if pass == "" {
+		return nil
+	}
+	return a.passes.Set(key, pass)
 }
 
 // ClearTab 清屏（C 键:后端清会话缓冲并广播 tab:cleared,验收反馈④）。
@@ -254,40 +289,21 @@ func (a *App) GetLine(tabID string, idx int) map[string]string {
 	}
 }
 
-// ---- 连接库（共享正本：frp.json Servers/Conns + rules.yaml ssh_hosts）----
+// ---- 连接库（共享正本：frp.json 平铺官方字段 Conns + rules.yaml ssh_hosts）----
 
-// FrpServers frps 服务器列表（frp.json）。
-func (a *App) FrpServers() []frp.Server { return frp.LoadStore().Servers }
-
-// FrpConns frp 连接记录列表（frp.json）。
+// FrpConns frp 连接记录列表（frp.json，v2 单层平铺官方字段）。
 func (a *App) FrpConns() []frp.Conn { return frp.LoadStore().Conns }
 
-// UpsertFrpServer 新增/更新 frps 服务器并落盘。
-func (a *App) UpsertFrpServer(s frp.Server) error {
-	a.storeMu.Lock()
-	defer a.storeMu.Unlock()
-	st := frp.LoadStore()
-	st.UpsertServer(s)
-	return st.Save()
-}
-
-// UpsertFrpConn 新增/更新连接记录并落盘（确认日志路径也走这里）。
+// UpsertFrpConn 新增/更新连接记录并落盘（确认日志路径也走这里；入参归一 type/serverPort 默认值）。
+// name 是主键：空值拒绝落盘（前端传参错位时全字段 undefined，防再出空记录）。
 func (a *App) UpsertFrpConn(c frp.Conn) error {
+	if strings.TrimSpace(c.Name) == "" {
+		return fmt.Errorf("连接 name 不能为空")
+	}
 	a.storeMu.Lock()
 	defer a.storeMu.Unlock()
 	st := frp.LoadStore()
 	st.UpsertConn(c)
-	return st.Save()
-}
-
-// DeleteFrpServer 删除服务器（仍被连接引用时返回错误）。
-func (a *App) DeleteFrpServer(name string) error {
-	a.storeMu.Lock()
-	defer a.storeMu.Unlock()
-	st := frp.LoadStore()
-	if err := st.DeleteServer(name); err != nil {
-		return err
-	}
 	return st.Save()
 }
 
@@ -300,8 +316,31 @@ func (a *App) DeleteFrpConn(name string) error {
 	return st.Save()
 }
 
-// SSHHosts SSH 主机列表（rules.yaml ssh_hosts，TUI 同源）。
-func (a *App) SSHHosts() []string {
+// SSHHostDTO SSH 主机条目：name + 是否来自 ~/.ssh/config 自动发现
+//（前端据此隐藏删除键——发现主机删了也会被重新发现）。
+type SSHHostDTO struct {
+	Name          string `json:"name"`
+	FromSSHConfig bool   `json:"fromSshConfig"`
+}
+
+// SSHHosts SSH 主机列表：rules.yaml ssh_hosts 与 ~/.ssh/config 发现结果合并
+//（MergeSSHHosts 配置优先、去重，与 TUI cmd/root.go 装配同源同序）。
+func (a *App) SSHHosts() []SSHHostDTO {
+	discovered := stream.ParseSSHConfigHosts()
+	discSet := make(map[string]bool, len(discovered))
+	for _, h := range discovered {
+		discSet[h] = true
+	}
+	merged := stream.MergeSSHHosts(a.rulesSSHHosts(), discovered)
+	out := make([]SSHHostDTO, 0, len(merged))
+	for _, h := range merged {
+		out = append(out, SSHHostDTO{Name: h, FromSSHConfig: discSet[h]})
+	}
+	return out
+}
+
+// rulesSSHHosts rules.yaml ssh_hosts 正本（Add/Remove 只操作手动登记，不掺发现结果）。
+func (a *App) rulesSSHHosts() []string {
 	if res, err := parser.LoadRules(rulesPath()); err == nil {
 		return res.SSHHosts
 	}
@@ -312,7 +351,7 @@ func (a *App) SSHHosts() []string {
 func (a *App) AddSSHHost(host string) error {
 	a.storeMu.Lock()
 	defer a.storeMu.Unlock()
-	hosts := a.SSHHosts()
+	hosts := a.rulesSSHHosts()
 	for _, h := range hosts {
 		if h == host {
 			return nil
@@ -321,11 +360,11 @@ func (a *App) AddSSHHost(host string) error {
 	return fview.UpdateSSHHosts(rulesPath(), append(hosts, host))
 }
 
-// RemoveSSHHost 移除 SSH 主机。
+// RemoveSSHHost 移除手动登记的 SSH 主机（~/.ssh/config 发现的主机不在此列，删不掉属预期）。
 func (a *App) RemoveSSHHost(host string) error {
 	a.storeMu.Lock()
 	defer a.storeMu.Unlock()
-	hosts := a.SSHHosts()
+	hosts := a.rulesSSHHosts()
 	out := hosts[:0]
 	for _, h := range hosts {
 		if h != host {
@@ -379,22 +418,27 @@ func (a *App) OpenSSHTab(host, path string, tailLines int, password string) (str
 
 // ---- FRP 一键连接（AcquireTunnel 引用计数复用）----
 
-// BrowseFRP 建隧道浏览远程目录（幂等持有一份引用，重复浏览复用不累加——
-// Final Review C3；认证失败返回明确错误供前端弹密码）。
+// BrowseFRP 浏览远程目录：stcp 建隧道（幂等持有一份引用，重复浏览复用不累加——
+// Final Review C3）；tcp 零配置直连 serverAddr:remotePort（无隧道无注册表）。
+// 认证失败返回明确错误供前端弹密码。
 func (a *App) BrowseFRP(connName, path, password string) ([]DirEntryDTO, error) {
-	st := frp.LoadStore()
-	conn, srv, err := fview.FRPLookup(st, connName)
+	conn, err := fview.FRPLookup(frp.LoadStore(), connName)
 	if err != nil {
 		return nil, err
 	}
-	t, err := a.browse.Get(connName, func() (*frp.Tunnel, error) {
-		return frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("建立隧道失败: %w", err)
+	host, port := "", 0
+	if conn.Type == frp.TypeTCP {
+		host, port = fview.FRPBrowseTarget(conn, 0)
+	} else {
+		t, err := a.browse.Get(connName, func() (*frp.Tunnel, error) {
+			return frp.AcquireTunnel(conn)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("建立隧道失败: %w", err)
+		}
+		host, port = fview.FRPBrowseTarget(conn, t.LocalPort())
 	}
-	// 目标必须带连接用户名（Final Review C1：丢 user@ 会以本地用户名连远端 sshd）
-	entries, err := stream.SSHListDirWithPort(fview.FRPBrowseHost(conn), t.LocalPort(), path, password)
+	entries, err := stream.SSHListDirWithPort(host, port, path, password)
 	if err != nil {
 		return nil, err
 	}
@@ -410,17 +454,38 @@ func (a *App) ReleaseFRPBrowse(connName string) {
 	a.browse.Release(connName, func(t *frp.Tunnel) { _ = t.Cleanup() })
 }
 
-// OpenFRPTab FRP 一键连接开 tab（同 key 隧道复用；tab 关闭时 FRPSource.Cleanup 减引用）。
+// OpenFRPTab FRP 开 tab：stcp 建 visitor 隧道（同 key 复用；tab 关闭时
+// FRPSource.Cleanup 减引用）；tcp 零配置直连（FRPDirectSource，无隧道）。
 func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) (string, error) {
 	if tailLines <= 0 {
 		tailLines = defaultBufSize
 	}
-	st := frp.LoadStore()
-	conn, srv, err := fview.FRPLookup(st, connName)
+	conn, err := fview.FRPLookup(frp.LoadStore(), connName)
 	if err != nil {
 		return "", err
 	}
-	t, err := frp.AcquireTunnel(srv, conn.SK, conn.Proxy)
+	// tab 标题用展示别名（空回落 name）；主键/密码 key 仍走 conn.Name
+	disp := conn.Alias
+	if disp == "" {
+		disp = conn.Name
+	}
+	label := disp + " → " + conn.ServerAddr
+	if conn.Type == frp.TypeTCP {
+		src := stream.NewFRPDirectSource(conn.Name, conn.ServerAddr, conn.RemotePort, conn.User, path, tailLines)
+		src.SetBufferLines(defaultBufSize)
+		if password != "" {
+			src.SetPassword(password)
+		}
+		id, err := a.mgr.OpenTab(src, filepath.Base(path), label)
+		if err != nil {
+			return "", err
+		}
+		if err := a.mgr.SetFollow(id, true); err != nil {
+			return id, err
+		}
+		return id, nil
+	}
+	t, err := frp.AcquireTunnel(conn)
 	if err != nil {
 		return "", fmt.Errorf("建立隧道失败: %w", err)
 	}
@@ -429,7 +494,7 @@ func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) 
 	if password != "" {
 		src.SetPassword(password)
 	}
-	id, err := a.mgr.OpenTab(src, filepath.Base(path), conn.Name+" → "+srv.Addr)
+	id, err := a.mgr.OpenTab(src, filepath.Base(path), label)
 	if err != nil {
 		_ = t.Cleanup() // 开 tab 失败回退本次引用
 		return "", err

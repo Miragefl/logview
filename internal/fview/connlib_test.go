@@ -31,8 +31,8 @@ func TestUpdateSSHHosts(t *testing.T) {
 
 // TestConnLibNoPasswordLeak 连接库序列化产物不含任何密码字段（Review Focus 3）。
 func TestConnLibNoPasswordLeak(t *testing.T) {
-	server := frp.Server{Name: "s1", Addr: "x:7000", Token: "tok"}
-	conn := frp.Conn{Name: "c1", Server: "s1", SK: "sk", Proxy: "p", User: "root", Path: "/var/log/a.log"}
+	server := frp.Conn{Name: "s1", Type: frp.TypeSTCP, ServerAddr: "x", ServerPort: 7000, Token: "tok", ServerName: "p", SecretKey: "sk"}
+	conn := frp.Conn{Name: "c1", Type: frp.TypeSTCP, ServerAddr: "x", ServerPort: 7000, Token: "tok", ServerName: "p", SecretKey: "sk", User: "root", Path: "/var/log/a.log"}
 	for name, v := range map[string]any{"server": server, "conn": conn} {
 		data, err := json.Marshal(v)
 		if err != nil {
