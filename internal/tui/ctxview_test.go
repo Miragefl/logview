@@ -824,30 +824,6 @@ func TestCtxViewSearchStatsMixedCursor(t *testing.T) {
 	}
 }
 
-// M3 回归:混入态打开搜索弹窗,星标字段须取光标实际所在行(viewLines)——旧实现查
-// filteredView[cursor],ctx 坐标下取到别行字段(idx3 本是 L06 却取到 L07)。
-func TestCtxViewStarFieldsOnCtxLine(t *testing.T) {
-	app := ctxSetup(t)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app.Update(fakeKey("j")) // L06 dim(ctx idx3)
-	app.populateSearchFields()
-	has := func(v string) bool {
-		for _, sf := range app.starFields {
-			if sf.Value == v {
-				return true
-			}
-		}
-		return false
-	}
-	if !has("L06") {
-		t.Fatalf("星标字段应来自插入行 L06 本体, starFields=%v", app.starFields)
-	}
-	if has("L07") {
-		t.Fatalf("星标字段不得取到 filteredView 错位的 L07, starFields=%v", app.starFields)
-	}
-}
 
 // M4 回归:buildCtxLines 校验先行、换算后置——旧实现先 nearestFvCursor 把光标换算成
 // fv 坐标再 early-return,若旧快照仍在,光标(已变 fv 坐标)与视图(仍按混入坐标渲染)

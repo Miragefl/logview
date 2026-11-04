@@ -8,9 +8,7 @@ import (
 )
 
 // buildSearchPopup returns the popup box lines (only the box itself, no full-area fill).
-// maxPopupRows caps the box height so the popup never eats the whole log area;
-// starFields rows are trimmed first to keep matching log lines visible.
-func (a *App) buildSearchPopup(maxPopupRows int) []string {
+func (a *App) buildSearchPopup() []string {
 	var content strings.Builder
 
 	// tab bar: 搜索 | 高亮 | 隐藏
@@ -25,26 +23,19 @@ func (a *App) buildSearchPopup(maxPopupRows int) []string {
 	}
 	content.WriteString(strings.Join(tabParts, "  ") + "\n" + popupTabSep(min(60, a.width-4)) + "\n\n")
 
-	// 固定行预算：tab 区(2) + starFields 后空行(1) + input(1) + 空行提示(2) + 圆角边框(2) = 8
-	const fixedRows = 8
-	maxStarRows := maxPopupRows - fixedRows
-	if maxStarRows < 0 {
-		maxStarRows = 0
-	}
-
 	switch a.searchTab {
 	case 1:
 		a.renderHighlightSection(&content)
 	case 2:
 		a.renderHideSection(&content)
 	default:
-		a.renderSearchSection(&content, maxStarRows)
+		a.renderSearchSection(&content)
 	}
 
 	return a.popupBox(content.String())
 }
 
-func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
+func (a *App) renderSearchSection(content *strings.Builder) {
 	if a.timePresetMode {
 		a.renderTimePresetList(content)
 		content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
@@ -54,32 +45,6 @@ func (a *App) renderSearchSection(content *strings.Builder, maxStarRows int) {
 		a.renderSearchHistoryList(content)
 		content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
 		return
-	}
-	if len(a.starFields) > 0 {
-		nRows := len(a.starFields)
-		if nRows > 6 {
-			nRows = 6
-		}
-		if nRows > maxStarRows {
-			nRows = maxStarRows
-		}
-		for i := 0; i < nRows; i++ {
-			sf := a.starFields[i]
-			prefix := "  "
-			if i == a.starCursor {
-				prefix = SelArrowStyle.Render("▶ ")
-			}
-			if sf.Name == "" {
-				content.WriteString(prefix + " " + HelpKeyStyle.Render("确认搜索") + "\n")
-			} else if i == a.starCursor {
-				content.WriteString(prefix + " " + SelArrowStyle.Render(sf.Name+": "+sf.Value) + "\n")
-			} else {
-				name := DetailLabelStyle.Render(sf.Name + ":")
-				val := DetailValueStyle.Render(sf.Value)
-				content.WriteString(prefix + " " + name + " " + val + "\n")
-			}
-		}
-		content.WriteString("\n")
 	}
 	content.WriteString(a.inputLine(a.searchInput, a.searchCursor, "输入搜索词，支持 field:value AND/OR") + "\n")
 }

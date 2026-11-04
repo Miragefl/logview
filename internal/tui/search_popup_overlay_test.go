@@ -37,7 +37,7 @@ func TestSearchPopupCentered(t *testing.T) {
 
 			// 弹窗高度不超过日志区
 			vl := app.visibleLines()
-			ph := len(app.buildSearchPopup(vl))
+			ph := len(app.buildSearchPopup())
 			if ph > vl {
 				t.Fatalf("height=%d: popup 高度 %d 超过日志区 %d", h, ph, vl)
 			}

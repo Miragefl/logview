@@ -213,14 +213,6 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.searchHistMode = true
 				a.searchHistCursor = 0
 			}
-		case "ctrl+j":
-			if a.searchTab == 0 && len(a.starFields) > 0 {
-				a.starCursor = (a.starCursor + 1) % len(a.starFields)
-			}
-		case "ctrl+k":
-			if a.searchTab == 0 && len(a.starFields) > 0 {
-				a.starCursor = (a.starCursor - 1 + len(a.starFields)) % len(a.starFields)
-			}
 		}
 	}
 	return a, nil
@@ -343,8 +335,6 @@ func (a *App) activeSearchInput() inputRef {
 func (a *App) closeSearchPopup() tea.Cmd {
 	cmd := a.flushSearch() // 关闭前应用未生效的输入(与防抖前语义一致,不丢最后一次输入)
 	a.searchMode = false
-	a.starFields = nil
-	a.starCursor = 0
 	return cmd
 }
 
@@ -399,53 +389,9 @@ func (a *App) confirmSearchTab() tea.Cmd {
 		a.confirmHides()
 		return a.closeSearchPopup()
 	default:
-		if len(a.starFields) > 0 && a.starCursor < len(a.starFields) {
-			sf := a.starFields[a.starCursor]
-			if sf.Name != "" {
-				term := sf.Name + ":" + sf.Value
-				insert := term
-				runes := []rune(a.searchInput)
-				pos := a.searchCursor
-				if a.searchInput != "" && pos > 0 && runes[pos-1] != ' ' {
-					insert = " " + insert
-				}
-				if a.searchInput != "" && pos < len(runes) && runes[pos] != ' ' {
-					insert = insert + " "
-				}
-				inputRef{&a.searchInput, &a.searchCursor}.insert(insert)
-				return nil
-			}
-		}
 		a.addSearchHistory(a.searchInput)
 		a.recomputeView()
 		return a.closeSearchPopup()
 	}
 }
 
-func (a *App) populateSearchFields() {
-	// 行源用 viewLines():混入态光标是 ctxLines 坐标,直接查 filteredView 会取错行(M3)
-	vl := a.viewLines()
-	if a.cursor < 0 || a.cursor >= len(vl) {
-		a.starFields = nil
-		return
-	}
-	line := vl[a.cursor]
-	var fields []starField
-	fields = append(fields, starField{Name: "", Value: ""})
-	for _, f := range model.AllFields {
-		val := line.Get(f)
-		if val == "" {
-			continue
-		}
-		if f == model.FieldMessage {
-			for _, w := range strings.Fields(val) {
-				if len(w) > 1 {
-					fields = append(fields, starField{Name: string(f), Value: w})
-				}
-			}
-			continue
-		}
-		fields = append(fields, starField{Name: string(f), Value: val})
-	}
-	a.starFields = fields
-}

@@ -32,11 +32,7 @@ func (a *App) renderSearchBar() string {
 			return fmt.Sprintf(" %s: %s█%s  [Esc取消] [Enter确认]", label, before, after)
 		}
 		q := parseSearchQuery(a.searchInput)
-		fieldHint := ""
-		if len(a.starFields) > 0 {
-			fieldHint = " [Tab插入字段]"
-		}
-		return fmt.Sprintf(" %s: %s█%s  [Esc取消] [Enter确认]%s%s", label, before, after, a.timeFeedback(q), fieldHint)
+		return fmt.Sprintf(" %s: %s█%s  [Esc取消] [Enter确认]%s", label, before, after, a.timeFeedback(q))
 	}
 	if a.searchInput != "" {
 		q := parseSearchQuery(a.searchInput)

@@ -427,3 +427,17 @@ func TestMainViewVimJKMove(t *testing.T) {
 		t.Fatalf("裸 k 应上移光标, cursor=%d", app.cursor)
 	}
 }
+
+// TestSearchPopupHidesCurrentLineFields 打开搜索弹窗不得显示当前行日志信息
+// (第九轮验收:starFields 自动填充退役,当前行字段值不进弹窗)。
+func TestSearchPopupHidesCurrentLineFields(t *testing.T) {
+	app := newTestApp()
+	app.openUnifiedPopup(0)
+	joined := strings.Join(app.buildSearchPopup(), "\n") // 只看弹窗本体(overlay 底层日志区不在此列)
+	// 当前行(光标=首行)的字段值不得出现在弹窗里
+	for _, secret := range []string{"http-nio-80-exec-3", "abc123", "com.example.App"} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("搜索弹窗泄露当前行字段值 %q:\n%s", secret, joined)
+		}
+	}
+}

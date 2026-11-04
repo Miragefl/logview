@@ -22,11 +22,6 @@ import (
 	"github.com/justfun/logview/internal/stream"
 )
 
-type starField struct {
-	Name  string
-	Value string
-}
-
 type App struct {
 	stream     stream.LogStream
 	parsers    *parser.AutoDetect
@@ -94,8 +89,6 @@ type App struct {
 	levelFilter string
 	wrapMode    bool
 
-	starFields   []starField
-	starCursor   int
 	searchCursor int
 
 	helpMode bool
@@ -1700,7 +1693,6 @@ func (a *App) openUnifiedPopup(tab int) {
 	a.searchTab = tab
 	a.searchHistMode = false
 	if tab == 0 {
-		a.populateSearchFields()
 		a.searchCursor = len([]rune(a.searchInput))
 	} else if tab == 1 {
 		if a.highlightInput == "" && len(a.highlights) > 0 {
@@ -2055,15 +2047,9 @@ func (a *App) View() string {
 }
 
 // buildSearchModeLines 渲染搜索模式下的日志区：搜索/高亮/隐藏弹窗居中显示（带遮罩），
-// 与其它弹窗统一；按可用高度限制弹窗高度（先砍 starFields 字段建议）。
+// 与其它弹窗统一。（starFields 字段建议已随第九轮验收退役,弹窗高度不再预扣其预算。）
 func (a *App) buildSearchModeLines(vl int) []string {
-	logReserve := 4
-	popupMaxH := vl - logReserve
-	if popupMaxH < 5 {
-		popupMaxH = 5
-	}
-	popupLines := a.buildSearchPopup(popupMaxH)
-	box := strings.Join(popupLines, "\n")
+	box := strings.Join(a.buildSearchPopup(), "\n")
 	return a.overlayToVL(box, vl)
 }
 

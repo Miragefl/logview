@@ -260,7 +260,9 @@ func (a *App) handleSourcePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		// 选择器内按 q：直接退出 logview（日志页按 q 打开选择器，再按 q 退出）。
 		// 输入框有内容时 q 作为过滤字符，避免误退。
-		if string(msg.Runes) == "q" {
+		// FRP 新建表单（level 1）除外：字段每步从空开始，空输入框按 q 是打字
+		// 常态（qq.example.com 首字母），不得误杀整个 TUI——q 一律进输入框。
+		if string(msg.Runes) == "q" && !(a.sourceTab == 3 && a.pickerFRPLevel == 1) {
 			if input := a.pickerInputRef(); input.text == nil || *input.text == "" {
 				return a, a.shutdown()
 			}

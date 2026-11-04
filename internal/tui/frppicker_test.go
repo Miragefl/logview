@@ -824,3 +824,21 @@ func TestSourcePickerFRPDelete(t *testing.T) {
 		t.Fatal("client-b 应保留")
 	}
 }
+
+// 新建表单必填字段首字母 q 不得退出 TUI:q-退出仅限列表态(过滤框空=纯列表导航),
+// 表单每步字段从空开始,空输入框按 q 是打字常态——serverAddr 填 qq.example.com
+// 第一个字母就把整个 TUI 杀了(2026-11-04 验收 bug)。
+func TestFRPFormQNotQuit(t *testing.T) {
+	setupFRPStore(t)
+	app := newTestApp()
+	app.openSourcePicker(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // +new 首位 → 新建表单
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // stcp 首位 → step 1 serverAddr
+	if app.pickerFRPLevel != 1 || app.pickerFRPStep != 1 {
+		t.Fatalf("应在新建表单 step1,实际 level=%d step=%d", app.pickerFRPLevel, app.pickerFRPStep)
+	}
+	typeRunes(app, "q")
+	if !app.sourcePickerMode || app.pickerFRPInput != "q" {
+		t.Fatalf("q 应进输入框且不退出选择器,实际 input=%q mode=%v", app.pickerFRPInput, app.sourcePickerMode)
+	}
+}
