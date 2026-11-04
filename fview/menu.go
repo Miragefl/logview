@@ -5,7 +5,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 )
 
-// buildAppMenu 构造应用菜单(macOS 专属):fview(App 菜单)>退出 ⌘Q、文件 > 关闭标签页 ⌘W。
+// buildAppMenu 构造应用菜单(macOS 专属):fview(App 菜单)>退出 ⌘Q、文件 > 关闭标签页 ⌘W、Edit(⌘C/⌘V 等标准编辑)。
 // ⌘W/⌘Q 是 mac 肌肉记忆,但 WKWebView 的 keydown 拦不住系统级按键,
 // 故走原生菜单 key equivalent 路由(Chrome/VSCode 同款机制):关闭标签页回调经
 // onCloseTab 广播 shortcut:closeTab 事件(前端 App.vue 订阅后关 activeId),
@@ -27,5 +27,10 @@ func buildAppMenu(goos string, onCloseTab, onQuit func()) *menu.Menu {
 	fileMenu.AddText("关闭标签页", keys.CmdOrCtrl("w"), func(*menu.CallbackData) {
 		onCloseTab()
 	})
+	// Edit 菜单(官方 Role):⌘C/⌘V/⌘A/⌘Z 原生 selector 经 responder chain 派发到
+	// WKWebView。自定义 Menu 会整只替换 Wails 默认菜单——无此项则 ⌘V 的 paste:
+	// 无人认领,FRP 表单等所有输入框无法粘贴(菜单项 target=nil 才走 webview,
+	// AddText 回调 target=ctx 只到 Go 侧,替代不了)。
+	m.Append(menu.EditMenu())
 	return m
 }
