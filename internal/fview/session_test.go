@@ -694,3 +694,20 @@ func TestMetaEOFCarriesParserFields(t *testing.T) {
 		t.Fatalf("EOF meta 不应 repaint: %+v", last)
 	}
 }
+
+// toDTO 透传 RawLine.Source(k8s 多 pod 合流行来源=pod 名,前端来源列数据源;
+// 空来源字段保持空——其他源行零膨胀)。
+func TestTabToDTOSource(t *testing.T) {
+	tb := &tab{}
+	pl := &model.ParsedLine{}
+	pl.Raw = model.RawLine{Text: "boom", Source: "api-7d8f6-x9k2j", Seq: 7}
+	dto := tb.toDTO(pl)
+	if dto.Source != "api-7d8f6-x9k2j" {
+		t.Errorf("Source = %q, want pod 名", dto.Source)
+	}
+	pl2 := &model.ParsedLine{}
+	pl2.Raw = model.RawLine{Text: "plain", Seq: 8}
+	if got := tb.toDTO(pl2).Source; got != "" {
+		t.Errorf("空来源应保持空: %q", got)
+	}
+}

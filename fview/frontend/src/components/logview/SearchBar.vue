@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 常驻搜索条(第六轮 SLS 式改造):查询输入(回车执行/清空回车恢复全量)+
+// 常驻搜索条(第六轮 SLS 式改造):查询输入(回车执行/清空回车恢复全量,执行成功即失焦)+
 // 级别档位 + 命中数 + 高亮/隐藏按钮(弹 WordsPopup)。/ 键聚焦,Esc 失焦不清词。
 import { nextTick, ref, watch } from 'vue'
 import { NBadge, NButton, NInput, NSelect } from 'naive-ui'
@@ -46,7 +46,9 @@ watch(
 )
 
 /** confirmSearch 回车执行:parseQuery 校验 → matchLines 索引域换算 seq 域 → emit。
- * 清空 query 直接 emit 空集恢复全量(不调后端)。 */
+ * 清空 query 直接 emit 空集恢复全量(不调后端)。
+ * 执行成功即失焦,焦点交还日志区(j/k 导航回归;再搜按 / 或点击输入框);
+ * parseError/异常路径不失焦——留在框内改词,blur 会把错误提示带离视线。 */
 async function confirmSearch() {
   const t = tabs.active
   if (!t) return
@@ -55,6 +57,7 @@ async function confirmSearch() {
   try {
     if (!query) {
       emit('search', { hitSeqs: [], words: [] })
+      inputEl.value?.blur()
       return
     }
     const meta = await parseQuery(query)
@@ -67,6 +70,7 @@ async function confirmSearch() {
     const seqs = idxs.map((i) => t.lines[i]?.seq).filter((s): s is number => s !== undefined)
     search.addSearchHistory(query)
     emit('search', { hitSeqs: seqs, words: meta.highlightKeywords ?? [] })
+    inputEl.value?.blur()
   } catch (e) {
     qErr.value = String(e).replace(/^Error:\s*/, '')
   }

@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"testing"
 )
 
@@ -50,5 +51,48 @@ func TestK8sSourceContextArgs(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("参数 %d: %q want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// ---- MultiK8sSource 多资源合流(fview k8s-multi 迭代;TUI sourcepicker 同款已在用) ----
+
+func TestMultiK8sSourceLabel(t *testing.T) {
+	m := NewMultiK8sSource([]*K8sSource{
+		NewK8sSource("deploy/parking-api", "default", nil, 0),
+		NewK8sSource("pod/api-7d8f6-x9k2j", "default", nil, 0),
+	})
+	if got := m.Label(); got != "k8s/deployment/parking-api+k8s/pod/api-7d8f6-x9k2j" {
+		t.Errorf("Label() = %q", got)
+	}
+}
+
+func TestMultiK8sSourceScope(t *testing.T) {
+	if got := (&MultiK8sSource{}).Scope(); got != "k8s" {
+		t.Errorf("Scope() = %q, want k8s", got)
+	}
+}
+
+// SetContext 传导到全部子源。
+func TestMultiK8sSourceSetContext(t *testing.T) {
+	s1 := NewK8sSource("deploy/a", "default", nil, 0)
+	s2 := NewK8sSource("pod/b", "default", nil, 0)
+	m := NewMultiK8sSource([]*K8sSource{s1, s2})
+	m.SetContext("uat")
+	for i, s := range []*K8sSource{s1, s2} {
+		if got := s.kubectlArgs("logs"); got[0] != "--context" || got[1] != "uat" {
+			t.Errorf("子源 %d context 未传导: %v", i, got)
+		}
+	}
+}
+
+// 空 sources:Start 返回立即关闭的 channel(fan-in 零源),不 exec 不阻塞。
+func TestMultiK8sSourceEmptyStart(t *testing.T) {
+	m := NewMultiK8sSource(nil)
+	ch, err := m.Start(context.Background())
+	if err != nil {
+		t.Fatalf("空源 Start 不应报错: %v", err)
+	}
+	if _, ok := <-ch; ok {
+		t.Fatal("空源 channel 应立即关闭")
 	}
 }

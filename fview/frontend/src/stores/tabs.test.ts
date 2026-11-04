@@ -137,6 +137,8 @@ describe('parserFields(tab:meta 透传)', () => {
     expect(s.tabs[0].parserFields).toBeNull()
     s.applyMeta({ tabId: 't1', label: 'app.log', parserName: 'java-logback', parserFields: ['time', 'message'] })
     expect(s.tabs[0].parserFields).toEqual(['time', 'message'])
+    // 解析规则名存入(状态栏字号栏展示;纯文本 plain-text / 未解析为空不显示)
+    expect(s.tabs[0].parserName).toBe('java-logback')
   })
 
   it('follow-only meta 不带 parserFields 时不清已有值(omitempty→undefined 跳过)', () => {
@@ -145,5 +147,46 @@ describe('parserFields(tab:meta 透传)', () => {
     s.applyMeta({ tabId: 't1', label: 'app.log', parserName: 'java-logback', parserFields: ['time'] })
     s.applyMeta({ tabId: 't1', label: 'app.log', parserName: 'java-logback', follow: false })
     expect(s.tabs[0].parserFields).toEqual(['time'])
+    // parserName 同语义:不带(EOF 终态事件)不清已有值
+    expect(s.tabs[0].parserName).toBe('java-logback')
+  })
+})
+
+// ---- hasSource 来源列置位(k8s-multi Final Review I1:所有源都填 Source,须按"来源不唯一"判定) ----
+describe('hasSource 来源列置位', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  function lnSrc(seq: number, source?: string): LineDTO {
+    return { seq, time: '', level: '', thread: '', traceId: '', logger: '', message: `m${seq}`, raw: `r${seq}`, source }
+  }
+
+  it('单源(全行同 source,如单文件/单 host)不置位——来源列不显示', () => {
+    const s = useTabsStore()
+    s.register({ id: 'f1', label: 'l', lines: 0, follow: false })
+    s.applyLines({ tabId: 'f1', lines: [lnSrc(1, 'app.log'), lnSrc(2, 'app.log')] })
+    expect(s.tabs[0].hasSource).toBe(false)
+  })
+
+  it('批内多源(k8s 多 pod 合流)置位', () => {
+    const s = useTabsStore()
+    s.register({ id: 'k1', label: 'l', lines: 0, follow: false })
+    s.applyLines({ tabId: 'k1', lines: [lnSrc(1, 'pod-a'), lnSrc(2, 'pod-b')] })
+    expect(s.tabs[0].hasSource).toBe(true)
+  })
+
+  it('后批出现与首行不同 source(跨批多源)置位', () => {
+    const s = useTabsStore()
+    s.register({ id: 'k2', label: 'l', lines: 0, follow: false })
+    s.applyLines({ tabId: 'k2', lines: [lnSrc(1, 'pod-a')] })
+    expect(s.tabs[0].hasSource).toBe(false)
+    s.applyLines({ tabId: 'k2', lines: [lnSrc(2, 'pod-b')] })
+    expect(s.tabs[0].hasSource).toBe(true)
+  })
+
+  it('无 source 行(理论不存在的组合,防御)不置位', () => {
+    const s = useTabsStore()
+    s.register({ id: 'd1', label: 'l', lines: 0, follow: false })
+    s.applyLines({ tabId: 'd1', lines: [lnSrc(1), lnSrc(2)] })
+    expect(s.tabs[0].hasSource).toBe(false)
   })
 })

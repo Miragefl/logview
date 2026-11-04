@@ -125,6 +125,47 @@ describe('SearchBar 常驻搜索条', () => {
     expect(w.emitted('search')!.length).toBe(1)
   })
 
+  it('Enter 执行成功即失焦:焦点交还日志区,/ 键可再聚焦(vim:执行完退出输入态)', async () => {
+    const search = useSearchStore()
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: [
+      { seq: 100, time: '', level: 'INFO', thread: '', traceId: '', logger: '', message: 'err one', raw: '' },
+    ] })
+
+    const w = mountBar({ hitCount: 0, levelMode: 'A' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    input.focus()
+    setQ('err')
+    key('Enter')
+    await new Promise((r) => setTimeout(r, 0))
+    // 执行成功即失焦:焦点不得留在搜索框(要再搜按 / 或点击)
+    expect(document.activeElement).not.toBe(input)
+    expect(w.emitted('search')!.length).toBe(1)
+    // / 键重聚焦回归:失焦后 store 已复位,再 focusBar 仍能聚焦
+    search.focusBar()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('清空回车恢复全量同样失焦', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: [] })
+
+    mountBar({ hitCount: 3, levelMode: 'A' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    input.focus()
+    setQ('')
+    key('Enter')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(document.activeElement).not.toBe(input)
+  })
+
   it('parseError:不执行搜索,input 进入 error 态', async () => {
     vi.mocked(parseQuery).mockResolvedValue({
       parseError: 'time: 语法错误',
@@ -145,6 +186,12 @@ describe('SearchBar 常驻搜索条', () => {
     expect(w.emitted('search')).toBeUndefined()
     // NInput error 态(naive status=error 渲染 error-status 类;jsdom 下拉交互不稳,断言类名)
     expect(document.body.querySelector('.searchbar .n-input--error-status')).toBeTruthy()
+    // 报错不失焦:留在输入框让用户改词,blur 会把错误提示带离视线
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    input.focus()
+    key('Enter')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(document.activeElement).toBe(input)
   })
 
   it('级别下拉切换 emit update:levelMode', async () => {

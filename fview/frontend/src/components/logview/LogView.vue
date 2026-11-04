@@ -15,6 +15,7 @@ import { ensureVisible, moveClamp } from '../../lib/nav'
 import { splitSpans } from '../../lib/hlSpan'
 import { buildViewItems } from '../../lib/folds'
 import type { FoldRange, ViewItem } from '../../lib/folds'
+import { buildCtxMixed } from '../../lib/ctxmix'
 import { selectedSeqRange } from '../../lib/visualSel'
 import type { SeqRange } from '../../lib/visualSel'
 import { wrapSegments, HeightIndex, visibleRows } from '../../lib/wrap'
@@ -34,6 +35,8 @@ const props = defineProps<{
   fields: string[]
   /** 列宽覆盖（rules.yaml fields[].width;缺省用 DEFAULT_WIDTHS） */
   widths?: Record<string, number>
+  /** 来源列开关(k8s 多 pod 合流 tab=true:gutter 加 pod 名 chip,占宽计入 wrap 模型) */
+  sourceCol?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -67,10 +70,17 @@ const filteredLines = computed<LineDTO[]>(() => {
 
 const rowH = computed(() => ui.rowPx())
 
+/** mixedView 过滤视图叠上下文混入锚(2026-11-04 移植 TUI grep-context):
+ *  混入行先归并(升序+dimSeqs 集)再进折叠——ctx 行 seq 落折叠组内照常被折叠吞(折叠意图优先)。 */
+const mixedView = computed(() => {
+  const t = tabs.active
+  return buildCtxMixed(filteredLines.value, t?.lines ?? [], t?.ctxAnchors ?? {})
+})
+
 /** viewItems 折叠视图项序列(行/折叠占位,验收反馈④ e 键)。 */
 const viewItems = computed<ViewItem[]>(() => {
   const t = tabs.active
-  return buildViewItems(filteredLines.value, t?.folds ?? [], t?.collapsed ?? [])
+  return buildViewItems(mixedView.value.lines, t?.folds ?? [], t?.collapsed ?? [])
 })
 
 // ---- w 换行变高行引擎(验收反馈④,已拍板硬做) ----
@@ -100,7 +110,7 @@ const msgWidthCh = computed(() => {
     (s, f) => s + (f === 'message' ? 0 : (colsW.value[f] ?? 0) + 2),
     0
   )
-  const gutterCh = showLineNum.value ? 9 : 2
+  const gutterCh = (showLineNum.value ? 9 : 2) + (props.sourceCol ? 18 : 0)
   const avail = viewportW.value - (fixedCh + gutterCh) * charPx.value - 20
   return Math.max(10, Math.floor(avail / charPx.value) - 1)
 })
@@ -376,7 +386,11 @@ function ensureVisiblePx(idx: number) {
   }
 }
 
-/** setCursor 置光标到视图项 idx(line 项),可选滚动保可视（scrolloff=3;等高/变高两态）。 */
+/** setCursor 置光标到视图项 idx(line 项),可选滚动保可视（scrolloff=3;等高/变高两态）。
+ *  first 一律取 el.scrollTop 实时值换算(与 ensureVisiblePx 同源)——range[0] 源自
+ *  异步 scroll 事件更新的 scrollTop.value,键盘连按时滞后:j 钉住态碰巧无害(下滚
+ *  分支只依赖 idx),k 回爬时 stale first 偏小使光标永落 stale 底部圈,被反复拽回
+ *  倒数第 4 行爬不出去(2026-11-04 回归测试 logview-cursor-follow)。 */
 function setCursor(idx: number, scroll = true) {
   const arr = viewItems.value
   const it = arr[idx]
@@ -386,8 +400,9 @@ function setCursor(idx: number, scroll = true) {
     if (heightsArr.value) {
       ensureVisiblePx(idx)
     } else {
-      const first = ensureVisible(idx, range.value[0], rowsInView.value, arr.length)
-      scrollEl.value.scrollTop = first * rowH.value
+      const first = Math.round(scrollEl.value.scrollTop / rowH.value)
+      const nf = ensureVisible(idx, first, rowsInView.value, arr.length)
+      scrollEl.value.scrollTop = nf * rowH.value
     }
   }
 }
@@ -564,6 +579,107 @@ function exitVisual() {
   bmShow.value = false
 }
 
+// ---- 上下文混入(2026-11-04 移植 TUI grep-context 最终语义:sticky 多锚) ----
+// 键序列有状态(数字累积),不进 keymap 纯映射——App.vue onKeydown 前置调 ctxKey,
+// bookmarkNav 同款"返回是否消费"模式。锚存 tab store(seq 键控),渲染走 mixedView。
+const ctxInput = ref('') // +x/-x 输入态("+"/"-" 前缀+累积数字;空=未激活)
+
+/** ctxHint 输入态提示文案(状态栏展示;非输入态清空——混入 ×K 是持久徽标另走锚数)。 */
+function ctxHint(): void {
+  ui.ctxHint = `上下文 ${ctxInput.value} (Enter 确认/Esc 取消)`
+}
+
+/** ctxAnchorCount 活锚数(状态栏「混入 ×K」)。 */
+function ctxAnchorCount(): number {
+  return Object.keys(tabs.active?.ctxAnchors ?? {}).length
+}
+
+/** hasActiveFilter 过滤激活判定(无过滤时 +/- 无操作——全量视图即原始流,TUI 同)。 */
+function hasActiveFilter(): boolean {
+  return props.levelMode !== 'A' || ann.hideRules.length > 0 || props.hitSeqs.size > 0
+}
+
+/** applyCtxAnchor Enter 生效:光标行设锚(空数字默认 5/上限 1000 在 ctxKey 钳制);
+ *  仅过滤命中行可锚——dim 行/折叠占位上按 + 无操作(锚=命中行的上下文,语义收窄自 TUI)。 */
+function applyCtxAnchor(before: boolean, n: number): void {
+  const seq = cursorSeq.value
+  if (!filteredLines.value.some((l) => l.seq === seq)) return
+  tabs.setCtxAnchor(seq, { before, n })
+}
+
+/** nearestCursor 光标回最近过滤行(TUI nearestFvCursor 语义:清锚后光标停在
+ *  已消失的 dim 行时回位,线性扫最近 seq——锚清空触发频次低,O(m) 足够)。 */
+function nearestCursor(): void {
+  const ls = filteredLines.value
+  if (!ls.length) return
+  let best = ls[0]
+  for (const l of ls) {
+    if (Math.abs(l.seq - cursorSeq.value) < Math.abs(best.seq - cursorSeq.value)) best = l
+  }
+  cursorSeq.value = best.seq
+}
+
+/** clearCtx 清全部锚(--/++/Esc 显式关闭/过滤变化语义性退出);光标落 dim 行时回最近过滤行。 */
+function clearCtx(): void {
+  if (ctxAnchorCount() === 0) return
+  tabs.clearCtxAnchors()
+  if (!filteredLines.value.some((l) => l.seq === cursorSeq.value)) nearestCursor()
+}
+
+/** ctxKey +x/-x 键序列:返回是否消费(App.vue onKeydown 前置钩子)。
+ *  输入态:数字累积/Enter 生效(空=5,上限 1000)/Esc 取消/Backspace 删字符/
+ *  第二个 +/- 关闭混入(--/++ 任一符号)/其余吞键(TUI:输入态其他键忽略);
+ *  非输入态:+/- 且过滤激活且非 visual 进输入态、有锚 Esc 先清锚、其余 false 交回键位机。 */
+function ctxKey(e: KeyboardEvent): boolean {
+  if (ctxInput.value) {
+    if (e.key === 'Escape') {
+      ctxInput.value = ''
+      ui.ctxHint = ''
+    } else if (e.key === 'Enter') {
+      const digits = ctxInput.value.slice(1)
+      const n = digits ? Math.min(1000, parseInt(digits, 10)) : 5
+      applyCtxAnchor(ctxInput.value[0] === '-', n)
+      ctxInput.value = ''
+      ui.ctxHint = ''
+    } else if (e.key === 'Backspace') {
+      if (ctxInput.value.length > 1) {
+        ctxInput.value = ctxInput.value.slice(0, -1)
+        ctxHint()
+      }
+    } else if (e.key === '+' || e.key === '-') {
+      // 第二个符号:混入态关闭(--/++ 任一),纯输入态等价取消(TUI handleCtxInputKeys 同)
+      ctxInput.value = ''
+      ui.ctxHint = ''
+      clearCtx()
+    } else if (/^[0-9]$/.test(e.key)) {
+      ctxInput.value += e.key
+      ctxHint()
+    }
+    return true
+  }
+  if ((e.key === '+' || e.key === '-') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (hasActiveFilter() && filteredLines.value.length > 0 && !visual.value.active) {
+      ctxInput.value = e.key
+      ctxHint()
+      return true
+    }
+    return false // 无过滤/visual 态 no-op,不吞键
+  }
+  if (e.key === 'Escape' && ctxAnchorCount() > 0) {
+    clearCtx()
+    return true
+  }
+  return false
+}
+
+// 过滤条件变化(搜索/级别/隐藏词)→ 锚点行可能已不在命中集,语义性退出混入
+// (TUI recomputeView 同款);顺带取消未确认的输入态。
+watch([() => props.hitSeqs, () => props.levelMode, () => ann.hideRules.length], () => {
+  clearCtx()
+  ctxInput.value = ''
+  ui.ctxHint = ''
+})
+
 // visual 态同步 ui store(状态栏 VISUAL 徽标,第三轮验收⑨)
 watch(
   () => visual.value.active,
@@ -589,22 +705,20 @@ watch(
   (v) => (v ? ui.dialogOpen('detail') : ui.dialogClose('detail'))
 )
 
-/** yankSelection y:复制选中区间原文(raw 换行拼接),返回行数(0=无选择)。 */
+/** yankSelection y:复制选中区间原文(raw 换行拼接),返回行数(0=无选择)。
+ *  域取 mixedView.lines——光标/区间可落在混入 dim 行上(TUI yankLines 同为混入视图坐标)。 */
 function yankSelection(): number {
   const r = visualRange.value
   if (!r) return 0
-  const text = filteredLines.value
-    .filter((l) => l.seq >= r.lo && l.seq <= r.hi)
-    .map((l) => l.raw)
-    .join('\n')
-  ClipboardSetText(text).catch(() => {})
-  return filteredLines.value.filter((l) => l.seq >= r.lo && l.seq <= r.hi).length
+  const sel = mixedView.value.lines.filter((l) => l.seq >= r.lo && l.seq <= r.hi)
+  ClipboardSetText(sel.map((l) => l.raw).join('\n')).catch(() => {})
+  return sel.length
 }
 
 /** yank y 统一入口(TUI 语义,第九轮验收④):VISUAL 选区在复制选区,否则复制当前光标行。 */
 function yank(): number {
   if (visual.value.active) return yankSelection()
-  const cur = filteredLines.value.find((l) => l.seq === cursorSeq.value)
+  const cur = mixedView.value.lines.find((l) => l.seq === cursorSeq.value)
   if (!cur) return 0
   ClipboardSetText(cur.raw).catch(() => {})
   return 1
@@ -726,15 +840,17 @@ defineExpose({
   toggleLineNum,
   bookmarkNav,
   bookmarkActivate,
+  ctxKey,
+  hasCtxMix: ctxAnchorCount,
 })
 </script>
 
 <template>
-  <div ref="scrollEl" class="logview" @scroll="onScroll" @mouseup="rowMouseUp()">
+  <div ref="scrollEl" class="logview" :class="{ 'kb-nav': ui.kbNav }" @scroll="onScroll" @mouseup="rowMouseUp()">
     <!-- 分栏表头（sticky 置顶,与数据列同宽对齐,验收反馈②;gutter 占位与数据行同构,第三轮验收⑦） -->
     <div v-if="filteredLines.length" class="row header">
       <span class="gutter"
-        ><span>&nbsp;</span><span v-if="showLineNum" class="lnum">{{ ' '.repeat(6) }} │</span></span
+        ><span>&nbsp;</span><span v-if="showLineNum" class="lnum">{{ ' '.repeat(6) }} │</span><span v-if="sourceCol" class="src-chip">&nbsp;</span></span
       >
       <span
         v-for="c in headCells"
@@ -769,7 +885,7 @@ defineExpose({
         <div
           v-else
           class="row"
-          :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq, vis: inVisual(item.ln.seq) }"
+          :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq, vis: inVisual(item.ln.seq), ctx: mixedView.dimSeqs.has(item.ln.seq) }"
           :style="{ top: rowTop(range[0] + i) + 'px', height: rowHeightAt(range[0] + i) + 'px' }"
           @mousedown="rowMouseDown($event, item.ln.seq)"
           @mousemove="rowMouseMove($event, item.ln.seq)"
@@ -778,11 +894,11 @@ defineExpose({
           @dblclick="openDetail(item.ln)"
         >
         <span class="gutter">
-          <span v-if="bmSet.has(item.ln.seq)" class="bm">▸</span><span v-else>&nbsp;</span><span
+          <span v-if="mixedView.dimSeqs.has(item.ln.seq)" class="ctx-mark">┆</span><span v-else-if="bmSet.has(item.ln.seq)" class="bm">▸</span><span v-else>&nbsp;</span><span
             v-if="showLineNum"
             class="lnum"
             >{{ String(range[0] + i + 1).padStart(6) }} │</span
-          >
+          ><span v-if="sourceCol" class="src-chip" :title="item.ln.source">{{ item.ln.source }}</span>
         </span>
         <template v-for="c in cellsOf(item.ln)" :key="c.field">
           <span v-if="c.field === 'message'" class="cell f-msg">
@@ -902,7 +1018,23 @@ defineExpose({
   cursor: default;
 }
 .row:hover {
-  background: var(--popup-bg, #16202e);
+  background: var(--hover-bg, #16202e);
+}
+/* 键盘导航态(2026-11-04):藏鼠标指针 + 悬停底色切透明(鼠标停着不动时 hover 底色
+   卡一行碍眼)。hover 色走变量开关而非选择器叠加——:not(.hit) 链会把主场景(过滤态
+   鼠标停在命中行)排除、高特异性覆盖会反杀 hit/cur/vis 自身底色;变量切换零特异性
+   变化,各行的源码序压制关系原样保留。cursor 需覆盖到行级(.row 自带 cursor:default
+   会盖掉容器级 none,指针永远落在行上);规则置样式段末尾,对 .col-handle:hover 等
+   同特异性指针规则稳定压制 */
+.logview {
+  --hover-bg: var(--popup-bg, #16202e);
+}
+.logview.kb-nav {
+  --hover-bg: transparent;
+}
+.logview.kb-nav,
+.logview.kb-nav * {
+  cursor: none;
 }
 .row.hit {
   background: var(--hit-row-bg, rgba(122, 162, 214, 0.12));
@@ -949,6 +1081,18 @@ defineExpose({
 }
 .gutter .bm {
   color: var(--accent, #7dc4e4);
+}
+/* 来源 chip(k8s 多 pod 合流行=pod 名):定宽 16ch(Final Review C1:max-width 随内容
+   收缩会让 gutter 按内容计宽→表头/数据列错位)+2ch 间隔,占宽与 msgWidthCh 的 +18ch 对齐
+   (wrap 模型即像素,第三轮验收⑧行重叠教训) */
+.gutter .src-chip {
+  display: inline-block;
+  width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  margin-right: 2ch;
+  color: var(--dim, #5d7292);
 }
 /* 书签列表浮层 */
 .bm-panel {
@@ -1003,6 +1147,14 @@ defineExpose({
 .bempty {
   color: var(--dim, #5d7292);
   cursor: default;
+}
+/* 混入上下文行(TUI DetailDim 同语义):整行半透明盖掉一切内层列色/高亮词,
+   时间序内联可见但视觉退后;┆ 标记行首身份。 */
+.row.ctx {
+  opacity: 0.55;
+}
+.ctx-mark {
+  color: var(--dim, #5d7292);
 }
 /* 折叠占位行(TUI dim 风格) */
 .fold-row {

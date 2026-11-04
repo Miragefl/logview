@@ -3,10 +3,13 @@
 // 图标为 22px 描边 SVG（emoji 跨平台渲染不稳且辨识度差——验收反馈②）。
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { isPortalNode } from '../../lib/portal'
+import { useUiStore } from '../../stores/ui'
 import LocalPanel from './LocalPanel.vue'
 import SSHPanel from './SSHPanel.vue'
 import K8sPanel from './K8sPanel.vue'
 import FRPPanel from './FRPPanel.vue'
+
+const ui = useUiStore()
 
 type Pane = '' | 'local' | 'ssh' | 'k8s' | 'frp'
 const active = ref<Pane>('')
@@ -21,6 +24,7 @@ const icons: { key: Pane; label: string }[] = [
 
 function toggle(k: Pane) {
   active.value = active.value === k ? '' : k
+  ui.panelFilter = '' // 切面板清词(过滤词是面板会话态,不跨面板残留)
 }
 
 /** cyclePane q 键循环源面板(第四轮验收③全键盘):local→ssh→k8s→frp→收起。 */
@@ -28,6 +32,7 @@ const ORDER: Exclude<Pane, ''>[] = ['local', 'ssh', 'k8s', 'frp']
 function cyclePane() {
   const cur = ORDER.indexOf(active.value as Exclude<Pane, ''>)
   active.value = cur < 0 ? ORDER[0] : cur === ORDER.length - 1 ? '' : ORDER[cur + 1]
+  ui.panelFilter = '' // 切面板清词
 }
 defineExpose({ cyclePane })
 
@@ -39,8 +44,28 @@ function onDocClick(e: MouseEvent) {
     active.value = ''
   }
 }
-onMounted(() => document.addEventListener('mousedown', onDocClick))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
+
+/** onDocEsc Esc 关面板(r2 逐级退出第二级):rail 的 capture 监听先于面板注册(面板
+ * v-if 后 mount),词非空让位给面板 typeKey 清词(词存 ui.panelFilter 可查);词空才
+ * 关面板(q 的反向)。弹窗期(browse/设置等)让位由弹窗自理;NSelect 聚焦/展开态让位。 */
+function onDocEsc(e: KeyboardEvent) {
+  if (!active.value || e.key !== 'Escape' || e.defaultPrevented) return
+  if (ui.panelFilter) return // 词非空:面板 typeKey 消费 Esc 清词(逐级第一级)
+  if (ui.browse.show || ui.modalOpen) return
+  const t = e.target as HTMLElement
+  if (t?.closest?.('.n-base-selection, .n-base-select-menu')) return
+  active.value = ''
+  e.preventDefault()
+  e.stopPropagation()
+}
+onMounted(() => {
+  document.addEventListener('mousedown', onDocClick)
+  document.addEventListener('keydown', onDocEsc, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocClick)
+  document.removeEventListener('keydown', onDocEsc, true)
+})
 </script>
 
 <template>

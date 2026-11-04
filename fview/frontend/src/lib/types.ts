@@ -8,6 +8,8 @@ export interface LineDTO {
   logger: string
   message: string
   raw: string
+  /** 行来源标记(k8s 多 pod 合流=pod 名;其他源无此字段) */
+  source?: string
 }
 
 export interface TabInfo {

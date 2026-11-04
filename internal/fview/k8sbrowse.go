@@ -46,7 +46,7 @@ func ParseNamespaces(output string) []string {
 	return out
 }
 
-// ParseResources 解析 `kubectl get deploy,sts,ds,po -o name` 输出（kind/name 拆分）。
+// ParseResources 解析 `kubectl get deploy,sts,po -o name` 输出（kind/name 拆分;ds 未列出,注释曾误写）。
 func ParseResources(output string) []ResourceDTO {
 	var out []ResourceDTO
 	for _, line := range strings.Split(output, "\n") {

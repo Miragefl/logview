@@ -631,3 +631,37 @@ func (a *App) OpenK8sTab(resource, namespace, kubeCtx string, tailLines int) (st
 	}
 	return id, nil
 }
+
+// OpenK8sMergedTab 多 k8s 资源合流开单 tab（stern 式）：dp/sts 自动展开全部副本 pod
+// 并行合流（行 Source=pod 名，前端来源列区分）；resources 至少一项，格式同 OpenK8sTab。
+func (a *App) OpenK8sMergedTab(resources []string, namespace, kubeCtx string, tailLines int) (string, error) {
+	if tailLines <= 0 {
+		tailLines = defaultBufSize
+	}
+	if len(resources) == 0 {
+		return "", fmt.Errorf("no resources to merge")
+	}
+	srcs := make([]*stream.K8sSource, 0, len(resources))
+	for _, r := range resources {
+		if _, err := stream.ParseK8sResource(r); err != nil {
+			return "", err
+		}
+		s := stream.NewK8sSource(r, namespace, nil, tailLines)
+		s.SetContext(kubeCtx)
+		srcs = append(srcs, s)
+	}
+	merged := stream.NewMultiK8sSource(srcs)
+	// 展示名=首个资源(+N 增量,多文件 tab 同款风格);源信息条标注合流数
+	display := resources[0]
+	if len(resources) > 1 {
+		display = fmt.Sprintf("%s+%d", display, len(resources)-1)
+	}
+	id, err := a.mgr.OpenTab(merged, display, fmt.Sprintf("%s · %s/%d 资源合流", kubeCtx, namespace, len(resources)))
+	if err != nil {
+		return "", err
+	}
+	if err := a.mgr.SetFollow(id, true); err != nil {
+		return id, err
+	}
+	return id, nil
+}

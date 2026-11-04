@@ -19,6 +19,26 @@
 
 ---
 
+## fview 桌面版（macOS）
+
+**fview** 是 LogView 的桌面版（Go + Wails 原生窗口）：多标签页同时挂多个日志源，图形化连接管家（SSH / FRP / K8s），与 TUI 共享全部配置——解析规则 `rules.yaml`、最近文件与关键词热点、FRP 连接，两边混用零迁移。
+
+- **多 tab 会话**：本地文件 / SSH / FRP 隧道 / K8s 日志并行打开，`ctrl+1..9` 秒切
+- **K8s 日志合流**：deployment/statefulset 自动展开副本 pod 合流查看（stern 式），Space 多选多个资源 Enter 合流、⌘Enter 各开，行首 pod 名区分来源
+- **TUI 肌肉记忆全保留**：vim 导航、搜索语法（`time:` 范围/高亮词/上下文混入 `+x/-x`）、级别过滤、堆栈折叠、主题
+- 源面板直接打字过滤（子序列匹配，`hardware` 输 `hde` 亦命中）
+
+### 安装（Homebrew Cask）
+
+```bash
+brew tap Miragefl/logview
+brew install --cask fview
+```
+
+Apple Silicon / Intel 双架构，检测更新走应用内「关于」页。
+
+---
+
 ## 安装
 
 ### Homebrew（推荐）

@@ -39,3 +39,39 @@ body,
   width: 12px;
   height: 12px;
 }
+/* 源面板列表键盘选中态(ctrl+j/k,搜索历史下拉同款:背景+左侧 accent 竖条) */
+.panel .list li.sel {
+  background: var(--popup-bg, #1f2c3f);
+  box-shadow: inset 2px 0 0 var(--accent, #4a8fe0);
+}
+/* 按钮快捷键标注(编辑(e)/删除(d)…)+面板头部 ⌃j/k 提示(2026-11-04 全键盘化) */
+.kbd-hint {
+  color: var(--dim, #5d7292);
+  font-size: var(--font-ui-xs, 10px);
+}
+/* 面板统一新增按钮(右上角 +,Local/SSH/FRP 同款,ctrl+a 触发——FRP scoped 正本迁全局) */
+.panel-add {
+  background: transparent;
+  border: 1px solid var(--popup-border, #2a3a4f);
+  border-radius: 4px;
+  color: var(--dim, #8b98a9);
+  cursor: pointer;
+  padding: 1px 8px;
+  font-size: var(--font-ui-lg, 13px);
+}
+.panel-add:hover {
+  color: var(--accent, #4a8fe0);
+  border-color: var(--accent, #4a8fe0);
+}
+/* 面板无框打字过滤状态行(r2:⌕ + 过滤词,词非空时显示) */
+.panel .filter-hint {
+  color: var(--dim, #5d7292);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-ui-sm, 11px);
+  margin: 0;
+}
+/* 面板列表命中字母高亮(r2 打字过滤:accent 粗体) */
+.panel .list .kw-hit {
+  color: var(--accent, #7dc4e4);
+  font-weight: 600;
+}

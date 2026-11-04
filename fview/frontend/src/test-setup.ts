@@ -35,3 +35,23 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 if (typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = function scrollIntoViewStub() {}
 }
+// jsdom 无 Element.scrollTo：naive SelectMenu 展开时 scrollToPendingNode 滚虚列表用
+if (typeof Element.prototype.scrollTo !== 'function') {
+  Element.prototype.scrollTo = function scrollToStub() {}
+}
+
+// jsdom 无 matchMedia：naive/vueuc 虚拟列表 touch 检测用(NSelect 展开即渲染 VirtualList),
+// 给桌面态 stub(matches:false)——NSelect 聚焦守卫测试触发下拉展开所需
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
+}

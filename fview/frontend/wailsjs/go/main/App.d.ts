@@ -51,6 +51,8 @@ export function OpenFRPTab(arg1:string,arg2:string,arg3:number,arg4:string):Prom
 
 export function OpenFileTab(arg1:Array<string>,arg2:number,arg3:boolean):Promise<string>;
 
+export function OpenK8sMergedTab(arg1:Array<string>,arg2:string,arg3:string,arg4:number):Promise<string>;
+
 export function OpenK8sTab(arg1:string,arg2:string,arg3:string,arg4:number):Promise<string>;
 
 export function OpenSSHTab(arg1:string,arg2:string,arg3:number,arg4:string):Promise<string>;

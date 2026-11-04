@@ -62,6 +62,7 @@ export namespace fview {
 	    logger: string;
 	    message: string;
 	    raw: string;
+	    source?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LineDTO(source);
@@ -77,6 +78,7 @@ export namespace fview {
 	        this.logger = source["logger"];
 	        this.message = source["message"];
 	        this.raw = source["raw"];
+	        this.source = source["source"];
 	    }
 	}
 	export class QueryMeta {

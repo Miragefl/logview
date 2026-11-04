@@ -44,6 +44,7 @@ import {
   K8sNamespaces,
   K8sResources,
   OpenK8sTab,
+  OpenK8sMergedTab,
   GetSavedPass,
   SavePass,
   AppVersion,
@@ -349,6 +350,11 @@ export async function getK8sResources(kubeCtx: string, namespace: string): Promi
 }
 export function openK8sTab(resource: string, namespace: string, kubeCtx: string, tailLines: number): Promise<string> {
   return OpenK8sTab(resource, namespace, kubeCtx, tailLines)
+}
+
+/** openK8sMergedTab 多资源合流开单 tab(stern 式:dp/sts 展开副本 pod 并行合流,行 source=pod 名)。 */
+export function openK8sMergedTab(resources: string[], namespace: string, kubeCtx: string, tailLines: number): Promise<string> {
+  return OpenK8sMergedTab(resources, namespace, kubeCtx, tailLines)
 }
 
 /** openFileTab 按路径开本地文件 tab（最近文件列表点击用）。 */

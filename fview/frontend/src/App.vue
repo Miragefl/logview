@@ -122,11 +122,30 @@ function isTyping(e: KeyboardEvent): boolean {
 }
 // ---- vim 键位机(验收反馈④):resolveKey 纯映射 + dispatch 接线 ----
 const keyState = { pendingZ: false }
+/** onMouseMove 键盘导航态复位(藏指针/悬停抑制随之解除)。位移 <2px 的 mousemove
+ *  视为噪声不解除(滚动期间指针重算/触摸板抖动会派发零位移事件,真机首验踩坑)——
+ *  真移动必超阈值,防误复位于未然;bool 判断 O(1),已复位时零开销。 */
+let lastMX = -1
+let lastMY = -1
+function onMouseMove(e: MouseEvent) {
+  if (lastMX >= 0 && Math.abs(e.clientX - lastMX) < 2 && Math.abs(e.clientY - lastMY) < 2) return
+  lastMX = e.clientX
+  lastMY = e.clientY
+  if (ui.kbNav) ui.kbNav = false
+}
 function onKeydown(e: KeyboardEvent) {
   if (isTyping(e)) return
   // 弹窗打开时全局键让位,由各弹窗自理(ESC 关闭等,第三轮验收②)——
   // 否则 ESC 走 exitVisual、j/k 穿透弹窗动日志光标
   if (ui.modalOpen) return
+  // 键盘导航态:vim 键即藏鼠标指针+抑制悬停底色,mousemove 复位(less/vim 同款)
+  ui.kbNav = true
+  // +x/-x 上下文混入键序列(有状态数字累积,不进 keymap 纯映射)——
+  // bookmarkNav 同款"返回是否消费":输入态吞键,非输入态仅过滤激活时认领 +/-
+  if (logviewRef.value?.ctxKey(e)) {
+    e.preventDefault()
+    return
+  }
   const { action, arg } = resolveKey(e, keyState)
   if (action === 'none' || action === 'pending') return
   // ⌘C/Ctrl+C 无选区放行系统(输入框已前置让位;有选区才拦截走 yankSelection)
@@ -224,9 +243,12 @@ function dispatchKey(action: KeyAction, arg?: string) {
       lv?.toggleFold()
       break
     case 'visual':
+      // 混入态不可视选择(TUI 同语义:ctx 行域与过滤域两套坐标混淆)
+      if (lv?.hasCtxMix()) break
       lv?.startVisual(false)
       break
     case 'visualLine':
+      if (lv?.hasCtxMix()) break
       lv?.startVisual(true)
       break
     case 'yank': {
@@ -339,8 +361,12 @@ onMounted(async () => {
   // rules.yaml fields 拉取进 fieldsStore 单源(默认层+列宽;hides 是行级隐藏词不得混用)
   fieldsStore.load()
   document.addEventListener('keydown', onKeydown)
+  document.addEventListener('mousemove', onMouseMove)
 })
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('mousemove', onMouseMove)
+})
 </script>
 
 <template>
@@ -381,6 +407,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               :level-mode="levelMode"
               :fields="fields"
               :widths="colWidths"
+              :source-col="tabs.active?.hasSource ?? false"
               @update:widths="onColWidths"
             />
             <StatusBar :copied="copied" />

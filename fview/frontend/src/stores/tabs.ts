@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { LineDTO, TabInfo } from '../lib/types'
 import type { FoldRange } from '../lib/folds'
+import type { CtxAnchor } from '../lib/ctxmix'
 
 // 行/tab 前端状态（数据源为后端 Manager 事件流 tab:opened/tab:lines/tab:meta/tab:closed/tab:folds）
 
@@ -9,12 +10,18 @@ export interface TabState {
   lines: LineDTO[]
   /** 解析器可产出字段集(tab:meta 推送;null=后端未发不裁剪,['message']=纯文本) */
   parserFields: string[] | null
+  /** 匹配的解析规则名(tab:meta 推送,如 java-logback;状态栏字号栏展示,空=未解析不显示) */
+  parserName: string
   /** 折叠组(tab:folds 推送/懒拉,seq 域) */
   folds: FoldRange[]
   /** 已折叠组的 startSeq(会话级) */
   collapsed: number[]
   /** 书签行 seq(会话级,验收反馈④ m 键) */
   bookmarks: number[]
+  /** 上下文混入锚(seq → 参数;+x/-x 多锚累积,同 seq 重复按键覆盖——TUI sticky 语义) */
+  ctxAnchors: Record<number, CtxAnchor>
+  /** 行带来源标记(k8s 多 pod 合流=pod 名,首次见 source 行置位;LogView 来源列依据) */
+  hasSource: boolean
 }
 
 // DEFAULT_MAX_LINES 与后端 RingBuffer 默认容量对齐（前端同步裁剪，防双份内存膨胀）
@@ -75,7 +82,7 @@ export const useTabsStore = defineStore('tabs', {
     /** register 新 tab 注册（前端打开动作先登记，tab:opened 随后到达时去重）。 */
     register(info: TabInfo) {
       if (!this.tabs.some((t) => t.info.id === info.id)) {
-        this.tabs.push({ info, lines: [], parserFields: null, folds: [], collapsed: [], bookmarks: [] })
+        this.tabs.push({ info, lines: [], parserFields: null, parserName: '', folds: [], collapsed: [], bookmarks: [], ctxAnchors: {}, hasSource: false })
       }
       this.activeId = info.id
     },
@@ -86,6 +93,13 @@ export const useTabsStore = defineStore('tabs', {
       if (!t) return
       t.lines = addLines(t.lines, ev.lines)
       t.info.lines = t.lines.length
+      // 来源列置位(一次性):所有 stream 源都填 Source(file=basename/ssh=host/k8s=pod 名),
+      // 须按"行来源不唯一"判定——单文件/单 host 全同源不显示,多 pod/多文件合流才显示
+      // (Final Review I1:批内不同 source,或与首行 source 不同=跨批多源)
+      if (!t.hasSource && t.lines.length > 0) {
+        const first = t.lines[0].source ?? ''
+        if (ev.lines.some((l) => (l.source ?? '') !== first)) t.hasSource = true
+      }
     },
     /** applyOpened 响应 tab:opened（后端 OpenTab 广播,带 display/info）。 */
     applyOpened(ev: { tabId: string; label: string; display?: string; info?: string }) {
@@ -115,7 +129,8 @@ export const useTabsStore = defineStore('tabs', {
         ? t.bookmarks.filter((s) => s !== seq)
         : [...t.bookmarks, seq]
     },
-    /** applyCleared 响应 tab:cleared（C 键清屏:镜像/行数/折叠态全清,tab 不关）。 */
+    /** applyCleared 响应 tab:cleared（C 键清屏:镜像/行数/折叠态全清,tab 不关;
+     * 混入锚同步清——TUI 语义:清屏自动退出混入,锚点行已不存在)。 */
     applyCleared(tabId: string) {
       const t = this.tabs.find((x) => x.info.id === tabId)
       if (!t) return
@@ -124,13 +139,28 @@ export const useTabsStore = defineStore('tabs', {
       t.folds = []
       t.collapsed = []
       t.bookmarks = []
+      t.ctxAnchors = {}
+    },
+    /** setCtxAnchor 活动 tab 设/覆盖单锚(同 seq 重复按键参数覆盖);
+     *  返回活锚数(状态栏「混入 ×K」)。 */
+    setCtxAnchor(seq: number, a: CtxAnchor): number {
+      const t = this.tabs.find((x) => x.info.id === this.activeId)
+      if (!t) return 0
+      t.ctxAnchors = { ...t.ctxAnchors, [seq]: a }
+      return Object.keys(t.ctxAnchors).length
+    },
+    /** clearCtxAnchors 活动 tab 清全部锚(--/++/Esc 三路显式关闭/过滤变化语义性退出)。 */
+    clearCtxAnchors() {
+      const t = this.tabs.find((x) => x.info.id === this.activeId)
+      if (t) t.ctxAnchors = {}
     },
     /** applyMeta 更新 tab 元信息（label/跟随态/解析器字段集；EOF 终态也走这里）。
-     * follow-only meta 不带 parserFields(后端 omitempty),undefined 跳过不清已有值。 */
+     * follow-only meta 不带 parserFields/parserName(后端 omitempty),undefined 跳过不清已有值。 */
     applyMeta(ev: { tabId: string; label: string; parserName: string; parserFields?: string[]; follow?: boolean | null }) {
       const t = this.tabs.find((x) => x.info.id === ev.tabId)
       if (!t) return
       t.info.label = ev.label
+      if (ev.parserName) t.parserName = ev.parserName
       if (ev.parserFields !== undefined) t.parserFields = ev.parserFields
       if (ev.follow != null) t.info.follow = ev.follow
     },

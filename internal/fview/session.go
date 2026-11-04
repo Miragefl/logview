@@ -23,6 +23,7 @@ const emitBatch = 1000
 const flushInterval = 50 * time.Millisecond
 
 // LineDTO 前端行视图（EventsEmit JSON 序列化结构）。
+// Source=行来源标记(k8s 合流=pod 名;其他源空串 omitempty 零膨胀)。
 type LineDTO struct {
 	Seq     uint64 `json:"seq"`
 	Time    string `json:"time"`
@@ -32,6 +33,7 @@ type LineDTO struct {
 	Logger  string `json:"logger"`
 	Message string `json:"message"`
 	Raw     string `json:"raw"`
+	Source  string `json:"source,omitempty"`
 }
 
 // TabInfo tab 元信息快照。Display 为顶栏展示名(空=前端回落 Label);
@@ -133,6 +135,7 @@ func (t *tab) toDTO(pl *model.ParsedLine) LineDTO {
 		Logger:  pl.Logger(),
 		Message: pl.Message(),
 		Raw:     pl.Raw.Text,
+		Source:  pl.Raw.Source,
 	}
 }
 

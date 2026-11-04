@@ -38,6 +38,14 @@ export const useUiStore = defineStore('ui', {
     wrap: false,
     dialogs: [] as string[],
     visualActive: false,
+    /** +x/-x 输入态提示(状态栏展示;非输入态空——「混入 ×K」持久徽标走 tab 锚数) */
+    ctxHint: '',
+    /** 键盘导航态(2026-11-04):vim 键置位/mousemove 复位——日志区藏鼠标指针+抑制
+     *  悬停行底色(鼠标停着不动时 hover 底色卡一行碍眼;恢复=动一下鼠标) */
+    kbNav: false,
+    /** 源面板打字过滤词(r2 无框):会话级共享——SidebarRail 据此 Esc 逐级(词非空让位
+     *  面板清词,词空才关面板);切面板(toggle/cyclePane)清空防残留 */
+    panelFilter: '',
     browse: { show: false, mode: 'ssh' as 'ssh' | 'frp', host: '', connName: '', initPath: '' },
   }),
   getters: {
