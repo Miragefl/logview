@@ -47,7 +47,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 14px;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   color: var(--dim, #5d7292);
   border-top: 1px solid var(--popup-border, #1e2837);
   user-select: none;

@@ -124,3 +124,12 @@ describe('resolveKey 全表(TUI 对齐)', () => {
     expect(resolveKey(k('d', { metaKey: true }), st).action).toBe('none')
   })
 })
+
+// ⌘C/Ctrl+C 复制选区(第九轮验收④):mac ⌘C 必须接管(META 白名单加 c);
+// 有无选区的拦截/放行由 App 层决定,keymap 只管解析。
+describe('copySelection 解析', () => {
+  it('meta+c 与 ctrl+c 均解析为 copySelection', () => {
+    expect(resolveKey(k('c', { metaKey: true }), { pendingZ: false })).toEqual({ action: 'copySelection' })
+    expect(resolveKey(k('c', { ctrlKey: true }), { pendingZ: false })).toEqual({ action: 'copySelection' })
+  })
+})

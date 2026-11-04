@@ -26,6 +26,8 @@ const tabs = useTabsStore()
         <svg class="ico" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
       </span>
     </button>
+    <!-- 标题栏融合后 tab 右侧空隙兼任窗口拖拽区(wails 原生 drag 协议) -->
+    <div class="drag-spacer" style="--wails-draggable: drag"></div>
   </div>
 </template>
 
@@ -42,13 +44,13 @@ const tabs = useTabsStore()
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 4px 10px;
   background: transparent;
   color: var(--dim, #8b98a9);
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   white-space: nowrap;
   max-width: 220px;
 }
@@ -66,7 +68,12 @@ const tabs = useTabsStore()
 }
 .lines {
   opacity: 0.5;
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
+}
+.drag-spacer {
+  flex: 1;
+  height: 100%;
+  min-width: 24px;
 }
 /* 关闭钮:svg 走全局 .ico(16px 描边 1.7,style.css 正本);弃 &times; 字形——视觉直径仅字号六成 */
 .close {

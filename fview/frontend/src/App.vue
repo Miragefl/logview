@@ -32,6 +32,13 @@ const tabs = useTabsStore()
 const ui = useUiStore()
 const searchStore = useSearchStore()
 
+// naive overrides 合并界面字号(第九轮验收③):弹窗/按钮等 Naive 组件字号跟随
+// ui.uiFontSize——theme.overrides 由主题色生成,此处浅合并不侵入 themes store。
+const themeOverrides = computed(() => ({
+  ...theme.overrides,
+  common: { ...theme.overrides?.common, fontSize: `${ui.uiFontSize}px` },
+}))
+
 // ---- 跨组件交互状态（App 为接线员） ----
 const search = reactive({ hitSeqs: [] as number[], words: [] as string[] })
 const hitSeqSet = ref(new Set<number>())
@@ -90,14 +97,15 @@ function onOverrideFields(v: string[] | null) {
   persistOverrides(overrides.value)
 }
 
-// ---- 字体变量注入（日志区字号/等宽字体走 CSS 变量） ----
+// ---- 字体变量注入（日志区字号/等宽字体走 CSS 变量;界面字号单源 --ui-font-size） ----
 watch(
-  () => [ui.fontSize, ui.fontFamily, ui.lineHeight],
+  () => [ui.fontSize, ui.fontFamily, ui.lineHeight, ui.uiFontSize],
   () => {
     const root = document.documentElement
     root.style.setProperty('--log-font-size', `${ui.fontSize}px`)
     root.style.setProperty('--font-mono', ui.fontFamily)
     root.style.setProperty('--log-line-height', String(ui.lineHeight))
+    root.style.setProperty('--ui-font-size', `${ui.uiFontSize}px`)
   },
   { immediate: true }
 )
@@ -121,6 +129,8 @@ function onKeydown(e: KeyboardEvent) {
   if (ui.modalOpen) return
   const { action, arg } = resolveKey(e, keyState)
   if (action === 'none' || action === 'pending') return
+  // ⌘C/Ctrl+C 无选区放行系统(输入框已前置让位;有选区才拦截走 yankSelection)
+  if (action === 'copySelection' && !logviewRef.value?.hasSelection()) return
   // 阻止浏览器默认行为(/ 快速搜索、ctrl+w/数字等系统键)
   if (
     action === 'search' ||
@@ -128,6 +138,7 @@ function onKeydown(e: KeyboardEvent) {
     action === 'hide' ||
     action === 'closeTab' ||
     action === 'tabSwitch' ||
+    action === 'copySelection' ||
     action === 'zoomIn' ||
     action === 'zoomOut' ||
     action === 'navDown' ||
@@ -219,6 +230,15 @@ function dispatchKey(action: KeyAction, arg?: string) {
       lv?.startVisual(true)
       break
     case 'yank': {
+      const n = lv?.yank() ?? 0
+      if (n > 0) {
+        copied.value = n
+        setTimeout(() => (copied.value = 0), 3000)
+      }
+      break
+    }
+    // ⌘C/Ctrl+C:有选区才吞(拦截在 onKeydown 已判),此处只管复制
+    case 'copySelection': {
       const n = lv?.yankSelection() ?? 0
       if (n > 0) {
         copied.value = n
@@ -324,13 +344,22 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <n-config-provider :theme="theme.naiveTheme" :theme-overrides="theme.overrides">
+  <n-config-provider :theme="theme.naiveTheme" :theme-overrides="themeOverrides">
     <div class="app">
       <header class="topbar">
         <TabBar />
+        <!-- 设置入口:标题栏右端(IDEA 式;rail 底部旧入口已撤,验收反馈) -->
+        <button class="topbar-settings" title="设置" @click="settingsShow = true">
+          <svg viewBox="0 0 24 24" class="ico">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+        </button>
       </header>
       <div class="body">
-        <SidebarRail ref="railRef" @open-settings="settingsShow = true" />
+        <SidebarRail ref="railRef" />
         <main class="main">
           <Welcome v-if="tabs.tabs.length === 0" />
           <template v-else>
@@ -385,9 +414,33 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 .topbar {
   display: flex;
   align-items: center;
-  padding: 4px 8px;
+  /* 标题栏融合:左侧 78px 让位红绿灯;30px 折中——交通灯中心 14px(系统固定),
+     28px 严格居中但偏矮,32px 偏上 2px 用户可感,30px 偏 1px 肉眼极限 */
+  padding: 4px 8px 4px 78px;
+  min-height: 30px;
+  box-sizing: border-box;
   background: var(--popup-bg, #0c1119);
   border-bottom: 1px solid var(--popup-border, #1c2836);
+  /* 整行可拖:wails dragTest 只查 e.target 自身,空白区 target=topbar 即拖;
+     tab/按钮 target 是其子元素(无声明)不受影响 */
+  --wails-draggable: drag;
+}
+.topbar-settings {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim, #8b98a9);
+}
+.topbar-settings:hover {
+  color: var(--fg, #e6e6e6);
+  background: var(--popup-border, #1f2c3f);
 }
 .body {
   flex: 1;

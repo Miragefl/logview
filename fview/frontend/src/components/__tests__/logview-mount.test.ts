@@ -6,6 +6,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import naive from 'naive-ui'
 // vite ?raw 资源(SFC 源码字符串,断言样式选择器配对)
 import logViewSrc from '../logview/LogView.vue?raw'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 vi.mock('../../lib/backend', () => ({
   getLine: vi.fn().mockResolvedValue({}),
@@ -22,6 +24,7 @@ vi.stubGlobal('ResizeObserver', class {
 })
 
 import LogView from '../logview/LogView.vue'
+import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 import { useTabsStore } from '../../stores/tabs'
 import { useUiStore } from '../../stores/ui'
 import { useAnnotationsStore } from '../../stores/annotations'
@@ -182,5 +185,89 @@ describe('LogView mount 冒烟', () => {
     w.vm.cursorToHit(-1) // N:seq 2 之上无命中,光标不动(不回绕,对齐 TUI 单向找)
     await new Promise((r) => setTimeout(r, 0))
     expect(w.find('.row.cur').text()).toContain('has alpha inside')
+  })
+})
+
+// 复制三件套(第九轮验收④):y 当前行/鼠标拖选行范围/⌘C 通道
+describe('复制与拖选', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(ClipboardSetText).mockClear()
+  })
+
+  function mountWith3(): ReturnType<typeof mount> {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: [ln(1, 'm1'), ln(2, 'm2'), ln(3, 'm3')] })
+    return mount(LogView, { props: PROPS, global: { plugins: [naive] } })
+  }
+
+  it('y 无选区复制当前光标行 raw(TUI 语义)', async () => {
+    const w = mountWith3()
+    await new Promise((r) => setTimeout(r, 0))
+    const vm = w.vm as unknown as { gotoTop: () => void; yank: () => number }
+    vm.gotoTop() // 光标定位首行 seq1(cursorSeq 同步 ref,无需等帧)
+    expect(vm.yank()).toBe(1)
+    expect(ClipboardSetText).toHaveBeenCalledWith('m1')
+  })
+
+  it('鼠标拖选行范围生成 VISUAL 选区并可复制', async () => {
+    const w = mountWith3()
+    await new Promise((r) => setTimeout(r, 0))
+    const rows = w.findAll('.row:not(.header)')
+    await rows[0].trigger('mousedown', { button: 0 })
+    await rows[2].trigger('mousemove', { buttons: 1 })
+    await rows[2].trigger('mouseup')
+    await new Promise((r) => setTimeout(r, 0))
+    // 三行全进选区高亮(vis class)
+    expect(rows[0].classes()).toContain('vis')
+    expect(rows[1].classes()).toContain('vis')
+    expect(rows[2].classes()).toContain('vis')
+    const vm = w.vm as unknown as { yankSelection: () => number }
+    expect(vm.yankSelection()).toBe(3)
+    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2\nm3')
+  })
+
+  it('hasSelection 无选区 false/有选区 true(⌘C 拦截判定)', async () => {
+    const w = mountWith3()
+    await new Promise((r) => setTimeout(r, 0))
+    const vm = w.vm as unknown as { hasSelection: () => boolean; startVisual: (l: boolean) => void; moveCursor: (d: number) => void; gotoTop: () => void }
+    expect(vm.hasSelection()).toBe(false)
+    vm.gotoTop()
+    vm.startVisual(false)
+    vm.moveCursor(2)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(vm.hasSelection()).toBe(true)
+  })
+})
+
+
+// 终审修复回归:Important1 拖选窗外松手防线 / Important2 :root 变量环
+describe('终审修复回归', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(ClipboardSetText).mockClear()
+  })
+
+  it('拖选在窗外松手(buttons=0 移动)后,选区定格不再跟随', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: [ln(1, 'm1'), ln(2, 'm2'), ln(3, 'm3')] })
+    const w = mount(LogView, { props: PROPS, global: { plugins: [naive] } })
+    await new Promise((r) => setTimeout(r, 0))
+    const rows = w.findAll('.row:not(.header)')
+    await rows[0].trigger('mousedown', { button: 0 })
+    await rows[2].trigger('mousemove', { buttons: 1 }) // 按住拖到第 3 行:选区 1..3
+    await rows[1].trigger('mousemove', { buttons: 0 }) // 窗外松手后无键移回第 2 行
+    const vm = w.vm as unknown as { yankSelection: () => number }
+    expect(vm.yankSelection()).toBe(3) // 定格在 3 行,不缩到 2
+    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2\nm3')
+  })
+
+  it(':root --ui-font-size 为字面量 12px(与派生档不得循环引用)', () => {
+    // css?raw 在 vitest 走 css 管线拿不到源串,node:fs 直读正本
+    const styleCss = readFileSync(resolve(process.cwd(), 'src/style.css'), 'utf8')
+    expect(styleCss).toMatch(/--ui-font-size:\s*12px/)
+    expect(styleCss).not.toMatch(/--ui-font-size:\s*var\(/)
   })
 })

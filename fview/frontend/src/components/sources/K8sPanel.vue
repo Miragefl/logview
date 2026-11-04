@@ -77,9 +77,13 @@ async function open(r: { kind: string; name: string }) {
 
 <style scoped>
 .panel {
-  width: 250px;
+  /* 宽随内容自适应(验收反馈:边框按文字长度调整);上限防超长路径撑爆,
+     超长项 ellipsis+title 截断 */
+  width: max-content;
+  min-width: calc(var(--ui-font-size) * 21);
+  max-width: min(480px, 42vw);
   padding: 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   display: flex;
   flex-direction: column;
   gap: 6px;

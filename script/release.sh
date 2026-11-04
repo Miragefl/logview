@@ -63,7 +63,7 @@ GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
 # fview 桌面端（Wails v2：macOS only，本地 mac + node + CGO；失败即中止，不留半截 Release。
 # 产物入 dist/ 供 gitee_sync 顺带镜像到 gitee）
 echo "==> building fview desktop (wails, darwin/universal)"
-(cd fview && wails build -platform darwin/universal)
+(cd fview && wails build -platform darwin/universal -ldflags "-X main.version=$NEXT -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date +%Y-%m-%d)")
 FVIEW_TGZ="dist/fview_${NEXT}_macos_universal.tar.gz"
 tar czf "$FVIEW_TGZ" -C fview/build/bin fview.app
 gh release upload "v$NEXT" "$FVIEW_TGZ"

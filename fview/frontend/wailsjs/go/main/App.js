@@ -6,12 +6,20 @@ export function AddSSHHost(arg1) {
   return window['go']['main']['App']['AddSSHHost'](arg1);
 }
 
+export function AppVersion() {
+  return window['go']['main']['App']['AppVersion']();
+}
+
 export function BrowseFRP(arg1, arg2, arg3) {
   return window['go']['main']['App']['BrowseFRP'](arg1, arg2, arg3);
 }
 
 export function BumpKeyword(arg1, arg2, arg3) {
   return window['go']['main']['App']['BumpKeyword'](arg1, arg2, arg3);
+}
+
+export function CheckUpdate() {
+  return window['go']['main']['App']['CheckUpdate']();
 }
 
 export function ClearTab(arg1) {

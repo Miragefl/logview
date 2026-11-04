@@ -241,9 +241,13 @@ async function saveForm() {
 
 <style scoped>
 .panel {
-  width: 250px;
+  /* 宽随内容自适应(验收反馈:边框按文字长度调整);上限防超长路径撑爆,
+     超长项 ellipsis+title 截断 */
+  width: max-content;
+  min-width: calc(var(--ui-font-size) * 21);
+  max-width: min(480px, 42vw);
   padding: 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -261,7 +265,7 @@ async function saveForm() {
   color: var(--dim, #8b98a9);
   cursor: pointer;
   padding: 1px 8px;
-  font-size: 13px;
+  font-size: var(--font-ui-lg, 13px);
 }
 .add:hover {
   color: var(--accent, #4a8fe0);
@@ -294,7 +298,7 @@ async function saveForm() {
 .summary {
   grid-column: 1 / 3;
   color: var(--dim, #5d7292);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -302,7 +306,7 @@ async function saveForm() {
 /* 类型徽标：tcp 直连绿 / stcp 隧道蓝（与列表摘要呼应） */
 .tag {
   margin-left: 4px;
-  font-size: 10px;
+  font-size: var(--font-ui-xs, 10px);
   border-radius: 3px;
   padding: 0 3px;
   border: 1px solid var(--popup-border, #2a3a4f);
@@ -321,7 +325,7 @@ async function saveForm() {
 }
 .live {
   color: var(--level-info, #7ee29a);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
 }
 /* 行内图标按钮:svg 走全局 .ico(16px 描边 1.7,style.css 正本),
    弃字符字形(✎/× 字形只占字号六成,各字体渲染不一,两轮"还是小"的根因) */
@@ -348,11 +352,11 @@ async function saveForm() {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .conn-form label {
   color: var(--dim, #8b98a9);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   margin-top: 4px;
 }
 .row2 {
@@ -364,7 +368,7 @@ async function saveForm() {
 }
 .err {
   color: var(--level-error, #e57373);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   margin: 4px 0 0;
 }
 </style>

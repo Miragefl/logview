@@ -1,3 +1,13 @@
+:root {
+  /* 界面字号单源(第九轮验收③):App.vue 按 ui.uiFontSize 注入覆盖;
+     派生四档——xs 徽标(10) / sm 辅助(11) / base 正文(12) / lg 标题(13),fallback 保底 */
+  --ui-font-size: 12px; /* 字面量基准:被派生档引用,不得反向 var(环=guaranteed-invalid,终审 Important2) */
+  --font-ui-xs: calc(var(--ui-font-size) - 2px);
+  --font-ui-sm: calc(var(--ui-font-size) - 1px);
+  --font-ui-base: var(--ui-font-size);
+  --font-ui-lg: calc(var(--ui-font-size) + 1px);
+}
+
 /* 全局基础样式（主题变量由 ThemeCSS 运行时注入 :root） */
 html,
 body,

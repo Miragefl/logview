@@ -51,7 +51,7 @@ function open(h: string) {
       <span>SSH 主机</span>
     </div>
     <ul class="list">
-      <li v-for="h in hosts" :key="h.name" class="host-item" @click="open(h.name)">
+      <li v-for="h in hosts" :key="h.name" class="host-item" :title="h.name" @click="open(h.name)">
         <span class="name">
           <svg class="ico" viewBox="0 0 24 24"><path d="M2 3h20v14H2z" /><path d="M8 21h8M12 17v4" /></svg>
           {{ h.name }}<span v-if="h.fromSshConfig" class="cfg" title="~/.ssh/config 自动发现">cfg</span>
@@ -74,9 +74,13 @@ function open(h: string) {
 
 <style scoped>
 .panel {
-  width: 250px;
+  /* 宽随内容自适应(验收反馈:边框按文字长度调整);上限防超长主机名撑爆,
+     超长项 ellipsis+title 截断 */
+  width: max-content;
+  min-width: calc(var(--ui-font-size) * 21);
+  max-width: min(480px, 42vw);
   padding: 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -115,7 +119,7 @@ function open(h: string) {
 /* cfg 角标：~/.ssh/config 自动发现的主机 */
 .cfg {
   margin-left: 4px;
-  font-size: 10px;
+  font-size: var(--font-ui-xs, 10px);
   color: var(--dim, #5d7292);
   border: 1px solid var(--popup-border, #2a3a4f);
   border-radius: 3px;

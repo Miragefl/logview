@@ -46,6 +46,8 @@ import {
   OpenK8sTab,
   GetSavedPass,
   SavePass,
+  AppVersion,
+  CheckUpdate,
 } from '../../wailsjs/go/main/App'
 
 import type { LineDTO, TabInfo } from './types'
@@ -197,6 +199,24 @@ export function themeCSS(name: string): Promise<Record<string, string>> {
 export function currentTheme(): Promise<string> {
   return CurrentTheme()
 }
+
+/** AppVersion 当前构建版本(ldflags 注入;dev 空串前端显示 dev)。 */
+export function appVersion(): Promise<string> {
+  return AppVersion()
+}
+
+/** UpdateInfo 检测更新结果(后端 fview.UpdateInfo 同构)。 */
+export interface UpdateInfo {
+  current: string
+  latest: string
+  url: string
+}
+
+/** checkUpdate 查 GitHub Releases latest(后端 10s 超时,失败 reject 可重试)。 */
+export function checkUpdate(): Promise<UpdateInfo> {
+  return CheckUpdate() as Promise<UpdateInfo>
+}
+
 export function setTheme(name: string): Promise<void> {
   return SetTheme(name)
 }

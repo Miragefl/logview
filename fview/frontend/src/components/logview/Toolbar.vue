@@ -129,7 +129,7 @@ function zoom(delta: number) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   color: var(--dim, #5d7292);
   font-family: var(--font-mono, monospace);
 }
@@ -137,7 +137,7 @@ function zoom(delta: number) {
   flex: 1;
 }
 .fs {
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   color: var(--dim, #8b98a9);
   min-width: 18px;
   text-align: center;

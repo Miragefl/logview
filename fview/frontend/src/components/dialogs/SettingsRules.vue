@@ -202,7 +202,7 @@ async function persistPatterns() {
 }
 h4 {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   color: var(--dim, #8b98a9);
   font-weight: normal;
 }
@@ -210,9 +210,9 @@ h4 {
   list-style: none;
   margin: 0 0 6px;
   padding: 0;
-  max-height: 160px;
+  max-height: calc(var(--ui-font-size) * 14);
   overflow-y: auto;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .rule-list li {
   display: flex;
@@ -222,14 +222,14 @@ h4 {
 }
 .rule-name {
   flex: none;
-  max-width: 130px;
+  max-width: calc(var(--ui-font-size) * 11);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tag {
   flex: none;
-  font-size: 10px;
+  font-size: var(--font-ui-xs, 10px);
   border: 1px solid var(--accent, #4a8fe0);
   color: var(--accent, #4a8fe0);
   border-radius: 3px;
@@ -264,7 +264,7 @@ h4 {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 180px;
+  max-height: calc(var(--ui-font-size) * 15);
   overflow-y: auto;
   margin-bottom: 6px;
 }
@@ -275,7 +275,7 @@ h4 {
 }
 .pat-name {
   flex: none;
-  width: 90px;
+  width: calc(var(--ui-font-size) * 8);
   color: var(--fg, #e6e6e6);
 }
 .pat-regex {
@@ -288,7 +288,7 @@ h4 {
   align-items: center;
 }
 .pat-name-input {
-  width: 90px;
+  width: calc(var(--ui-font-size) * 8);
   flex: none;
 }
 input {
@@ -297,7 +297,7 @@ input {
   border-radius: 4px;
   color: var(--fg, #e6e6e6);
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   width: 100%;
   box-sizing: border-box;
 }
@@ -313,17 +313,17 @@ input {
 .hint {
   flex: 1;
   color: var(--dim, #5d7292);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
 }
 .rule-form {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .rule-form label {
   color: var(--dim, #8b98a9);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   margin-top: 6px;
 }
 .form-row {

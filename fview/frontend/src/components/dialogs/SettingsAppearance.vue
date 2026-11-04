@@ -80,7 +80,17 @@ function onFontChange(v: string | null) {
     </section>
     <section class="row">
       <div>
-        <h4>字号</h4>
+        <h4>界面字号</h4>
+        <NInputNumber
+          v-model:value="ui.uiFontSize"
+          size="small"
+          :min="10"
+          :max="18"
+          @update:value="ui.persist()"
+        />
+      </div>
+      <div>
+        <h4>日志字号</h4>
         <NInputNumber
           v-model:value="ui.fontSize"
           size="small"
@@ -101,7 +111,7 @@ function onFontChange(v: string | null) {
         />
       </div>
     </section>
-    <p class="hint">主题切换即时生效（含原生标题栏亮暗）；字段默认/字体/字号/行高仅桌面端保存。</p>
+    <p class="hint">主题切换即时生效（含原生标题栏亮暗）；界面字号作用于工具栏/弹窗等非日志文字；其余仅桌面端保存。</p>
   </div>
 </template>
 
@@ -113,7 +123,7 @@ function onFontChange(v: string | null) {
 }
 h4 {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   color: var(--dim, #8b98a9);
   font-weight: normal;
 }
@@ -126,7 +136,7 @@ h4 {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   cursor: pointer;
   color: var(--fg, #c8d3e0);
 }
@@ -142,7 +152,7 @@ h4 {
 }
 .hint {
   color: var(--dim, #5d7292);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   margin: 0;
 }
 </style>

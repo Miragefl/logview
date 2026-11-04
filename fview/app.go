@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/justfun/logview/internal/frp"
 	"github.com/justfun/logview/internal/fview"
@@ -17,8 +20,29 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// 版本注入(release.sh wails build -ldflags,与 TUI main.go 同惯例);dev 构建为空串。
+var (
+	version = ""
+	commit  = ""
+	date    = ""
+)
+
 // defaultBufSize 默认尾读行数（spec 4.2：10 万行）。
 const defaultBufSize = 100000
+
+// 检测更新数据源(gitee 优先、github 兜底,与 TUI upgrade --mirror 默认一致;
+// GitHub API 对国内出口 IP 常态 403 限流,repo 与 internal/upgrade 同步)。
+var defaultUpdateAPIs = []string{
+	"https://gitee.com/api/v5/repos/Mtok/logview/releases/latest",
+	"https://api.github.com/repos/Miragefl/logview/releases/latest",
+}
+
+// UpdateInfo 检测更新结果(Current=本地版本,Latest/URL=远端最新 Release)。
+type UpdateInfo struct {
+	Current string `json:"current"`
+	Latest  string `json:"latest"`
+	URL     string `json:"url"`
+}
 
 // App fview 后端绑定根：tab 会话管理器 + 文件打开。
 type App struct {
@@ -30,6 +54,48 @@ type App struct {
 	passes passStore
 	// storeMu 连接库 CRUD 串行化（frp.Store 的 Upsert/Delete/Find 裸操作非线程安全，Final Review I1）
 	storeMu sync.Mutex
+	// updateAPIs 检测更新数据源列表(空=默认 gitee+github;测试注入 httptest)
+	updateAPIs []string
+}
+
+// AppVersion 当前构建版本(ldflags 注入;dev 空串,前端显示 dev)。
+func (a *App) AppVersion() string { return version }
+
+// CheckUpdate 依次查 gitee/github Releases latest,首个成功者胜(html_url 用命中源;
+// 10s 超时;全部失败返回最后一个 error 不 panic,可重试)。
+func (a *App) CheckUpdate() (UpdateInfo, error) {
+	info := UpdateInfo{Current: version}
+	apis := a.updateAPIs
+	if len(apis) == 0 {
+		apis = defaultUpdateAPIs
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	var lastErr error
+	for _, api := range apis {
+		resp, err := client.Get(api)
+		if err != nil {
+			lastErr = fmt.Errorf("检查更新失败: %w", err)
+			continue
+		}
+		// 循环内不能 defer(堆积到函数返回),读完全量后手动关
+		var r struct {
+			TagName string `json:"tag_name"`
+			HTMLURL string `json:"html_url"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&r)
+		resp.Body.Close()
+		switch {
+		case resp.StatusCode != http.StatusOK:
+			lastErr = fmt.Errorf("检查更新失败: %s HTTP %d", api, resp.StatusCode)
+		case decodeErr != nil:
+			lastErr = fmt.Errorf("解析更新信息失败: %w", decodeErr)
+		default:
+			info.Latest = r.TagName
+			info.URL = r.HTMLURL
+			return info, nil
+		}
+	}
+	return info, lastErr
 }
 
 // NewApp 构造后端绑定根（emit 直连 Wails EventsEmit）。

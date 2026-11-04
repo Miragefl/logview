@@ -601,6 +601,50 @@ function yankSelection(): number {
   return filteredLines.value.filter((l) => l.seq >= r.lo && l.seq <= r.hi).length
 }
 
+/** yank y 统一入口(TUI 语义,第九轮验收④):VISUAL 选区在复制选区,否则复制当前光标行。 */
+function yank(): number {
+  if (visual.value.active) return yankSelection()
+  const cur = filteredLines.value.find((l) => l.seq === cursorSeq.value)
+  if (!cur) return 0
+  ClipboardSetText(cur.raw).catch(() => {})
+  return 1
+}
+
+/** hasSelection ⌘C 拦截判定:选区在才吞系统复制,否则 App 放行原生行为。 */
+function hasSelection(): boolean {
+  return visual.value.active && visualRange.value !== null
+}
+
+// ---- 鼠标拖选(第九轮验收④):按下拖动=按行范围选中(复用 VISUAL 高亮,行粒度),
+// 松开定格(ESC/再次 v 重置);未构成拖动(单击/原地)不建选区,不影响双击详情/右键菜单。 ----
+const dragAnchor = ref<number | null>(null)
+let dragMoved = false
+
+function rowMouseDown(e: MouseEvent, seq: number) {
+  if (e.button !== 0) return
+  dragAnchor.value = seq
+  dragMoved = false
+}
+
+function rowMouseMove(e: MouseEvent, seq: number) {
+  if (dragAnchor.value === null) return
+  if (!(e.buttons & 1)) {
+    // 拖选已在日志区外松开(mouseup 丢失):选区定格,清拖拽态防"复活"跟随(终审 Important1)
+    dragAnchor.value = null
+    return
+  }
+  if (dragAnchor.value === seq) return
+  if (!dragMoved) {
+    visual.value = { active: true, anchorSeq: dragAnchor.value }
+    dragMoved = true
+  }
+  cursorSeq.value = seq // 端点跟随 → visualRange/inVisual 高亮联动
+}
+
+function rowMouseUp() {
+  dragAnchor.value = null // 拖成选区则自然定格;未拖则无副作用
+}
+
 // ---- 书签 m/' + 行号 # ----
 /** bmSet 书签 seq 集合(行前缀渲染)。 */
 const bmSet = computed(() => new Set(tabs.active?.bookmarks ?? []))
@@ -675,6 +719,8 @@ defineExpose({
   startVisual,
   exitVisual,
   yankSelection,
+  yank,
+  hasSelection,
   toggleBookmark,
   showBookmarks,
   toggleLineNum,
@@ -684,7 +730,7 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="scrollEl" class="logview" @scroll="onScroll">
+  <div ref="scrollEl" class="logview" @scroll="onScroll" @mouseup="rowMouseUp()">
     <!-- 分栏表头（sticky 置顶,与数据列同宽对齐,验收反馈②;gutter 占位与数据行同构,第三轮验收⑦） -->
     <div v-if="filteredLines.length" class="row header">
       <span class="gutter"
@@ -725,6 +771,9 @@ defineExpose({
           class="row"
           :class="{ hit: hitSeqs.has(item.ln.seq), cur: item.ln.seq === cursorSeq, vis: inVisual(item.ln.seq) }"
           :style="{ top: rowTop(range[0] + i) + 'px', height: rowHeightAt(range[0] + i) + 'px' }"
+          @mousedown="rowMouseDown($event, item.ln.seq)"
+          @mousemove="rowMouseMove($event, item.ln.seq)"
+          @mouseup="rowMouseUp()"
           @contextmenu="onContext($event, item.ln)"
           @dblclick="openDetail(item.ln)"
         >
@@ -915,7 +964,7 @@ defineExpose({
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .bm-head {
   color: var(--dim, #8b98a9);
@@ -1038,7 +1087,7 @@ defineExpose({
 .detail {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .detail .k {
   width: 90px;

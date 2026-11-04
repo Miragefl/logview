@@ -52,7 +52,7 @@ onBeforeUnmount(() => {
     :show="show"
     preset="card"
     title="设置"
-    style="width: 640px"
+    style="width: min(94vw, calc(var(--ui-font-size) * 54))"
     @update:show="(v: boolean) => emit('update:show', v)"
   >
     <div class="settings">
@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
   min-height: 300px;
 }
 .nav {
-  width: 110px;
+  width: calc(var(--ui-font-size) * 9);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -118,7 +118,7 @@ onBeforeUnmount(() => {
   padding: 6px 10px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-ui-lg, 13px);
 }
 /* 与 SidebarRail 同款描边图标 */
 /* 图标基类收编 style.css 全局正本(2026-11-03 统一),此处仅留 flex 布局附加 */
@@ -135,6 +135,6 @@ onBeforeUnmount(() => {
 .content {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--font-ui-lg, 13px);
 }
 </style>

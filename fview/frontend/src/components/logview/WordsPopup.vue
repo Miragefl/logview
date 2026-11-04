@@ -224,7 +224,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .hist,
 .words {
@@ -280,7 +280,7 @@ li.sel {
 }
 .empty {
   color: var(--dim, #8b98a9);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   margin: 0;
 }
 .foot {
@@ -290,6 +290,6 @@ li.sel {
 .hint {
   flex: 1;
   color: var(--dim, #5d7292);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
 }
 </style>

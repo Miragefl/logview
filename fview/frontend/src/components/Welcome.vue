@@ -47,14 +47,14 @@ onMounted(async () => {
 }
 .subtitle {
   color: var(--dim, #8b98a9);
-  font-size: 13px;
+  font-size: var(--font-ui-lg, 13px);
 }
 .recent {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
   color: var(--fg, #c8d3e0);
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   font-family: var(--font-mono, monospace);
   line-height: 2;
   max-height: 40vh;
@@ -70,6 +70,6 @@ onMounted(async () => {
 }
 .empty {
   color: var(--dim, #5d7292);
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 </style>

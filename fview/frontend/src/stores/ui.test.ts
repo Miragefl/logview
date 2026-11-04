@@ -48,3 +48,26 @@ describe('useUiStore', () => {
     expect(s.modalOpen).toBe(false)
   })
 })
+
+// uiFontSize 界面字号(第九轮验收③:非日志区文字可调,默认 12)
+describe('uiFontSize', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia()) // 新实例:loadPersisted 才会重读 localStorage
+  })
+
+  it('默认 12;persist 往返保留', () => {
+    const s = useUiStore()
+    expect(s.uiFontSize).toBe(12)
+    s.uiFontSize = 15
+    s.persist()
+    const s2 = useUiStore()
+    expect(s2.uiFontSize).toBe(15)
+  })
+
+  it('旧数据无 uiFontSize 字段回落 12', () => {
+    localStorage.setItem('fview-ui', JSON.stringify({ fontFamily: 'x', fontSize: 13, lineHeight: 1.5 }))
+    const s = useUiStore()
+    expect(s.uiFontSize).toBe(12)
+  })
+})

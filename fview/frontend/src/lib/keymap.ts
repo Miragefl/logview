@@ -28,6 +28,7 @@ export type KeyAction =
   | 'visual'
   | 'visualLine'
   | 'yank'
+  | 'copySelection'
   | 'bookmark'
   | 'gotoBookmarks'
   | 'fields'
@@ -116,12 +117,14 @@ const CTRL_MAP: Record<string, KeyResult> = {
   '+': { action: 'zoomIn' },
   '-': { action: 'zoomOut' },
   ',': { action: 'settings' },
+  c: { action: 'copySelection' },
 }
 
-/** META_OK_KEYS cmd(macOS)接管白名单:字号/设置/tab 数字(第七轮验收①③);
- *  其余仅 ctrl——cmd+w 走 mac 原生菜单(fview/menu.go 注册 ⌘W,事件路由
- *  shortcut:closeTab 由 App.vue 订阅关 tab),keymap 不认,防漏进 vim 单键。 */
-const META_OK_KEYS = new Set(['=', '+', '-', ',', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+/** META_OK_KEYS cmd(macOS)接管白名单:字号/设置/tab 数字(第七轮验收①③)/复制(第九轮④,
+ *  ⌘C 有选区时拦截、无选区由 App 放行系统);其余仅 ctrl——cmd+w 走 mac 原生菜单
+ *  (fview/menu.go 注册 ⌘W,事件路由 shortcut:closeTab 由 App.vue 订阅关 tab),
+ *  keymap 不认,防漏进 vim 单键。 */
+const META_OK_KEYS = new Set(['=', '+', '-', ',', 'c', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
 
 const Z_MAP: Record<string, KeyResult> = {
   t: { action: 'anchorTop' },

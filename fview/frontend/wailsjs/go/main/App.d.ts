@@ -7,9 +7,13 @@ import {frp} from '../models';
 
 export function AddSSHHost(arg1:string):Promise<void>;
 
+export function AppVersion():Promise<string>;
+
 export function BrowseFRP(arg1:string,arg2:string,arg3:string):Promise<Array<main.DirEntryDTO>>;
 
 export function BumpKeyword(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function CheckUpdate():Promise<main.UpdateInfo>;
 
 export function ClearTab(arg1:string):Promise<void>;
 

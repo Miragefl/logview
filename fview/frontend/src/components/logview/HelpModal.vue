@@ -40,7 +40,8 @@ const KEYS: [string, string][] = [
   ['E / W / I / D / A', '级别档位:ERROR / ≥WARN / ≥INFO / DEBUG / 全部'],
   ['e', '折叠 / 展开光标处堆栈组'],
   ['d', '光标行详情(同双击)'],
-  ['v / V, y, Esc', '可视选择 / 复制选中行 / 退出'],
+  ['v / V, y, Esc', '可视选择 / 复制(无选区=当前行,TUI 同款) / 退出'],
+  ['⌘C / Ctrl+C', '复制选区(鼠标拖选或 v 选区;无选区不拦截系统复制)'],
   ['m / \'', '光标行加书签 / 书签列表(ctrl+j/k 选中,Enter 跳转)'],
   ['q', '源面板循环(本地→SSH→K8s→FRP→收起)'],
   [', / cmd+,', '设置中心'],
@@ -92,13 +93,13 @@ const KEYS: [string, string][] = [
   padding: 12px 16px 14px;
 }
 .title {
-  font-size: 13px;
+  font-size: var(--font-ui-lg, 13px);
   color: var(--dim, #8b98a9);
   margin-bottom: 8px;
 }
 .keys {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   width: 100%;
 }
 .keys td {
@@ -116,7 +117,7 @@ const KEYS: [string, string][] = [
 }
 .hint {
   margin: 10px 0 0;
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   color: var(--dim, #5d7292);
 }
 </style>

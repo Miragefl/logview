@@ -8,10 +8,12 @@ interface UiPersist {
   fontFamily: string
   fontSize: number
   lineHeight: number
+  /** uiFontSize 界面字号(非日志区,第九轮验收③;旧数据缺省回落 12) */
+  uiFontSize: number
 }
 
 function loadPersisted(): UiPersist {
-  const defaults: UiPersist = { fontFamily: 'SF Mono, Menlo, monospace', fontSize: 13, lineHeight: 1.5 }
+  const defaults: UiPersist = { fontFamily: 'SF Mono, Menlo, monospace', fontSize: 13, lineHeight: 1.5, uiFontSize: 12 }
   try {
     const raw = localStorage.getItem(UI_STORAGE_KEY)
     if (!raw) return defaults
@@ -20,6 +22,7 @@ function loadPersisted(): UiPersist {
       fontFamily: v.fontFamily || defaults.fontFamily,
       fontSize: v.fontSize ?? defaults.fontSize,
       lineHeight: v.lineHeight ?? defaults.lineHeight,
+      uiFontSize: v.uiFontSize ?? defaults.uiFontSize,
     }
   } catch {
     return defaults
@@ -76,6 +79,7 @@ export const useUiStore = defineStore('ui', {
         fontFamily: this.fontFamily,
         fontSize: this.fontSize,
         lineHeight: this.lineHeight,
+        uiFontSize: this.uiFontSize,
       }
       localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(v))
     },

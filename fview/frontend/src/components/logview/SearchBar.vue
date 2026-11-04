@@ -225,7 +225,7 @@ function onKey(e: KeyboardEvent) {
 }
 .hits {
   flex: none;
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   color: var(--dim, #8b98a9);
   white-space: nowrap;
 }
@@ -250,7 +250,7 @@ function onKey(e: KeyboardEvent) {
   border: 1px solid var(--popup-border, #2a3a4f);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   max-height: 220px;
   overflow-y: auto;
 }

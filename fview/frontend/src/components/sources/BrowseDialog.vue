@@ -247,7 +247,7 @@ onBeforeUnmount(() => {
     :auto-focus="false"
     :trap-focus="false"
     :title="`${mode === 'ssh' ? 'SSH' : 'FRP'} · ${host ?? connName ?? ''}`"
-    style="width: 560px"
+    style="width: min(94vw, calc(var(--ui-font-size) * 47))"
     @update:show="(v: boolean) => (v ? null : close())"
   >
     <div class="head">
@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .path {
   flex: 1;
@@ -314,17 +314,17 @@ onBeforeUnmount(() => {
   flex: none;
   cursor: pointer;
   color: var(--accent, #4a8fe0);
-  font-size: 13px;
+  font-size: var(--font-ui-lg, 13px);
   padding: 0 2px;
 }
 .up:hover {
   color: var(--fg, #e6e6e6);
 }
 .pwd {
-  width: 140px;
+  width: calc(var(--ui-font-size) * 12);
 }
 .filter {
-  width: 180px;
+  width: calc(var(--ui-font-size) * 15);
 }
 .retry {
   color: var(--accent, #4a8fe0);
@@ -332,20 +332,20 @@ onBeforeUnmount(() => {
 }
 .err {
   color: var(--level-error, #e57373);
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   margin: 0 0 6px;
 }
 .hint {
   color: var(--dim, #8b98a9);
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
 }
 .entries {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 320px;
+  max-height: calc(var(--ui-font-size) * 27);
   overflow-y: auto;
-  font-size: 12px;
+  font-size: var(--font-ui-base, 12px);
   font-family: var(--font-mono, monospace);
 }
 .entries li {
@@ -365,7 +365,7 @@ onBeforeUnmount(() => {
 }
 .keyhint {
   color: var(--dim, #5d7292);
-  font-size: 11px;
+  font-size: var(--font-ui-sm, 11px);
   margin: 6px 0 0;
 }
 </style>
