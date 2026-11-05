@@ -212,8 +212,9 @@ function onDocKey(e: KeyboardEvent) {
       <span>Kubernetes <span class="kbd-hint">⌃j/k 资源 · ⌃c/⌃n 切换 · Space 多选</span></span>
     </div>
     <div class="sel-row">
-      <NSelect v-model:value="ctx" size="tiny" placeholder="context (⌃c)" :options="ctxOptions" />
-      <NSelect v-model:value="ns" size="tiny" placeholder="namespace (⌃n)" :options="nsOptions" />
+      <!-- r2:tiny 字号过小(真机验收反馈),升 small(FRP 表单同档) -->
+      <NSelect v-model:value="ctx" size="small" placeholder="context (⌃c)" :options="ctxOptions" />
+      <NSelect v-model:value="ns" size="small" placeholder="namespace (⌃n)" :options="nsOptions" />
     </div>
     <p v-if="q" class="filter-hint">⌕ {{ q }}</p>
     <ul class="list">

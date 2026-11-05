@@ -6,7 +6,7 @@ import { useTabsStore } from '../../stores/tabs'
 import { useUiStore } from '../../stores/ui'
 import { getMemStats } from '../../lib/backend'
 
-defineProps<{ copied?: number }>()
+defineProps<{ copied?: number; copiedUnit?: '行' | '字符' }>()
 
 const tabs = useTabsStore()
 const ui = useUiStore()
@@ -36,7 +36,7 @@ onBeforeUnmount(() => {
 <template>
   <footer class="statusbar">
     <span>{{ tabs.active?.info.lines ?? 0 }} 行</span>
-    <span v-if="copied && copied > 0" class="copied">已复制 {{ copied }} 行</span>
+    <span v-if="copied && copied > 0" class="copied">已复制 {{ copied }} {{ copiedUnit ?? '行' }}</span>
     <span v-if="ui.visualActive" class="visual-badge">VISUAL</span>
     <!-- 混入持久指示(TUI 同款「混入 ×K」,K=锚数;输入态提示另走 ctxHint -->
     <span v-if="ctxCount > 0" class="ctx-mix">混入 ×{{ ctxCount }}</span>

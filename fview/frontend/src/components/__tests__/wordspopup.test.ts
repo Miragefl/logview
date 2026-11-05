@@ -20,6 +20,15 @@ function key(k: string, opts: KeyboardEventInit = {}) {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }))
 }
 
+/** keyOnInput 在加词输入框上派生按键——复现真机路径(弹窗自动聚焦 input,
+ *  keydown 的 target 是 INPUT 而非 document;旧 key() 的 target 恒 document,
+ *  正是"测试全绿但真机 d 删词失效"的原因,r2 根因回归用)。 */
+function keyOnInput(k: string, opts: KeyboardEventInit = {}) {
+  const input = document.body.querySelector('.wordspopup input')
+  if (!input) throw new Error('wordspopup input 不存在')
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }))
+}
+
 function setWord(v: string) {
   const input = document.body.querySelector('.wordspopup input')
   if (!input) throw new Error('wordspopup input 不存在')
@@ -39,7 +48,7 @@ describe('WordsPopup 词管理框', () => {
     document.body.innerHTML = ''
   })
 
-  it('hl 模式:Enter 加词,词表 ctrl+j 选中 + d 删除', async () => {
+  it('hl 模式:Enter 加词,词表 ctrl+j 选中 + ctrl+d 删除(焦点在输入框也可,r2)', async () => {
     const search = useSearchStore()
     const ann = useAnnotationsStore()
     search.openWords('hl')
@@ -51,11 +60,34 @@ describe('WordsPopup 词管理框', () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(ann.highlights.map((h) => h.word)).toEqual(['alpha'])
 
-    // 键盘选中第一条再删
+    // 键盘选中第一条再删:ctrl+d 组合键(弹窗自动聚焦输入框,焦点恒在 input——
+    // 旧裸 d 因 inInput 防御在真机失效,r2 改 ctrl+d 解除防御)
     key('j', { ctrlKey: true })
     await new Promise((r) => setTimeout(r, 0))
     expect(document.querySelectorAll('.wordspopup .words li.sel').length).toBe(1)
+    keyOnInput('d', { ctrlKey: true })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ann.highlights).toHaveLength(0)
+  })
+
+  it('x 删词保留(焦点不在输入框时);裸 d 不再删词(r2)', async () => {
+    const search = useSearchStore()
+    const ann = useAnnotationsStore()
+    search.openWords('hl')
+    wrappers.push(mount(WordsPopup, { global: { plugins: [naive] } }))
+    await new Promise((r) => setTimeout(r, 0))
+
+    setWord('alpha')
+    key('Enter')
+    await new Promise((r) => setTimeout(r, 0))
+    key('j', { ctrlKey: true })
+    await new Promise((r) => setTimeout(r, 0))
+    // 裸 d:无删词行为(退役为 ctrl+d)
     key('d')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ann.highlights).toHaveLength(1)
+    // x(document 级,焦点不在词表场景):删词保留
+    key('x')
     await new Promise((r) => setTimeout(r, 0))
     expect(ann.highlights).toHaveLength(0)
   })

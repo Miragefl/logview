@@ -83,6 +83,13 @@ type App struct {
 
 	visualMode  bool
 	visualStart int
+	// vim-copy 字符级可视选择:visualChar=v 字符模式(V 行级),visualCol=锚列
+	visualChar bool
+	visualCol  int
+
+	// 字符光标列(vim-copy):-1=未激活;colWish 列记忆(j/k 跨行 clamp),message rune 域
+	cursorCol int
+	colWish   int
 
 	pendingKey string
 
@@ -257,6 +264,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		hides:          hides,
 		autoscroll:     true,
 		showKeyHints:   true,
+		cursorCol:      -1, // 字符光标未激活
 		exportState:    newExportState(),
 		sshPasswords:   make(map[string]string),
 		currentScope:   src.Scope(),
@@ -1539,8 +1547,11 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.yankMsg = "混入态不可视选择(--/++ 或 Esc 退出后再用)"
 			return a, nil
 		}
-		a.beginVisual()
+		a.beginVisual(msg.String() == "v")
 	case "y":
+		// vim-copy:单按 y 进序列等第二键(yy=复制行);连按合并的 "yy" 直达
+		a.pendingKey = "y"
+	case "yy":
 		a.yankLines(a.cursor, a.cursor)
 	case "F":
 		a.panelFocus = true
@@ -1548,9 +1559,33 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		a.helpMode = true
 	case "h":
+		a.moveCursorCol(MotionLeft)
+	case "l":
+		a.moveCursorCol(MotionRight)
+	case "w":
+		a.moveCursorCol(MotionWordFwd)
+	case "b":
+		a.moveCursorCol(MotionWordBack)
+	case "e":
+		a.moveCursorCol(MotionWordEnd)
+	case "0":
+		a.moveCursorCol(MotionStart)
+	case "^":
+		a.moveCursorCol(MotionFirstNonBlank)
+	case "$":
+		a.moveCursorCol(MotionEnd)
+	case "ctrl+w": // 换行开关(vim-copy:原 w 让给词前进)
+		a.wrapMode = !a.wrapMode
+	case "ctrl+h": // 高亮关键词(vim-copy:原 h 让给光标左移)
 		a.openUnifiedPopup(1)
-	case "x":
+	case "ctrl+x": // 隐藏关键词(r2:原 x 裸键退役,对齐 fview)
 		a.openUnifiedPopup(2)
+	case "ctrl+e": // 折叠堆栈(vim-copy:原 e 让给词尾)
+		if len(a.ctxLines) > 0 {
+			a.yankMsg = "混入态不可折叠"
+			return a, nil
+		}
+		a.toggleFold()
 	case "\\":
 		a.showKeyHints = !a.showKeyHints
 	case "o":
@@ -1567,8 +1602,6 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.jumpSearchMatch(1)
 	case "N":
 		a.jumpSearchMatch(-1)
-	case "w":
-		a.wrapMode = !a.wrapMode
 	case "#":
 		a.showLineNum = !a.showLineNum
 	case "S":
@@ -1577,12 +1610,6 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleBookmark()
 	case "'":
 		a.jumpBookmark()
-	case "e":
-		if len(a.ctxLines) > 0 {
-			a.yankMsg = "混入态不可折叠"
-			return a, nil
-		}
-		a.toggleFold()
 	case "z":
 		a.pendingKey = "z"
 	case "I":
@@ -1626,6 +1653,16 @@ func (a *App) handlePendingKey(msg tea.KeyMsg) bool {
 			a.scrollAnchor = 3
 		}
 		a.autoscroll = false
+	case "y":
+		// vim-copy y 序列:yy=复制当前行;其他键透传(清 pending 返回 false,
+		// 键继续走主 switch,vim 手感不弹提示)
+		if key == "y" {
+			a.pendingKey = ""
+			a.yankLines(a.cursor, a.cursor)
+			return true
+		}
+		a.pendingKey = ""
+		return false
 	}
 	a.pendingKey = ""
 	return true
@@ -1681,9 +1718,15 @@ func (a *App) openSearch() {
 	a.openUnifiedPopup(0)
 }
 
-func (a *App) beginVisual() {
+func (a *App) beginVisual(charMode bool) {
 	a.visualMode = true
 	a.visualStart = a.cursor
+	a.visualChar = charMode
+	if charMode && a.cursorCol < 0 {
+		a.cursorCol = 0
+		a.colWish = 0
+	}
+	a.visualCol = a.cursorCol // 锚列在 cursorCol<0 修复之后取值(Final Review I2)
 	a.autoscroll = false
 }
 
@@ -1821,28 +1864,163 @@ func (a *App) moveCursor(key string) {
 	if len(a.ctxLines) > 0 {
 		a.autoscroll = false // 混入态冻结跟随:follow 新行不进快照,滚动无意义
 	}
+	// vim-copy:行切换保持列记忆(colWish clamp 到新行消息长)
+	if a.cursorCol >= 0 {
+		a.cursorCol = a.clampColWish()
+	}
+}
+
+// clampColWish 列记忆 clamp:光标行消息 rune 长(空消息 0)。
+func (a *App) clampColWish() int {
+	vl := a.viewLines()
+	if a.cursor < 0 || a.cursor >= len(vl) {
+		return 0
+	}
+	n := len([]rune(vl[a.cursor].Message()))
+	if n == 0 {
+		return 0
+	}
+	return min(a.colWish, n-1)
+}
+
+// moveCursorCol h/l/w/b/e/0/$/^ 字符光标移动(message rune 域;光标行越界防御)。
+func (a *App) moveCursorCol(m Motion) {
+	vl := a.viewLines()
+	if a.cursor < 0 || a.cursor >= len(vl) {
+		return
+	}
+	from := a.cursorCol
+	if from < 0 {
+		from = 0
+	}
+	a.cursorCol = ApplyMotion(vl[a.cursor].Message(), from, m)
+	a.colWish = a.cursorCol
 }
 
 func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	clampCol := func() { // 行切换后列记忆 clamp(字符选区端点跟随)
+		if a.cursorCol >= 0 {
+			a.cursorCol = a.clampColWish()
+		}
+	}
 	switch msg.String() {
 	case "y":
-		a.yankLines(a.visualStart, a.cursor)
-	case "esc":
+		// vim-copy:字符选区复制子串(所见 message),行级保持 raw 行区间;y 后退出
+		if a.visualChar {
+			a.yankCharSel()
+		} else {
+			a.yankLines(a.visualStart, a.cursor)
+		}
+	case "esc", "v", "V": // Esc/再按 v|V 退出(vim 习惯)
 		a.visualMode = false
+		a.visualChar = false
 	case "up", "k": // 可视模式同主界面 vim 风格 j/k(迭代 3 改,C-j/C-k 无绑定)
 		if a.cursor > 0 {
 			a.cursor--
 		}
+		clampCol()
 	case "down", "j":
 		if a.cursor < len(a.filteredView)-1 {
 			a.cursor++
 		}
+		clampCol()
 	case "G":
 		a.cursor = max(0, len(a.filteredView)-1)
+		clampCol()
 	case "g":
 		a.cursor = 0
+		clampCol()
+	case "h":
+		a.moveCursorCol(MotionLeft)
+	case "l":
+		a.moveCursorCol(MotionRight)
+	case "w":
+		a.moveCursorCol(MotionWordFwd)
+	case "b":
+		a.moveCursorCol(MotionWordBack)
+	case "e":
+		a.moveCursorCol(MotionWordEnd)
+	case "0":
+		a.moveCursorCol(MotionStart)
+	case "^":
+		a.moveCursorCol(MotionFirstNonBlank)
+	case "$":
+		a.moveCursorCol(MotionEnd)
 	}
 	return a, nil
+}
+
+// charSelRowRange 字符选区某行的 rune 列区间(端点 inclusive,to=-1 到行尾);
+// 非选区行/折叠隐藏行 ok=false。行序小端为首行、大端为尾行(锚/光标自动归一)。
+func (a *App) charSelRowRange(lineIdx int) (from, to int, ok bool) {
+	if !a.visualMode || !a.visualChar {
+		return 0, 0, false
+	}
+	lo, hi := min(a.visualStart, a.cursor), max(a.visualStart, a.cursor)
+	if lineIdx < lo || lineIdx > hi {
+		return 0, 0, false
+	}
+	if g := a.foldedGroup(lineIdx); g != nil && lineIdx != g.Start {
+		return 0, 0, false // 折叠组隐藏行不可见,不进选区(所见即所选)
+	}
+	firstCol := a.visualCol
+	lastCol := a.cursorCol
+	if a.visualStart > a.cursor { // 锚行序大:小端是光标行
+		firstCol, lastCol = a.cursorCol, a.visualCol
+	}
+	switch {
+	case lo == hi:
+		return min(firstCol, lastCol), max(firstCol, lastCol), true
+	case lineIdx == lo:
+		return firstCol, -1, true
+	case lineIdx == hi:
+		return 0, lastCol, true
+	default:
+		return 0, -1, true
+	}
+}
+
+// charSelMsgs 字符选区复制组装:可见行 message 集+首行 from/尾行 to(端点列)。
+func (a *App) charSelMsgs() (msgs []string, from, to int, ok bool) {
+	if !a.visualMode || !a.visualChar {
+		return nil, 0, 0, false
+	}
+	lo, hi := min(a.visualStart, a.cursor), max(a.visualStart, a.cursor)
+	vl := a.viewLines()
+	for i := lo; i <= hi && i < len(vl); i++ {
+		if g := a.foldedGroup(i); g != nil && i != g.Start {
+			continue
+		}
+		msgs = append(msgs, vl[i].Message())
+	}
+	if len(msgs) == 0 {
+		return nil, 0, 0, false
+	}
+	firstCol, lastCol := a.visualCol, a.cursorCol
+	if a.visualStart > a.cursor {
+		firstCol, lastCol = a.cursorCol, a.visualCol
+	}
+	if lo == hi {
+		return msgs, min(firstCol, lastCol), max(firstCol, lastCol), true
+	}
+	return msgs, firstCol, lastCol, true
+}
+
+// yankCharSel 字符选区复制:所见 message 子串 \n 拼接 → 剪贴板;复制后退出选区。
+func (a *App) yankCharSel() {
+	msgs, from, to, ok := a.charSelMsgs()
+	if !ok {
+		a.yankMsg = "无字符选区"
+		return
+	}
+	text, chars := CharSelText(msgs, from, to)
+	if err := copyToClipboard(text); err != nil {
+		a.yankMsg = fmt.Sprintf("复制失败: %v", err)
+	} else {
+		a.yankMsg = fmt.Sprintf("已复制 %d 字符", chars)
+	}
+	a.visualMode = false
+	a.visualChar = false
 }
 
 func (a *App) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

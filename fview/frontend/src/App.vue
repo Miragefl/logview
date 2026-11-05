@@ -62,8 +62,15 @@ const railRef = ref<InstanceType<typeof SidebarRail> | null>(null)
 
 // 设置中心（Task 10 接入对话框，先占位开关）
 const settingsShow = ref(false)
-/** copied y 复制反馈行数(3s 闪现)。 */
-const copied = ref(0)
+/** copied y 复制反馈(数量+单位,3s 闪现;vim-copy 字符选区单位为字符)。 */
+const copied = ref<{ n: number; unit: '行' | '字符' }>({ n: 0, unit: '行' })
+
+/** flashCopied 复制成功反馈 3s。 */
+function flashCopied(r?: { n: number; unit: '行' | '字符' }) {
+  if (!r || r.n <= 0) return
+  copied.value = r
+  setTimeout(() => (copied.value = { n: 0, unit: '行' }), 3000)
+}
 /** 帮助弹窗(? 键)。 */
 const helpShow = ref(false)
 
@@ -121,7 +128,7 @@ function isTyping(e: KeyboardEvent): boolean {
   )
 }
 // ---- vim 键位机(验收反馈④):resolveKey 纯映射 + dispatch 接线 ----
-const keyState = { pendingZ: false }
+const keyState = { pendingZ: false, pendingY: false }
 /** onMouseMove 键盘导航态复位(藏指针/悬停抑制随之解除)。位移 <2px 的 mousemove
  *  视为噪声不解除(滚动期间指针重算/触摸板抖动会派发零位移事件,真机首验踩坑)——
  *  真移动必超阈值,防误复位于未然;bool 判断 O(1),已复位时零开销。 */
@@ -156,6 +163,7 @@ function onKeydown(e: KeyboardEvent) {
     action === 'highlight' ||
     action === 'hide' ||
     action === 'closeTab' ||
+    action === 'wrap' ||
     action === 'tabSwitch' ||
     action === 'copySelection' ||
     action === 'zoomIn' ||
@@ -176,6 +184,31 @@ function dispatchKey(action: KeyAction, arg?: string) {
       break
     case 'cursorUp':
       lv?.moveCursor(-1)
+      break
+    // 字符光标移动(vim-copy):message rune 域,h/l/w/b/e/0/$/^(Task3 接线)
+    case 'cursorLeft':
+      lv?.moveCursorCol('left')
+      break
+    case 'cursorRight':
+      lv?.moveCursorCol('right')
+      break
+    case 'wordFwd':
+      lv?.moveCursorCol('wordFwd')
+      break
+    case 'wordBack':
+      lv?.moveCursorCol('wordBack')
+      break
+    case 'wordEnd':
+      lv?.moveCursorCol('wordEnd')
+      break
+    case 'lineStart':
+      lv?.moveCursorCol('start')
+      break
+    case 'firstNonBlank':
+      lv?.moveCursorCol('firstNonBlank')
+      break
+    case 'lineEnd':
+      lv?.moveCursorCol('end')
       break
     case 'gotoTop':
       lv?.gotoTop()
@@ -245,27 +278,29 @@ function dispatchKey(action: KeyAction, arg?: string) {
     case 'visual':
       // 混入态不可视选择(TUI 同语义:ctx 行域与过滤域两套坐标混淆)
       if (lv?.hasCtxMix()) break
-      lv?.startVisual(false)
+      lv?.startVisual('char')
       break
     case 'visualLine':
       if (lv?.hasCtxMix()) break
-      lv?.startVisual(true)
+      lv?.startVisual('line')
       break
     case 'yank': {
-      const n = lv?.yank() ?? 0
-      if (n > 0) {
-        copied.value = n
-        setTimeout(() => (copied.value = 0), 3000)
+      // vim-copy:单按 y 仅在可视选区激活时复制选区;否则进入 pendingY 等 yy
+      // 第二键(keymap 透传),不再立即复制当前行。选区复制成功后清 pendingY——
+      // visual 态连按两下 y 不得把刚复制的选区覆盖成整行(Final Review M8)。
+      if (lv?.hasSelection()) {
+        keyState.pendingY = false
+        flashCopied(lv.yank())
       }
       break
     }
+    case 'yankLine':
+      // yy(pendingY 第二键):复制当前行 raw
+      flashCopied(lv?.yankLine())
+      break
     // ⌘C/Ctrl+C:有选区才吞(拦截在 onKeydown 已判),此处只管复制
     case 'copySelection': {
-      const n = lv?.yankSelection() ?? 0
-      if (n > 0) {
-        copied.value = n
-        setTimeout(() => (copied.value = 0), 3000)
-      }
+      flashCopied(lv?.yankSelection())
       break
     }
     case 'escape':
@@ -409,8 +444,9 @@ onBeforeUnmount(() => {
               :widths="colWidths"
               :source-col="tabs.active?.hasSource ?? false"
               @update:widths="onColWidths"
+              @copied="flashCopied"
             />
-            <StatusBar :copied="copied" />
+            <StatusBar :copied="copied.n" :copied-unit="copied.unit" />
           </template>
         </main>
       </div>

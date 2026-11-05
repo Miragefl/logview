@@ -92,12 +92,28 @@ func (a *App) buildLogLines(vl int) []string {
 	addLine := func(idx int) {
 		if g := a.foldedGroup(idx); g != nil && !rendered[g.Start] {
 			rendered[g.Start] = true
-			hint := "e展开"
+			hint := "ctrl+e展开"
 			if a.expanded[g.Start] {
-				hint = "e收起"
+				hint = "ctrl+e收起"
 			}
 			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines) [%s]", g.End-g.Start, hint)))
 		} else if g == nil {
+			// vim-copy(Final Review I3):字符选区行强制 wrap 不截断——所见即所选
+			// (普通路径 renderLine 被 MaxWidth 截断丢尾,选区尾部不可见)
+			if _, _, sel := a.charSelRowRange(idx); sel && idx != a.cursor {
+				w := a.contentWidth()
+				if w < 1 {
+					w = 1
+				}
+				wrapped := wrapAnsiText(a.renderLineText(a.viewLines()[idx], idx), w)
+				if a.showLineNum {
+					wrapped = prefixLineNums(wrapped, idx, len(a.viewLines()))
+				}
+				for _, wl := range wrapped {
+					lines = append(lines, lipgloss.NewStyle().MaxWidth(w).Render(wl))
+				}
+				return
+			}
 			lines = append(lines, a.renderLine(a.viewLines()[idx], false, idx))
 		}
 	}
@@ -162,7 +178,7 @@ func (a *App) buildWrapLines(vl int) []string {
 						i = g.End
 						continue
 					}
-					text := a.renderLineText(a.viewLines()[i])
+					text := a.renderLineText(a.viewLines()[i], i)
 					rows += len(wrapAnsiText(text, w))
 				}
 				if rows > vl {
@@ -183,9 +199,9 @@ func (a *App) buildWrapLines(vl int) []string {
 				continue
 			}
 			rendered[g.Start] = true
-			hint := "e展开"
+			hint := "ctrl+e展开"
 			if a.expanded[g.Start] {
-				hint = "e收起"
+				hint = "ctrl+e收起"
 			}
 			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines) [%s]", g.End-g.Start, hint)))
 			if len(lines) >= vl {
@@ -198,11 +214,12 @@ func (a *App) buildWrapLines(vl int) []string {
 		inVisual := a.visualMode && i >= min(a.visualStart, a.cursor) && i <= max(a.visualStart, a.cursor)
 		var text string
 		if isCursor {
-			text = a.renderLineTextWithBg(a.viewLines()[i], SelectedBgColor, SelectedFgColor)
-		} else if inVisual {
-			text = a.renderLineTextWithBg(a.viewLines()[i], VisualBgColor, VisualFgColor)
+			text = a.renderLineTextWithBg(a.viewLines()[i], SelectedBgColor, SelectedFgColor, i)
+		} else if inVisual && !a.visualChar {
+			text = a.renderLineTextWithBg(a.viewLines()[i], VisualBgColor, VisualFgColor, i)
 		} else {
-			text = a.renderLineText(a.viewLines()[i])
+			// vim-copy:字符选区行区间注入走 renderLineText(charSelRowRange)
+			text = a.renderLineText(a.viewLines()[i], i)
 			// 混入态插入行:剥内层列色统一暗色(内层 SGR 会覆盖外层 dim)+ ┆ 行首标记
 			// (wrap 文本生成前加,行号前缀照现有顺序);非混入态 ctxDim 恒 false,路径不变
 			if a.ctxDim(i) {
@@ -318,7 +335,7 @@ func (a *App) visualStartFromWrap(cursor, targetRows int) int {
 			i = g.Start + 1
 			continue
 		}
-		text := a.renderLineText(a.viewLines()[i])
+		text := a.renderLineText(a.viewLines()[i], i)
 		rows += len(wrapAnsiText(text, w))
 		if rows >= targetRows {
 			return i
@@ -392,7 +409,7 @@ func (a *App) renderHeaderLine() string {
 
 // renderLineWrapped renders the cursor line with selected background baked into each field.
 func (a *App) renderLineWrapped(line *model.ParsedLine, lineIdx int) []string {
-	text := SelArrowStyle.Render("▶ ") + a.renderLineTextWithBg(line, SelectedBgColor, SelectedFgColor)
+	text := SelArrowStyle.Render("▶ ") + a.renderLineTextWithBg(line, SelectedBgColor, SelectedFgColor, lineIdx)
 	w := a.contentWidth()
 	if w < 1 {
 		w = 1
@@ -428,8 +445,15 @@ func (a *App) applyHighlights(text string) string {
 	return text
 }
 
+// cursorLineEq 行是否当前光标行(渲染注入字符光标块的判定,指针比较)。
+func (a *App) cursorLineEq(line *model.ParsedLine) bool {
+	vl := a.viewLines()
+	return a.cursor >= 0 && a.cursor < len(vl) && vl[a.cursor] == line
+}
+
 // renderLineText builds the full text of a line without truncation or selection styling.
-func (a *App) renderLineText(line *model.ParsedLine) string {
+// lineIdx 供 vim-copy 字符光标/选区注入(非日志区调用传 -1 跳过)。
+func (a *App) renderLineText(line *model.ParsedLine, lineIdx int) string {
 	var parts []string
 	for _, f := range model.AllFields {
 		if !a.fieldMask.IsVisible(f) {
@@ -460,6 +484,16 @@ func (a *App) renderLineText(line *model.ParsedLine) string {
 		case model.FieldThread:
 			styled = ThreadStyle.Render(fitFieldVal(f, val))
 		case model.FieldMessage:
+			// vim-copy:选区底纹+光标块一次注入(在样式/compactJSON 前,纯文本
+			// rune 域;compactJSON 遇 ESC 非 JSON 兜底返回原串)
+			from, to, selOK := a.charSelRowRange(lineIdx)
+			curCol := -1
+			if a.cursorCol >= 0 && a.cursorLineEq(line) {
+				curCol = a.cursorCol
+			}
+			if selOK || curCol >= 0 {
+				val = markSelAndCursor(val, from, to, curCol)
+			}
 			styled = compactJSON(val)
 		default:
 			styled = fitFieldVal(f, val)
@@ -474,7 +508,8 @@ func (a *App) renderLineText(line *model.ParsedLine) string {
 
 // renderLineTextWithBg renders line text with a forced background color on every field,
 // so inner ANSI resets don't break the selection background.
-func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg lipgloss.Color) string {
+// lineIdx 供 vim-copy 字符光标/选区注入(非日志区调用传 -1 跳过)。
+func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg lipgloss.Color, lineIdx int) string {
 	var parts []string
 	for _, f := range model.AllFields {
 		if !a.fieldMask.IsVisible(f) {
@@ -502,6 +537,17 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 		case model.FieldThread:
 			styled = ThreadStyle.Background(bg).Foreground(fg).Render(fitFieldVal(f, val))
 		default:
+			// vim-copy:光标行 message 选区底纹+光标块一次注入(样式 Render 前)
+			if f == model.FieldMessage {
+				from, to, selOK := a.charSelRowRange(lineIdx)
+				curCol := -1
+				if a.cursorCol >= 0 && a.cursorLineEq(line) {
+					curCol = a.cursorCol
+				}
+				if selOK || curCol >= 0 {
+					val = markSelAndCursor(val, from, to, curCol)
+				}
+			}
 			styled = lipgloss.NewStyle().Background(bg).Foreground(fg).Render(fitFieldVal(f, val))
 		}
 		if cw > 0 && f != model.FieldLevel {
@@ -514,7 +560,7 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 }
 
 func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) string {
-	text := a.renderLineText(line)
+	text := a.renderLineText(line, lineIdx)
 	prefix := "  "
 	if a.bookmarks[line.Raw.Seq] {
 		prefix = BookmarkStyle.Render("▸ ")
@@ -533,7 +579,9 @@ func (a *App) renderLine(line *model.ParsedLine, selected bool, lineIdx int) str
 	if a.ctxDim(lineIdx) {
 		return DetailDimStyle.Render("┆ " + model.StripANSI(text))
 	}
-	inVisualRange := a.visualMode && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
+	// vim-copy:整行 VISUAL 背景仅行级模式;字符级选区行背景在 message 区间
+	// (renderLineText 注入),此处不再整行铺底
+	inVisualRange := a.visualMode && !a.visualChar && lineIdx >= min(a.visualStart, a.cursor) && lineIdx <= max(a.visualStart, a.cursor)
 	cw := a.contentWidth()
 	if selected && !inVisualRange {
 		truncated := lipgloss.NewStyle().MaxWidth(cw).Render(text)

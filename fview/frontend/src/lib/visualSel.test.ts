@@ -1,6 +1,6 @@
 // 可视选择区间测试(验收反馈④ v/V/y):seq 域区间,锚/光标双向,折叠占位行天然不进区间。
 import { describe, expect, it } from 'vitest'
-import { selectedSeqRange } from './visualSel'
+import { charSelRows, selectedSeqRange } from './visualSel'
 
 // seq 3-9 为折叠组成员,视图只剩 [1,2,10]
 const SEQ = [1, 2, 10]
@@ -28,5 +28,37 @@ describe('selectedSeqRange', () => {
   it('锚或光标不在可见域 → null', () => {
     expect(selectedSeqRange(SEQ, 5, 10)).toBeNull()
     expect(selectedSeqRange(SEQ, 1, 99)).toBeNull()
+  })
+})
+
+// charSelRows 字符选区行集(vim-copy):锚/光标带列,可见行域逐行给出选区 rune 列
+// 区间(from/to 含端点,to=-1 到行尾);锚在光标后自动归一;任一端不在域 null。
+describe('charSelRows', () => {
+  const SEQ = [1, 2, 10]
+  it('单行:from/to = min/max 列', () => {
+    expect(charSelRows(SEQ, 2, 1, 2, 3)).toEqual(new Map([[2, { from: 1, to: 3 }]]))
+    expect(charSelRows(SEQ, 2, 3, 2, 1)).toEqual(new Map([[2, { from: 1, to: 3 }]]))
+  })
+  it('跨行正向:锚行 [aCol..]、中间行全量、尾行 [..cCol]', () => {
+    expect(charSelRows(SEQ, 1, 8, 10, 2)).toEqual(
+      new Map([
+        [1, { from: 8, to: -1 }],
+        [2, { from: 0, to: -1 }],
+        [10, { from: 0, to: 2 }],
+      ])
+    )
+  })
+  it('跨行反向(锚行序大):归一为同样行集', () => {
+    expect(charSelRows(SEQ, 10, 2, 1, 8)).toEqual(
+      new Map([
+        [1, { from: 8, to: -1 }],
+        [2, { from: 0, to: -1 }],
+        [10, { from: 0, to: 2 }],
+      ])
+    )
+  })
+  it('锚或光标不在可见域 → null(折叠隐藏行不进选区)', () => {
+    expect(charSelRows(SEQ, 5, 0, 10, 0)).toBeNull()
+    expect(charSelRows(SEQ, 1, 0, 99, 0)).toBeNull()
   })
 })

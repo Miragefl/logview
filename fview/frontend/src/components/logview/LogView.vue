@@ -9,16 +9,17 @@ import { useUiStore } from '../../stores/ui'
 import type { LevelFilterMode } from '../../lib/filter'
 import { levelFilter } from '../../lib/filter'
 import { levelClass } from '../../lib/levelColor'
-import { DEFAULT_WIDTHS, headerCells, layoutLine } from '../../lib/columns'
+import { DEFAULT_WIDTHS, displayWidth, headerCells, layoutLine } from '../../lib/columns'
 import { visibleRange } from '../../lib/virtual'
 import { ensureVisible, moveClamp } from '../../lib/nav'
 import { splitSpans } from '../../lib/hlSpan'
 import { buildViewItems } from '../../lib/folds'
 import type { FoldRange, ViewItem } from '../../lib/folds'
 import { buildCtxMixed } from '../../lib/ctxmix'
-import { selectedSeqRange } from '../../lib/visualSel'
-import type { SeqRange } from '../../lib/visualSel'
+import { selectedSeqRange, charSelRows } from '../../lib/visualSel'
+import type { SeqRange, CharSelRow } from '../../lib/visualSel'
 import { wrapSegments, HeightIndex, visibleRows } from '../../lib/wrap'
+import { applyMotion, charSelText, colToSeg, type Motion } from '../../lib/charMotion'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
 import { scopeOfLabel } from '../../lib/scope'
@@ -41,6 +42,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:widths', widths: Record<string, number>): void
+  /** 拖选松手复制反馈(通道给 App 状态栏闪现) */
+  (e: 'copied', r: { n: number; unit: '行' | '字符' }): void
 }>()
 
 const tabs = useTabsStore()
@@ -88,6 +91,17 @@ const viewItems = computed<ViewItem[]>(() => {
 const wrapRows = new Map<number, number>()
 const rowsVer = ref(0)
 const charPx = ref(7)
+// 字符光标列(vim-copy):-1=未激活;声明前置——heightsArr 变高模型(watch 注册期
+// 即求值)引用它,不能落在光标模型区(文件后段)造成 TDZ
+const cursorCol = ref(-1)
+const colWish = ref(0)
+// 行号开关状态(#):声明前置同上(msgWidthCh 引用)
+const showLineNum = ref(false)
+/** colsW 生效列宽（分栏渲染,验收反馈②）;拖拽中优先本地态——
+ *  mousemove 只改渲染列宽,mouseup 才 emit 落盘(wrap 行高全量重算一次,拖拽 60fps 不卡)。
+ *  声明前置:msgWidthCh(watch 注册期即求值)引用它,原位置在其后触发 TDZ。 */
+const dragW = ref<Record<string, number> | null>(null)
+const colsW = computed<Record<string, number>>(() => dragW.value ?? props.widths ?? DEFAULT_WIDTHS)
 
 /** measureChar 探针测单字符宽('0'×50 均值,字体/字号变化时重测)。 */
 function measureChar() {
@@ -103,9 +117,10 @@ function measureChar() {
   if (w > 0) charPx.value = w
 }
 
-/** msgWidthCh message 列可用显示宽(ch):容器宽 - gutter - 固定列 - padding,留 1 字符余量。 */
+/** msgWidthCh message 列可用显示宽(ch):容器宽 - gutter - 固定列 - padding,留 1 字符余量。
+ *  非 wrap 也计算(Final Review C1:光标行超宽临时 wrap 依赖此宽;曾 wrap 短路
+ *  返回 0 致 wrapSegments 单段、临时 wrap 成死代码)。 */
 const msgWidthCh = computed(() => {
-  if (!ui.wrap) return 0
   const fixedCh = props.fields.reduce(
     (s, f) => s + (f === 'message' ? 0 : (colsW.value[f] ?? 0) + 2),
     0
@@ -142,10 +157,18 @@ watch(
   { immediate: true }
 )
 
-/** heightsArr 变高模型(wrap 关闭时 null = 等高路径零回退);缓存 miss 现算兜底。 */
+/** heightsArr 变高模型(wrap 关闭时 null = 等高路径零回退);缓存 miss 现算兜底。
+ *  vim-copy:非 wrap 但列光标激活时,光标行超宽临时 wrap(变高),其余行 1。 */
 const heightsArr = computed<number[] | null>(() => {
   void rowsVer.value
-  if (!ui.wrap) return null
+  if (!ui.wrap) {
+    if (cursorCol.value < 0) return null
+    const cs = cursorSeq.value
+    return viewItems.value.map((it) => {
+      if (it.type !== 'line' || it.ln.seq !== cs) return 1
+      return Math.max(1, wrapSegments(it.ln.message, msgWidthCh.value).length)
+    })
+  }
   return viewItems.value.map((it) =>
     it.type === 'fold'
       ? 1
@@ -164,11 +187,6 @@ function rowTop(i: number): number {
 function rowHeightAt(i: number): number {
   return heightsArr.value ? hi.value.rowsAt(i) * rowH.value : rowH.value
 }
-
-/** colsW 生效列宽（分栏渲染,验收反馈②）;拖拽中优先本地态——
- *  mousemove 只改渲染列宽,mouseup 才 emit 落盘(wrap 行高全量重算一次,拖拽 60fps 不卡)。 */
-const dragW = ref<Record<string, number> | null>(null)
-const colsW = computed<Record<string, number>>(() => dragW.value ?? props.widths ?? DEFAULT_WIDTHS)
 
 // ---- 表头列宽拖拽(第七轮验收②):把手 mousedown → document move/up → 落盘 ----
 let dragField = ''
@@ -220,6 +238,89 @@ const visItems = computed(() => viewItems.value.slice(range.value[0], range.valu
 /** renderSpans 行 message 分段（高亮词亮色粗体下划线 / 命中词暗色底纹）。 */
 function renderSpans(text: string) {
   return splitSpans(text, ann.highlights, new Set(props.hitWords))
+}
+
+/** markCursor span 流上按 rune 列插块光标字符(col<0 原样返回;光标字符
+ *  单独成 span,hl/hit/sel 着色让位光标反色块;泛型透传 sel 等扩展字段)。 */
+function markCursor<T extends { text: string; hl?: string; hit?: boolean; sel?: boolean }>(
+  spans: T[],
+  col: number
+): (T & { cursor?: boolean })[] {
+  if (col < 0) return spans
+  let acc = 0
+  const out: (T & { cursor?: boolean })[] = []
+  for (const s of spans) {
+    const r = Array.from(s.text)
+    const start = acc
+    acc += r.length
+    if (col < start || col >= acc) {
+      out.push(s)
+      continue
+    }
+    const off = col - start
+    if (off > 0) out.push({ ...s, text: r.slice(0, off).join('') })
+    out.push({ text: r[off], cursor: true } as T & { cursor?: boolean })
+    if (off < r.length - 1) out.push({ ...s, text: r.slice(off + 1).join('') })
+  }
+  return out
+}
+
+/** markSel span 流上按 rune 列区间插选区底纹(from/to 含端点,to<0 到行尾;
+ *  与 markCursor 串联使用,光标块(后插)压选区底纹)。 */
+type SpanPiece = { text: string; hl?: string; hit?: boolean; cursor?: boolean; sel?: boolean }
+function markSel(spans: { text: string; hl?: string; hit?: boolean }[], from: number, to: number): SpanPiece[] {
+  if (from < 0 && to < 0) return spans
+  const end = to < 0 ? Number.MAX_SAFE_INTEGER : to
+  let acc = 0
+  const out: SpanPiece[] = []
+  for (const s of spans) {
+    const r = Array.from(s.text)
+    const sStart = acc
+    const sEnd = acc + r.length - 1
+    acc += r.length
+    if (sEnd < from || sStart > end) {
+      out.push(s)
+      continue
+    }
+    // 与 [from..end] 相交:切成 选前/选中/选后 三段
+    const lo = Math.max(0, from - sStart)
+    const hi = Math.min(r.length - 1, end - sStart)
+    if (lo > 0) out.push({ ...s, text: r.slice(0, lo).join('') })
+    out.push({ text: r.slice(lo, hi + 1).join(''), sel: true })
+    if (hi < r.length - 1) out.push({ ...s, text: r.slice(hi + 1).join('') })
+  }
+  return out
+}
+
+/** selRangeOf 行选区 rune 列区间(字符选区;非选区行 from/to=-1)。 */
+function selRangeOf(seq: number): CharSelRow {
+  const m = charSelMap.value
+  return m?.get(seq) ?? { from: -1, to: -1 }
+}
+
+/** wrapGroups 行 wrap 段+段内光标列+选区间一次成型(渲染每行一调,免 O(段²) 重复切段)。 */
+function wrapGroups(line: LineDTO): { seg: string; curCol: number; selFrom: number; selTo: number }[] {
+  const segs = wrapSegments(line.message, msgWidthCh.value)
+  const active = line.seq === cursorSeq.value && cursorCol.value >= 0
+  const p = active ? colToSeg(segs, cursorCol.value) : null
+  const sr = selRangeOf(line.seq)
+  let acc = 0
+  return segs.map((seg, wi) => {
+    const len = Array.from(seg).length
+    const sFrom = sr.from < 0 ? -1 : Math.max(sr.from, acc)
+    const sTo = sr.to < 0 ? (sr.from < 0 ? -1 : acc + len - 1) : Math.min(sr.to, acc + len - 1)
+    const g = { seg, curCol: p && p.segIdx === wi ? p.colInSeg : -1, selFrom: sFrom > sTo ? -1 : sFrom, selTo: sFrom > sTo ? -1 : sTo }
+    acc += len
+    return g
+  })
+}
+
+/** wrapRender 行是否走 wrap 段渲染:全局 wrap,或列光标激活时光标行超宽
+ *  临时 wrap(builder check②,对齐 TUI 光标行强制 wrap;光标离开恢复等高)。 */
+function wrapRender(line: LineDTO): boolean {
+  if (ui.wrap) return true
+  if (cursorCol.value < 0 || line.seq !== cursorSeq.value) return false
+  return wrapSegments(line.message, msgWidthCh.value).length > 1
 }
 
 // 视口尺寸/滚动跟踪 + follow 智能暂停（滚离底部自动关，对齐 TUI/m4m6 行为）
@@ -396,6 +497,7 @@ function setCursor(idx: number, scroll = true) {
   const it = arr[idx]
   if (idx < 0 || !it || it.type !== 'line') return
   cursorSeq.value = it.ln.seq
+  if (cursorCol.value >= 0) cursorCol.value = clampCol(it.ln.message) // 列记忆
   if (scroll && scrollEl.value) {
     if (heightsArr.value) {
       ensureVisiblePx(idx)
@@ -417,6 +519,31 @@ function moveCursor(delta: number) {
     return
   }
   setCursor(moveClamp(ci, delta, arr.length))
+}
+
+// ---- 字符光标(vim-copy):列光标按需激活(-1=未激活,声明见前部 heightsArr 注释),
+//  message rune 域移动;j/k 行切换保持列记忆(colWish clamp);首尾停住见 charMotion.ts ----
+
+/** clampCol 列记忆 clamp 到指定行消息长(空消息 0)。 */
+function clampCol(msg: string): number {
+  const n = Array.from(msg).length
+  return n === 0 ? 0 : Math.min(colWish.value, n - 1)
+}
+
+/** moveCursorCol h/l/w/b/e/0/$/^:列光标激活并移动;行光标未激活时
+ *  从可视区首行起(对齐 moveCursor 语义)。 */
+function moveCursorCol(m: Motion) {
+  if (cursorIdx.value < 0) setCursor(range.value[0], false)
+  const l = mixedView.value.lines.find((x) => x.seq === cursorSeq.value)
+  const msg = l?.message ?? ''
+  const from = cursorCol.value < 0 ? 0 : cursorCol.value
+  cursorCol.value = applyMotion(msg, from, m)
+  colWish.value = cursorCol.value
+}
+
+/** lineCursorCol 整行渲染时的光标列(非光标行/未激活 -1)。 */
+function lineCursorCol(seq: number): number {
+  return seq === cursorSeq.value && cursorCol.value >= 0 ? cursorCol.value : -1
 }
 
 /** cursorToViewport 光标跳到可视顶/中/底（不滚动）。 */
@@ -548,8 +675,9 @@ function unfoldAt(range: FoldRange) {
   tabs.toggleCollapse(range.startSeq)
 }
 
-// ---- 可视选择(验收反馈④ v/V/y):锚=起选行,j/k 移光标即扩选,seq 域区间 ----
-const visual = ref({ active: false, anchorSeq: 0 })
+// ---- 可视选择(v/V/y;vim-copy v 升级字符级):锚=起选行+列,j/k/h/l 等移动即扩选;
+//  char 模式选区=所见 message 文本,折叠隐藏行不进域(所见即所选) ----
+const visual = ref({ active: false, mode: 'line' as 'char' | 'line', anchorSeq: 0, anchorCol: 0 })
 /** lineSeqs 可见行 seq 序列(选择域,折叠占位天然不进)。 */
 const lineSeqs = computed(() =>
   viewItems.value.filter((it) => it.type === 'line').map((it) => it.ln.seq)
@@ -559,23 +687,39 @@ const visualRange = computed<SeqRange | null>(() =>
     ? selectedSeqRange(lineSeqs.value, visual.value.anchorSeq, cursorSeq.value)
     : null
 )
-/** inVisual 行是否落在选择区间(渲染 .vis)。 */
+/** charSelMap 字符选区逐行 rune 列区间(char 模式;非激活/端点出域 null)。 */
+const charSelMap = computed(() =>
+  visual.value.active && visual.value.mode === 'char'
+    ? charSelRows(lineSeqs.value, visual.value.anchorSeq, visual.value.anchorCol, cursorSeq.value, cursorCol.value)
+    : null
+)
+/** inVisual 行是否落在选择区间(渲染 .vis;仅行级模式整行高亮,字符级走 .char-sel)。 */
 function inVisual(seq: number): boolean {
+  if (visual.value.mode !== 'line') return false
   const r = visualRange.value
   return !!r && seq >= r.lo && seq <= r.hi
 }
 
-/** startVisual v/V:从光标行起选(本版无行内选择,V 与 v 等价预留)。 */
-function startVisual(_line: boolean) {
+/** startVisual v(char)/V(line):从光标行起选;char 锚列=当前列(未激活取 0)。 */
+function startVisual(mode: 'char' | 'line') {
   const it = viewItems.value[cursorIdx.value]
   if (it && it.type === 'line') {
-    visual.value = { active: true, anchorSeq: it.ln.seq }
+    visual.value = {
+      active: true,
+      mode,
+      anchorSeq: it.ln.seq,
+      anchorCol: mode === 'char' ? Math.max(0, cursorCol.value) : 0,
+    }
+    if (mode === 'char' && cursorCol.value < 0) {
+      cursorCol.value = 0
+      colWish.value = 0
+    }
   }
 }
 
-/** exitVisual Esc:退出可视选择(顺带收书签列表)。 */
+/** exitVisual Esc/复制后:退出可视选择(顺带收书签列表;列光标保留)。 */
 function exitVisual() {
-  visual.value = { active: false, anchorSeq: 0 }
+  visual.value = { active: false, mode: 'line', anchorSeq: 0, anchorCol: 0 }
   bmShow.value = false
 }
 
@@ -705,58 +849,150 @@ watch(
   (v) => (v ? ui.dialogOpen('detail') : ui.dialogClose('detail'))
 )
 
-/** yankSelection y:复制选中区间原文(raw 换行拼接),返回行数(0=无选择)。
- *  域取 mixedView.lines——光标/区间可落在混入 dim 行上(TUI yankLines 同为混入视图坐标)。 */
-function yankSelection(): number {
+/** YankResult 复制反馈:n 数量 + unit 单位(状态栏文案)。 */
+interface YankResult {
+  n: number
+  unit: '行' | '字符'
+}
+
+/** yankSelection ⌘C/复制选区通道:字符选区(所见 message 子串)优先,行级选区
+ *  复制原文(raw 换行拼接);返回数量+单位,n=0 无选择。
+ *  行级域取 mixedView.lines——光标/区间可落在混入 dim 行上(TUI yankLines 同为混入视图坐标)。 */
+function yankSelection(): YankResult {
+  if (visual.value.active && visual.value.mode === 'char') return yankVisual()
   const r = visualRange.value
-  if (!r) return 0
+  if (!r) return { n: 0, unit: '行' }
   const sel = mixedView.value.lines.filter((l) => l.seq >= r.lo && l.seq <= r.hi)
   ClipboardSetText(sel.map((l) => l.raw).join('\n')).catch(() => {})
-  return sel.length
+  return { n: sel.length, unit: '行' }
 }
 
-/** yank y 统一入口(TUI 语义,第九轮验收④):VISUAL 选区在复制选区,否则复制当前光标行。 */
-function yank(): number {
-  if (visual.value.active) return yankSelection()
+/** yankVisual 字符选区复制:各行 message 子串 \n 拼接,返回 rune 字符数;复制后收起选区。 */
+function yankVisual(): YankResult {
+  const m = charSelMap.value
+  if (!m || m.size === 0) return { n: 0, unit: '字符' }
+  const rows = [...m.entries()].sort((a, b) => a[0] - b[0])
+  const sel = mixedView.value.lines.filter((l) => m.has(l.seq))
+  const bySeq = new Map(sel.map((l) => [l.seq, l]))
+  const msgs: string[] = []
+  let ok = true
+  for (const [seq] of rows) {
+    const l = bySeq.get(seq)
+    if (!l) {
+      ok = false
+      break
+    }
+    msgs.push(l.message)
+  }
+  if (!ok || msgs.length === 0) return { n: 0, unit: '字符' }
+  const first = rows[0][1]
+  const last = rows[rows.length - 1][1]
+  const { text, chars } = charSelText(msgs, first.from, last.to < 0 ? Number.MAX_SAFE_INTEGER : last.to)
+  ClipboardSetText(text).catch(() => {})
+  exitVisual()
+  return { n: chars, unit: '字符' }
+}
+
+/** yankLine yy:复制当前光标行 raw。 */
+function yankLine(): YankResult {
   const cur = mixedView.value.lines.find((l) => l.seq === cursorSeq.value)
-  if (!cur) return 0
+  if (!cur) return { n: 0, unit: '行' }
   ClipboardSetText(cur.raw).catch(() => {})
-  return 1
+  return { n: 1, unit: '行' }
 }
 
-/** hasSelection ⌘C 拦截判定:选区在才吞系统复制,否则 App 放行原生行为。 */
+/** yank 可视态 y 统一入口:选区在复制选区(char=子串/line=raw 行区间),否则 no-op
+ *  (单按 y 不再复制当前行——yy 语义,vim-copy)。 */
+function yank(): YankResult {
+  if (!visual.value.active) return { n: 0, unit: '行' }
+  return yankSelection()
+}
+
+/** hasSelection ⌘C 拦截判定:选区在(行级或字符级)才吞系统复制,否则 App 放行。 */
 function hasSelection(): boolean {
-  return visual.value.active && visualRange.value !== null
+  if (!visual.value.active) return false
+  return visual.value.mode === 'char' ? charSelMap.value !== null : visualRange.value !== null
 }
 
-// ---- 鼠标拖选(第九轮验收④):按下拖动=按行范围选中(复用 VISUAL 高亮,行粒度),
-// 松开定格(ESC/再次 v 重置);未构成拖动(单击/原地)不建选区,不影响双击详情/右键菜单。 ----
-const dragAnchor = ref<number | null>(null)
+// ---- 鼠标拖选(vim-copy Task5):字符级——按下锚(seq,col),跨字符拖动进选态,
+//  松手即复制收起(emit 反馈);单击定位行+列;窗外松手(buttons=0)同样复制收起
+//  防选区"复活"(终审 Important1 语义更新);不影响双击详情/右键菜单。 ----
+const dragAnchor = ref<{ seq: number; col: number } | null>(null)
 let dragMoved = false
+
+/** hitCol 鼠标事件命中 message 内 rune 列(px→显示列→rune 列,CJK 半字落左;
+ *  命中 gutter/字段列或未命中 message 区域=0)。 */
+function hitCol(e: MouseEvent, seq: number): number {
+  const msgEl = (e.target as HTMLElement | null)?.closest?.('.f-msg')
+  const l = mixedView.value.lines.find((x) => x.seq === seq)
+  if (!msgEl || !l) return 0
+  const px = e.clientX - msgEl.getBoundingClientRect().left
+  const runes = Array.from(l.message)
+  let w = 0
+  for (let i = 0; i < runes.length; i++) {
+    const cw = displayWidth(runes[i]) || 1
+    if (px < w + (cw * charPx.value) / 2) return i
+    w += cw * charPx.value
+  }
+  return Math.max(0, runes.length - 1)
+}
+
+/** finishDrag 拖选收尾:复制+收起;终点=最后一次 move 的光标位(mouseup 与
+ *  窗外 buttons=0 同口径——后者事件落点是回窗位置,非松手终点,Final Review I4)。 */
+function finishDrag() {
+  if (dragMoved) {
+    const r = yankVisual()
+    if (r.n > 0) emit('copied', r)
+  }
+  dragAnchor.value = null
+  dragMoved = false
+}
 
 function rowMouseDown(e: MouseEvent, seq: number) {
   if (e.button !== 0) return
-  dragAnchor.value = seq
+  dragAnchor.value = { seq, col: hitCol(e, seq) }
   dragMoved = false
 }
 
 function rowMouseMove(e: MouseEvent, seq: number) {
-  if (dragAnchor.value === null) return
+  if (!dragAnchor.value) return
   if (!(e.buttons & 1)) {
-    // 拖选已在日志区外松开(mouseup 丢失):选区定格,清拖拽态防"复活"跟随(终审 Important1)
-    dragAnchor.value = null
+    // 拖选已在日志区外松开(mouseup 丢失):就地复制收起(终点=最后 move 位,
+    // 非本次回窗事件落点),清拖拽态防"复活"跟随
+    finishDrag()
     return
   }
-  if (dragAnchor.value === seq) return
+  const col = hitCol(e, seq)
   if (!dragMoved) {
-    visual.value = { active: true, anchorSeq: dragAnchor.value }
+    // 未跨字符(同格)不进选态——保持单击语义
+    if (dragAnchor.value.seq === seq && dragAnchor.value.col === col) return
+    visual.value = {
+      active: true,
+      mode: 'char',
+      anchorSeq: dragAnchor.value.seq,
+      anchorCol: dragAnchor.value.col,
+    }
     dragMoved = true
   }
-  cursorSeq.value = seq // 端点跟随 → visualRange/inVisual 高亮联动
+  cursorSeq.value = seq // 端点跟随 → charSelMap 高亮联动
+  cursorCol.value = col
+  colWish.value = col
 }
 
 function rowMouseUp() {
-  dragAnchor.value = null // 拖成选区则自然定格;未拖则无副作用
+  if (!dragAnchor.value) return
+  if (dragMoved) {
+    // 拖成选区:松手即复制+收起(终点=最后一次 move 的光标位)
+    finishDrag()
+  } else {
+    // 单击:定位行光标+列光标(不复制)
+    const a = dragAnchor.value
+    cursorToSeq(a.seq)
+    cursorCol.value = a.col
+    colWish.value = a.col
+  }
+  dragAnchor.value = null
+  dragMoved = false
 }
 
 // ---- 书签 m/' + 行号 # ----
@@ -795,7 +1031,6 @@ function gotoBookmark(seq: number) {
 }
 
 /** 行号开关 #。 */
-const showLineNum = ref(false)
 function toggleLineNum() {
   showLineNum.value = !showLineNum.value
 }
@@ -820,6 +1055,7 @@ function bookmarkActivate() {
 
 defineExpose({
   moveCursor,
+  moveCursorCol,
   cursorToViewport,
   cursorToSeq,
   anchorCursor,
@@ -834,6 +1070,7 @@ defineExpose({
   exitVisual,
   yankSelection,
   yank,
+  yankLine,
   hasSelection,
   toggleBookmark,
   showBookmarks,
@@ -903,19 +1140,33 @@ defineExpose({
         <template v-for="c in cellsOf(item.ln)" :key="c.field">
           <span v-if="c.field === 'message'" class="cell f-msg">
             <!-- w 换行:按 wrapSegments 模型切段逐段渲染,模型即像素——
-                 CSS pre-wrap 真折行与 JS 行数估算双轨口径漂移会行重叠(第三轮验收⑧) -->
-            <template v-if="ui.wrap">
-              <div v-for="(seg, wi) in wrapSegments(c.text, msgWidthCh)" :key="wi" class="wline">
-                <template v-for="(s, si) in renderSpans(seg)" :key="si">
-                  <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
+                 CSS pre-wrap 真折行与 JS 行数估算双轨口径漂移会行重叠(第三轮验收⑧);
+                 vim-copy:wrapRender 含光标行超宽临时 wrap,段内块光标经 wrapGroups 投影 -->
+            <template v-if="wrapRender(item.ln)">
+              <div v-for="(g, wi) in wrapGroups(item.ln)" :key="wi" class="wline">
+                <template
+                  v-for="(s, si) in markCursor(markSel(renderSpans(g.seg), g.selFrom, g.selTo), g.curCol)"
+                  :key="si"
+                >
+                  <span v-if="s.cursor" class="char-cursor">{{ s.text }}</span>
+                  <span v-else-if="s.sel" class="char-sel">{{ s.text }}</span>
+                  <span v-else-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
                   <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
                   <template v-else>{{ s.text }}</template>
                 </template>
               </div>
             </template>
             <template v-else>
-              <template v-for="(s, si) in renderSpans(item.ln.message)" :key="si">
-                <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
+              <template
+                v-for="(s, si) in markCursor(
+                  markSel(renderSpans(item.ln.message), selRangeOf(item.ln.seq).from, selRangeOf(item.ln.seq).to),
+                  lineCursorCol(item.ln.seq)
+                )"
+                :key="si"
+              >
+                <span v-if="s.cursor" class="char-cursor">{{ s.text }}</span>
+                <span v-else-if="s.sel" class="char-sel">{{ s.text }}</span>
+                <span v-else-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
                 <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
                 <template v-else>{{ s.text }}</template>
               </template>
@@ -1072,6 +1323,17 @@ defineExpose({
   height: v-bind('rowH + "px"');
   line-height: v-bind('rowH + "px"');
   white-space: pre;
+}
+/* 字符光标块(vim-copy):光标行 message 内当前字符,--visual 系反白 */
+.char-cursor {
+  background: var(--visual, #005f2f);
+  color: var(--popup-bg, #fff);
+  border-radius: 1px;
+}
+/* 字符选区底纹(vim-copy):--visual 系字符粒度;光标块叠加其上 */
+.char-sel {
+  background: var(--visual, #005f2f);
+  border-radius: 1px;
 }
 /* 行首 gutter:书签 ▸ / 行号(TUI 前缀风格) */
 .gutter {

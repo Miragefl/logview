@@ -16,6 +16,8 @@ var assets embed.FS
 func main() {
 	// fview 桌面端入口：Wails v2 工程根在 fview/（与仓库根 TUI main.go 隔离，
 	// 共享同一 go module 与 internal/ 核心）。
+	// 必须最先执行:GUI 启动的进程 PATH 缺 brew 目录,后面 exec frpc/kubectl 全靠它
+	augmentPATH()
 	app := NewApp()
 
 	err := wails.Run(&options.App{

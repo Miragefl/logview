@@ -105,13 +105,14 @@ describe('BrowseDialog 密码流（Keychain）', () => {
   })
 })
 
-describe('BrowseDialog 过滤与路径直达', () => {
+describe('BrowseDialog 打字过滤与路径直达（无框,面板同款）', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     b.sshBrowse.mockResolvedValue([
       { name: 'app.log', isDir: false },
       { name: 'error.log', isDir: false },
+      { name: 'hardware.log', isDir: false },
       { name: 'logs', isDir: true },
     ])
   })
@@ -120,87 +121,139 @@ describe('BrowseDialog 过滤与路径直达', () => {
   })
 
   /** mountBrowse 并等到列表渲染完成 */
-  async function mounted() {
-    const w = mountBrowse()
+  async function mounted(props: Record<string, unknown> = {}) {
+    const w = mountBrowse(props)
     await flush()
     await flush()
     return w
   }
 
-  it('输入即过滤当前目录（子串、不区分大小写）', async () => {
+  /** document 级键击（onDocKey 挂 document,焦点无关） */
+  function key(k: string, opts: KeyboardEventInit = {}) {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...opts }))
+  }
+  function typeWord(word: string) {
+    for (const ch of word) key(ch)
+  }
+
+  it('打开即打字进词（不依赖焦点）：无框直接过滤', async () => {
     await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')!
-    input.value = 'APP'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    typeWord('app')
     await flush()
     const lis = document.querySelectorAll('.entries li')
     expect(lis.length).toBe(1)
     expect(lis[0].textContent).toContain('app.log')
   })
 
+  it('子序列匹配（面板 r3 同款）：hdw 命中 hardware.log', async () => {
+    await mounted()
+    typeWord('hdw')
+    await flush()
+    const lis = document.querySelectorAll('.entries li')
+    expect(lis.length).toBe(1)
+    expect(lis[0].textContent).toContain('hardware.log')
+  })
+
+  it('命中高亮：命中字符带 kw-hit 段', async () => {
+    await mounted()
+    typeWord('app')
+    await flush()
+    expect(document.querySelector('.entries li .kw-hit')?.textContent).toBe('app')
+  })
+
   it('过滤空结果：列表空、Enter 不抛错不开 tab', async () => {
     const w = await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')!
-    input.value = 'zzz'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    typeWord('zzz')
     await flush()
     expect(document.querySelectorAll('.entries li').length).toBe(0)
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    key('Enter')
     await flush()
     expect(b.openSSHTab).not.toHaveBeenCalled()
     expect(w.emitted('update:show')).toBeFalsy() // 弹窗不关
   })
 
-  it('输入 / 开头回车直达：sshBrowse 以目标路径调用、过滤清空', async () => {
+  it('/ 开头词回车直达：sshBrowse 以目标路径调用、词清空', async () => {
     await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')!
-    input.value = '/var/log'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    await flush()
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    typeWord('/var/log')
+    key('Enter')
     await flush()
     await flush()
     expect(b.sshBrowse).toHaveBeenLastCalledWith('web1', '/var/log', '')
-    expect(document.querySelectorAll('.entries li').length).toBe(3) // 过滤已清
+    expect(document.querySelectorAll('.entries li').length).toBe(4) // 词已清
   })
 
-  it('非 / 开头回车：激活当前选中项（过滤集内）', async () => {
+  it('非 / 开头词回车：激活当前选中项（过滤集内）', async () => {
     await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')!
-    input.value = 'error'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    await flush()
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    typeWord('error')
+    key('Enter')
     await flush()
     expect(b.openSSHTab).toHaveBeenCalledWith('web1', '/error.log', 0, '')
   })
 
-  it('过滤态 ctrl+j/k 放行导航：焦点在输入框光标仍移动', async () => {
+  it('过滤后 cursor 重置：Enter 激活首项而非越界旧值', async () => {
     await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')!
-    input.focus()
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true }))
+    key('j', { ctrlKey: true })
+    key('j', { ctrlKey: true }) // cursor 0→2（hardware.log）
+    typeWord('a') // 过滤剩 app.log/hardware.log，cursor 重置 0
     await flush()
-    const sel = document.querySelector('li.sel')
-    expect(sel?.textContent).toContain('error.log') // cursor 0→1
+    key('Enter')
+    await flush()
+    expect(b.openSSHTab).toHaveBeenCalledWith('web1', '/app.log', 0, '')
   })
 
-  it('Esc 分层：有过滤先清过滤不关窗，无过滤才关窗', async () => {
+  it('ctrl+j/k 导航光标移动', async () => {
+    await mounted()
+    key('j', { ctrlKey: true })
+    await flush()
+    expect(document.querySelector('li.sel')?.textContent).toContain('error.log') // cursor 0→1
+  })
+
+  it('Esc 分层：有词先清词不关窗，无词才关窗', async () => {
     const w = await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')!
-    input.value = 'app'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    typeWord('app')
     await flush()
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    key('Escape')
     await flush()
-    expect(document.querySelectorAll('.entries li').length).toBe(3) // 过滤清了
+    expect(document.querySelectorAll('.entries li').length).toBe(4) // 词清了
     expect(w.emitted('update:show')).toBeFalsy() // 窗没关
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    key('Escape')
     await flush()
     expect(w.emitted('update:show')?.at(-1)).toEqual([false]) // 第二次才关
   })
 
-  it('needPwd 态 Enter 不误激活列表项（keyup retry 才是确认动作,Final Review I2）', async () => {
+  it('词非空 Backspace 删词尾不回上级：sshBrowse 不被再次调用', async () => {
+    await mounted({ initPath: '/var/logs' }) // path=/var 非根，误回上级会立刻多一次 browse('/')
+    expect(b.sshBrowse).toHaveBeenCalledTimes(1)
+    typeWord('ap') // 仅 app.log
+    await flush()
+    expect(document.querySelectorAll('.entries li').length).toBe(1)
+    key('Backspace') // 词 ap→a：app.log/hardware.log
+    await flush()
+    expect(document.querySelectorAll('.entries li').length).toBe(2)
+    expect(b.sshBrowse).toHaveBeenCalledTimes(1) // 没回上级
+  })
+
+  it('词空 Backspace 回上级：sshBrowse 以父路径调用', async () => {
+    await mounted({ initPath: '/var/logs' }) // path=/var
+    key('Backspace')
+    await flush()
+    await flush()
+    expect(b.sshBrowse).toHaveBeenLastCalledWith('web1', '/', '')
+  })
+
+  it('裸 h 进词、⌃h 回上级（h 退役用户裁决）', async () => {
+    await mounted({ initPath: '/var/logs' }) // path=/var
+    key('h') // 词 h：剩 hardware.log
+    await flush()
+    expect(document.querySelectorAll('.entries li').length).toBe(1)
+    expect(b.sshBrowse).toHaveBeenCalledTimes(1) // 裸 h 不是回上级
+    key('h', { ctrlKey: true })
+    await flush()
+    await flush()
+    expect(b.sshBrowse).toHaveBeenLastCalledWith('web1', '/', '')
+  })
+
+  it('needPwd 态 Enter 不误激活列表项,密码框打字不进词（keyup retry 才是确认动作,Final Review I2）', async () => {
     b.sshBrowse.mockResolvedValueOnce([
       { name: 'app.log', isDir: false },
       { name: 'logs', isDir: true },
@@ -217,6 +270,9 @@ describe('BrowseDialog 过滤与路径直达', () => {
     const pwd = document.querySelector<HTMLInputElement>('.pwd input')
     expect(pwd).toBeTruthy()
     pwd!.focus()
+    pwd!.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+    await flush()
+    expect(document.querySelectorAll('.entries li').length).toBe(2) // 密码框字符不进词,列表不过滤
     pwd!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     await flush()
     expect(b.openSSHTab).not.toHaveBeenCalled() // keydown 不得 activate 误开文件
@@ -225,11 +281,23 @@ describe('BrowseDialog 过滤与路径直达', () => {
     expect(b.sshBrowse.mock.calls.length).toBeGreaterThanOrEqual(3) // keyup retry 重查
   })
 
-  it('打开后过滤框自动聚焦——直接打字即过滤，无需点击（验收反馈①）', async () => {
-    await mounted()
-    const input = document.querySelector<HTMLInputElement>('.filter input')
-    expect(input).toBeTruthy()
-    expect(document.activeElement).toBe(input)
+  it('加载期间盲打的词不被首次 browse 清空——慢源(FRP 建隧道)打字照常生效(I1)', async () => {
+    let resolveList!: (v: { name: string; isDir: boolean }[]) => void
+    b.sshBrowse.mockImplementationOnce(() => new Promise((r) => (resolveList = r)))
+    mountBrowse()
+    await flush()
+    typeWord('app') // 加载窗口内盲打
+    await flush()
+    resolveList([
+      { name: 'app.log', isDir: false },
+      { name: 'error.log', isDir: false },
+      { name: 'hardware.log', isDir: false },
+      { name: 'logs', isDir: true },
+    ])
+    await flush()
+    await flush()
+    expect(document.querySelectorAll('.entries li').length).toBe(1) // 词仍生效,非全量
+    expect(document.querySelector('.entries li')?.textContent).toContain('app.log')
   })
 
   it('快速关开换源：迟到的旧预填不得覆盖新源（代际守卫,Final Review I3）', async () => {

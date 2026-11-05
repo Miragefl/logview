@@ -1,9 +1,13 @@
 <script setup lang="ts">
 // 远程目录浏览对话框（SSH/FRP 共用）：进入目录、选文件开 tab、密码认证态重试。
-// 键盘流对齐 TUI 弹窗:ctrl+j/k 上下、Enter 进目录/选文件、Backspace 回上级、Esc 关闭(第三轮验收④)。
+// 键盘流对齐 TUI 弹窗:ctrl+j/k 上下、Enter 进目录/选文件、ctrl+h/Backspace 回上级、Esc 关闭(第三轮验收④)。
+// 无框打字过滤(browse-typeahead):面板 r2/r3 同款——打开直接敲字母即过滤(不依赖焦点,
+// 旧"打开即聚焦过滤框"排在网络往返后,FRP 建隧道慢时物理键全漏),子序列匹配+命中高亮。
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { NInput, NModal } from 'naive-ui'
 import { useUiStore } from '../../stores/ui'
+import { isSubseq, splitHighlight } from '../../lib/highlight'
+import { useLocalTypeFilter } from './useTypeFilter'
 import {
   browseFRP,
   getSavedPass,
@@ -15,9 +19,6 @@ import {
   usageTouch,
   type DirEntry,
 } from '../../lib/backend'
-
-/** filterEl 过滤框引用：弹窗打开后自动聚焦——直接打字即过滤，无需先点击（验收反馈①）。 */
-const filterEl = ref<InstanceType<typeof NInput> | null>(null)
 
 const props = defineProps<{
   show: boolean
@@ -41,23 +42,18 @@ const loading = ref(false)
 /** cursor 键盘选中索引 + itemEls 列表项 DOM(scrollIntoView 跟随)。 */
 const cursor = ref(0)
 const itemEls = ref<HTMLElement[]>([])
-/** filter 过滤片段（子串、不区分大小写）；空=全量。shown 为导航/激活的作用集。 */
-const filter = ref('')
+/** filter 打字过滤词(无框,本地 ref 随弹窗生命周期,不进面板共享词 ui.panelFilter);
+ * 子序列匹配(isSubseq)+splitHighlight 高亮——面板 r2/r3 同款。shown 为导航/激活的作用集。 */
+const { q: filter, typeKey } = useLocalTypeFilter()
 const shown = computed(() => {
-  const f = filter.value.trim().toLowerCase()
-  if (!f) return entries.value
-  return entries.value.filter((e) => e.name.toLowerCase().includes(f))
-})
-
-/** onFilterEnter 过滤框回车：/ 开头视为路径直达，否则激活当前选中项（空集天然 no-op）。 */
-function onFilterEnter() {
   const f = filter.value.trim()
-  if (f.startsWith('/')) {
-    void browse(f)
-    return
-  }
-  activate(cursor.value)
-}
+  if (!f) return entries.value
+  return entries.value.filter((e) => isSubseq(e.name, f))
+})
+// 过滤变化 cursor 重置首项(面板同款;防过滤缩小后 cursor 悬空激活错项)
+watch(filter, () => {
+  cursor.value = 0
+})
 
 /** passKey 密码仓 key：ssh:{host} / frp:{connName}（lib/recent.ts openRecent 同式）。 */
 const passKey = computed(() => (props.mode === 'ssh' ? `ssh:${props.host ?? ''}` : `frp:${props.connName ?? ''}`))
@@ -75,7 +71,8 @@ async function browse(p: string) {
     path.value = p
     needPwd.value = false
     cursor.value = 0
-    filter.value = ''
+    // 词的清空归目录切换动作(enter/goUp/直达)——首次打开与 retry 不清:
+    // 慢源(FRP 建隧道)加载窗口盲打的词须在新目录渲染后照常生效(I1)
     nextTick(() => itemEls.value[0]?.scrollIntoView({ block: 'nearest' }))
     // 认证成功回存钥匙串（幂等覆盖；空密码后端 guard 不入库）
     if (password.value) void savePass(passKey.value, password.value)
@@ -111,24 +108,24 @@ watch(
           const base = props.initPath.replace(/.*\//, '')
           cursor.value = Math.max(0, entries.value.findIndex((e) => e.name === base))
         }
-        // 打开即聚焦过滤框（needPwd 态过滤框不渲染，focus 空调用无害）
-        nextTick(() => filterEl.value?.focus())
       })()
     }
   },
   { immediate: true }
 )
 
-/** enter 进入子目录（后端返回的 name 即相对当前路径的目录名）。 */
+/** enter 进入子目录（后端返回的 name 即相对当前路径的目录名）。换目录清词。 */
 async function enter(name: string) {
   const base = path.value === '/' ? '' : path.value
+  filter.value = ''
   await browse(`${base}/${name}`)
 }
 
-/** goUp 回退上级目录(根目录不动)。 */
+/** goUp 回退上级目录(根目录不动)。换目录清词。 */
 function goUp() {
   if (path.value === '/' || loading.value) return
   const up = path.value.replace(/\/[^/]*$/, '') || '/'
+  filter.value = ''
   browse(up)
 }
 
@@ -181,42 +178,47 @@ function move(delta: number) {
   itemEls.value[cursor.value]?.scrollIntoView({ block: 'nearest' })
 }
 
-/** onDocKey 键盘流(document 级,焦点丢失也响应):
- *  ctrl+j/k 上下 · Enter 激活(过滤框聚焦时走过滤语义) · Backspace/h 回上级
- *  · Esc 分层(先清过滤再关窗)。
- *  输入态只放行 Esc、ctrl+j/k 与 Enter(过滤时也要能导航确认;物理 j/k 等仍挡
- *  防打字误触)。Enter 收编 document 层:naive NInput 的 key 事件透传在 jsdom
- *  不可靠,统一分发自可控。 */
+/** onDocKey 键盘流(document 级,焦点无关——无框打字不依赖焦点):
+ *  Esc 分层(词非空清词→关窗) · ctrl+j/k 上下 · ctrl+h 回上级(裸 h 进词,用户裁决)
+ *  · Enter(词以 / 开头路径直达,否则激活选中项;needPwd 让位 keyup retry)
+ *  · Backspace 分层(词非空删尾→回上级) · 其余可打印无修饰字符进词。
+ *  needPwd 密码框输入态放行(仅 Esc 穿透),密码字符不进过滤词。 */
 function onDocKey(e: KeyboardEvent) {
   if (!props.show) return
   const t = e.target as HTMLElement | null
   const inInput = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')
+  if (inInput && e.key !== 'Escape') return
   if (e.key === 'Escape') {
     e.preventDefault()
-    if (filter.value) {
-      filter.value = ''
-      return
-    }
+    if (typeKey(e)) return // 词非空清词即完
     close()
     return
   }
-  if (inInput && !(e.ctrlKey && (e.key === 'j' || e.key === 'k')) && e.key !== 'Enter') return
   if (e.ctrlKey && e.key === 'j') {
     e.preventDefault()
     move(1)
   } else if (e.ctrlKey && e.key === 'k') {
     e.preventDefault()
     move(-1)
+  } else if (e.ctrlKey && e.key === 'h') {
+    e.preventDefault()
+    goUp()
   } else if (e.key === 'Enter') {
     e.preventDefault()
     // needPwd 态让位密码框自身的 keyup retry——keydown 若走 activate 会误开列表项（Final Review I2）
     if (needPwd.value) return
-    // 过滤框聚焦走过滤语义（/ 直达或激活选中项）
-    if (inInput) onFilterEnter()
-    else activate(cursor.value)
-  } else if (e.key === 'Backspace' || e.key === 'h') {
+    const f = filter.value.trim()
+    if (f.startsWith('/')) {
+      filter.value = '' // 路径直达=换目录,词即路径,进 browse 前清
+      void browse(f)
+    } else {
+      activate(cursor.value)
+    }
+  } else if (e.key === 'Backspace') {
     e.preventDefault()
-    goUp()
+    if (!typeKey(e)) goUp() // 词非空删词尾,词空回上级
+  } else if (typeKey(e)) {
+    e.preventDefault()
   }
 }
 
@@ -251,7 +253,7 @@ onBeforeUnmount(() => {
     @update:show="(v: boolean) => (v ? null : close())"
   >
     <div class="head">
-      <a class="up" title="回上级(Backspace)" @click="goUp">⬆</a>
+      <a class="up" title="回上级(ctrl+h)" @click="goUp">⬆</a>
       <span class="path">{{ path }}</span>
       <NInput
         v-if="needPwd"
@@ -263,16 +265,9 @@ onBeforeUnmount(() => {
         placeholder="密码"
         @keyup.enter="retry"
       />
-      <NInput
-        v-else
-        ref="filterEl"
-        v-model:value="filter"
-        size="tiny"
-        class="filter"
-        placeholder="过滤，或输 / 路径回车直达"
-      />
       <a v-if="needPwd" class="retry" @click="retry">重试</a>
     </div>
+    <p v-if="filter" class="filter-hint">⌕ {{ filter }}</p>
     <p v-if="err" class="err">{{ err }}</p>
     <p v-if="loading" class="hint">加载中…</p>
     <ul v-else class="entries">
@@ -287,10 +282,10 @@ onBeforeUnmount(() => {
         <span class="icon">
           <svg v-if="e.isDir" class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
           <svg v-else class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
-        </span>{{ e.name }}
+        </span><span v-for="(s, si) in splitHighlight(e.name, filter)" :key="si" :class="{ 'kw-hit': s.hit }">{{ s.t }}</span>
       </li>
     </ul>
-    <p class="keyhint">ctrl+j/k 移动 · Enter 打开 · Backspace 回上级 · 输入过滤/直达 · Esc 关闭</p>
+    <p class="keyhint">ctrl+j/k 移动 · Enter 打开/直达 · 打字过滤 · Backspace 删词/回上级 · ctrl+h 回上级 · Esc 关闭</p>
   </NModal>
 </template>
 
@@ -323,8 +318,17 @@ onBeforeUnmount(() => {
 .pwd {
   width: calc(var(--ui-font-size) * 12);
 }
-.filter {
-  width: calc(var(--ui-font-size) * 15);
+/* 无框打字过滤状态行+命中高亮:与面板 .panel .filter-hint/.kw-hit(style.css 正本)
+ * 同 CSS 变量同值——弹窗不在 .panel 作用域,不共用选择器以免动四面板正本 */
+.filter-hint {
+  color: var(--dim, #5d7292);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-ui-sm, 11px);
+  margin: 0 0 6px;
+}
+.entries .kw-hit {
+  color: var(--accent, #7dc4e4);
+  font-weight: 600;
 }
 .retry {
   color: var(--accent, #4a8fe0);

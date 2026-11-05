@@ -92,8 +92,10 @@ function navMove(delta: number) {
 }
 
 /** onDocKey 管理框键流(document 级,焦点丢失也响应):
- *  Esc 分层(历史→框) / Enter 历史应用或加词 / ctrl+j/k 导航 / d·x 删选中词 / ctrl+R 历史。
- *  d/x 删词只在焦点不在输入框时生效——打 "debug" 等含 d/x 的词不得被吞(final review C2)。 */
+ *  Esc 分层(历史→框) / Enter 历史应用或加词 / ctrl+j/k 导航 / ctrl+d·x 删选中词 / ctrl+R 历史。
+ *  r2:删词主键改 ctrl+d——组合键不与打字冲突,焦点在输入框也生效(旧裸 d 因弹窗
+ *  自动聚焦+inInput 防御在真机恒失效);x 保留但仅焦点不在输入框时(可打印字符,
+ *  打 "x" 词不吞,final review C2)。 */
 function onDocKey(e: KeyboardEvent) {
   if (!mode.value) return
   const t = e.target as HTMLElement | null
@@ -124,10 +126,9 @@ function onDocKey(e: KeyboardEvent) {
     e.preventDefault()
     navMove(-1)
   } else if (
-    (e.key === 'd' || e.key === 'x') &&
+    (e.key === 'd' ? e.ctrlKey : e.key === 'x' && !inInput) &&
     navIdx.value >= 0 &&
-    !histShow.value &&
-    !inInput
+    !histShow.value
   ) {
     e.preventDefault()
     removeAt(navIdx.value)

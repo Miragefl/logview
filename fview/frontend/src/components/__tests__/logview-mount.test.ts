@@ -202,39 +202,58 @@ describe('复制与拖选', () => {
     return mount(LogView, { props: PROPS, global: { plugins: [naive] } })
   }
 
-  it('y 无选区复制当前光标行 raw(TUI 语义)', async () => {
+  it('yy 复制当前光标行 raw;单按 y 无选区不再复制(vim-copy 语义)', async () => {
     const w = mountWith3()
     await new Promise((r) => setTimeout(r, 0))
-    const vm = w.vm as unknown as { gotoTop: () => void; yank: () => number }
+    const vm = w.vm as unknown as {
+      gotoTop: () => void
+      yank: () => { n: number }
+      yankLine: () => { n: number }
+    }
     vm.gotoTop() // 光标定位首行 seq1(cursorSeq 同步 ref,无需等帧)
-    expect(vm.yank()).toBe(1)
+    expect(vm.yank().n).toBe(0) // 单按 y 无选区 no-op
+    expect(ClipboardSetText).not.toHaveBeenCalled()
+    expect(vm.yankLine().n).toBe(1) // yy → 复制整行 raw
     expect(ClipboardSetText).toHaveBeenCalledWith('m1')
   })
 
-  it('鼠标拖选行范围生成 VISUAL 选区并可复制', async () => {
+  it('鼠标拖选字符级:松手即复制选区收起并 emit 反馈(vim-copy)', async () => {
     const w = mountWith3()
     await new Promise((r) => setTimeout(r, 0))
     const rows = w.findAll('.row:not(.header)')
-    await rows[0].trigger('mousedown', { button: 0 })
-    await rows[2].trigger('mousemove', { buttons: 1 })
+    await rows[0].trigger('mousedown', { button: 0 }) // 锚 (1,0)(测试环境 rect=0 → 列 0)
+    await rows[2].trigger('mousemove', { buttons: 1 }) // 端点 (3,0)
+    await new Promise((r) => setTimeout(r, 0))
+    // 选区高亮 .char-sel(字符级,行级 .vis 不再出现)
+    expect(w.findAll('.char-sel').length).toBeGreaterThan(0)
     await rows[2].trigger('mouseup')
     await new Promise((r) => setTimeout(r, 0))
-    // 三行全进选区高亮(vis class)
-    expect(rows[0].classes()).toContain('vis')
-    expect(rows[1].classes()).toContain('vis')
-    expect(rows[2].classes()).toContain('vis')
-    const vm = w.vm as unknown as { yankSelection: () => number }
-    expect(vm.yankSelection()).toBe(3)
-    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2\nm3')
+    // 松手即复制:首行 [0..]、中间全量、尾行 [..0];选区收起
+    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2\nm')
+    expect(w.findAll('.char-sel')).toHaveLength(0)
+    // App 反馈通道:emit('copied', {n, unit})——'m1\nm2\nm' 含换行 7 rune
+    expect(w.emitted('copied')?.at(-1)).toEqual([{ n: 7, unit: '字符' }])
+  })
+
+  it('鼠标单击定位行+列光标,不复制;双击详情不受影响', async () => {
+    const w = mountWith3()
+    await new Promise((r) => setTimeout(r, 0))
+    const rows = w.findAll('.row:not(.header)')
+    await rows[1].trigger('mousedown', { button: 0 })
+    await rows[1].trigger('mouseup')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ClipboardSetText).not.toHaveBeenCalled()
+    expect(w.findAll('.char-cursor')).toHaveLength(1) // 列光标落在行2 col0
+    expect(w.get('.char-cursor').text()).toBe('m')
   })
 
   it('hasSelection 无选区 false/有选区 true(⌘C 拦截判定)', async () => {
     const w = mountWith3()
     await new Promise((r) => setTimeout(r, 0))
-    const vm = w.vm as unknown as { hasSelection: () => boolean; startVisual: (l: boolean) => void; moveCursor: (d: number) => void; gotoTop: () => void }
+    const vm = w.vm as unknown as { hasSelection: () => boolean; startVisual: (l: string) => void; moveCursor: (d: number) => void; gotoTop: () => void }
     expect(vm.hasSelection()).toBe(false)
     vm.gotoTop()
-    vm.startVisual(false)
+    vm.startVisual('line')
     vm.moveCursor(2)
     await new Promise((r) => setTimeout(r, 0))
     expect(vm.hasSelection()).toBe(true)
@@ -249,7 +268,7 @@ describe('终审修复回归', () => {
     vi.mocked(ClipboardSetText).mockClear()
   })
 
-  it('拖选在窗外松手(buttons=0 移动)后,选区定格不再跟随', async () => {
+  it('拖选在窗外松手(buttons=0 移动)即复制收起,终点=最后 move 位(Final Review I4)', async () => {
     const tabs = useTabsStore()
     tabs.applyOpened({ tabId: 't1', label: 'a.log' })
     tabs.applyLines({ tabId: 't1', lines: [ln(1, 'm1'), ln(2, 'm2'), ln(3, 'm3')] })
@@ -257,11 +276,15 @@ describe('终审修复回归', () => {
     await new Promise((r) => setTimeout(r, 0))
     const rows = w.findAll('.row:not(.header)')
     await rows[0].trigger('mousedown', { button: 0 })
-    await rows[2].trigger('mousemove', { buttons: 1 }) // 按住拖到第 3 行:选区 1..3
-    await rows[1].trigger('mousemove', { buttons: 0 }) // 窗外松手后无键移回第 2 行
-    const vm = w.vm as unknown as { yankSelection: () => number }
-    expect(vm.yankSelection()).toBe(3) // 定格在 3 行,不缩到 2
-    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2\nm3')
+    await rows[2].trigger('mousemove', { buttons: 1 }) // 按住拖到第 3 行
+    await rows[1].trigger('mousemove', { buttons: 0 }) // 窗外松手:复制收起,终点仍=行3
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2\nm') // 锚..最后 move 位(行3),非回窗落点
+    expect(w.findAll('.char-sel')).toHaveLength(0)
+    vi.mocked(ClipboardSetText).mockClear()
+    await rows[0].trigger('mousemove', { buttons: 0 }) // 拖拽态已清,不复活
+    expect(ClipboardSetText).not.toHaveBeenCalled()
+    expect(w.findAll('.char-sel')).toHaveLength(0)
   })
 
   it(':root --ui-font-size 为字面量 12px(与派生档不得循环引用)', () => {
@@ -269,5 +292,205 @@ describe('终审修复回归', () => {
     const styleCss = readFileSync(resolve(process.cwd(), 'src/style.css'), 'utf8')
     expect(styleCss).toMatch(/--ui-font-size:\s*12px/)
     expect(styleCss).not.toMatch(/--ui-font-size:\s*var\(/)
+  })
+
+  // ---- 字符光标(vim-copy Task3):按需出现/移动/列记忆/wrap 投影 ----
+  async function setupCursor(lines: LineDTO[], wrap = false) {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines })
+    const ui = useUiStore()
+    ui.wrap = wrap
+    const w = mount(LogView, { props: PROPS, global: { plugins: [naive] } })
+    await new Promise((r) => setTimeout(r, 0))
+    return w
+  }
+
+  it('字符光标:未按移动键不渲染;h/l 按需出现并包住字符', async () => {
+    const w = await setupCursor([ln(1, 'hello world')])
+    const vm = w.vm as unknown as { moveCursor: (d: number) => void; moveCursorCol: (m: string) => void }
+    vm.moveCursor(1) // 行光标,列未激活
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.findAll('.char-cursor')).toHaveLength(0)
+
+    vm.moveCursorCol('left') // col0(激活)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.get('.char-cursor').text()).toBe('h')
+
+    vm.moveCursorCol('right')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.get('.char-cursor').text()).toBe('e')
+  })
+
+  it('字符光标:0/$/w/b/e 光标字符与 applyMotion 一致', async () => {
+    const w = await setupCursor([ln(1, 'hello world')])
+    const vm = w.vm as unknown as { moveCursorCol: (m: string) => void }
+    const cur = () => w.get('.char-cursor').text()
+    vm.moveCursorCol('end')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cur()).toBe('d') // $ → 尾
+    vm.moveCursorCol('start')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cur()).toBe('h') // 0 → 首
+    vm.moveCursorCol('wordFwd')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cur()).toBe('w') // w → 词首
+    vm.moveCursorCol('wordBack')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cur()).toBe('h') // b → 词首
+    vm.moveCursorCol('wordEnd')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cur()).toBe('o') // e → hello 尾
+  })
+
+  it('字符光标:j/k 列记忆——长行 $ 后 k 到短行 clamp,再 j 恢复', async () => {
+    const w = await setupCursor([ln(1, 'ab'), ln(2, 'long line here')])
+    const vm = w.vm as unknown as { moveCursor: (d: number) => void; moveCursorCol: (m: string) => void }
+    vm.moveCursor(1) // 光标行1 'ab'
+    vm.moveCursor(1) // 行2
+    vm.moveCursorCol('end') // col13 'e'
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.get('.char-cursor').text()).toBe('e')
+    vm.moveCursor(-1) // k 到 'ab' clamp col1
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.get('.char-cursor').text()).toBe('b')
+    vm.moveCursor(1) // j 回长行恢复 col13
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.get('.char-cursor').text()).toBe('e')
+  })
+
+  it('字符光标:wrap 模式光标投影到正确段', async () => {
+    // mount 环境 msgWidthCh=max(10,..)=10,'hello world'(11ch) → 2 段 ['hello worl','d']
+    const w = await setupCursor([ln(1, 'hello world')], true)
+    const vm = w.vm as unknown as { moveCursorCol: (m: string) => void }
+    vm.moveCursorCol('end')
+    await new Promise((r) => setTimeout(r, 0))
+    const wlines = w.findAll('.wline')
+    expect(wlines.length).toBe(2)
+    // 光标 'd' 应在第 2 段内
+    const cur = w.get('.char-cursor')
+    expect(cur.text()).toBe('d')
+    expect(cur.element.closest('.wline')).toBe(wlines[1].element)
+  })
+
+  it('字符光标:非 wrap 模式光标行超宽临时 wrap(所见即光标,Final Review C1)', async () => {
+    // mount 环境 msgWidthCh=10,'hello world'(11ch) 超宽——列光标激活后该行
+    // 应临时按段渲染(.wline≥2),块光标可见;未激活时保持单行截断
+    const w = await setupCursor([ln(1, 'hello world')])
+    expect(w.findAll('.wline')).toHaveLength(0) // 未激活不 wrap
+    const vm = w.vm as unknown as { moveCursorCol: (m: string) => void }
+    vm.moveCursorCol('end')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.findAll('.wline').length).toBeGreaterThanOrEqual(2)
+    expect(w.get('.char-cursor').text()).toBe('d')
+  })
+
+  it('字符光标:样式选择器配对(防类名拼错)', () => {
+    expect(logViewSrc).toMatch(/\.char-cursor\s*\{/)
+  })
+})
+
+// ---- 字符可视选择(vim-copy Task4):v 字符级锚列、y 复制子串并收起、⌘C 通道 ----
+describe('字符可视选择', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(ClipboardSetText).mockClear()
+  })
+
+  async function setupSel(lines: LineDTO[]) {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines })
+    const w = mount(LogView, { props: PROPS, global: { plugins: [naive] } })
+    await new Promise((r) => setTimeout(r, 0))
+    return w
+  }
+
+  it('v 后移动扩选:.char-sel 覆盖锚..光标列;y 复制子串并收起', async () => {
+    const w = await setupSel([ln(1, 'hello world')])
+    const vm = w.vm as unknown as {
+      moveCursor: (d: number) => void
+      moveCursorCol: (m: string) => void
+      startVisual: (mode: string) => void
+      yank: () => { n: number }
+    }
+    vm.moveCursor(1) // 行光标 seq1
+    vm.moveCursorCol('start') // col0
+    vm.startVisual('char') // 锚 (1,0)
+    vm.moveCursorCol('right')
+    vm.moveCursorCol('right')
+    vm.moveCursorCol('right') // 光标列 3
+    await new Promise((r) => setTimeout(r, 0))
+    // 选区底纹 + 光标块(端点字符被光标反色块压住)合并覆盖锚..光标列
+    const covered = [...w.findAll('.char-sel'), ...w.findAll('.char-cursor')]
+      .map((s) => s.text())
+      .join('')
+    expect(covered).toBe('hell')
+
+    expect(vm.yank().n).toBe(4) // 字符数
+    expect(ClipboardSetText).toHaveBeenCalledWith('hell')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.findAll('.char-sel')).toHaveLength(0) // 复制后选区收起
+  })
+
+  it('v 跨行:首行尾段+中间全量+尾行首段', async () => {
+    const w = await setupSel([ln(1, 'hello world'), ln(2, 'second line'), ln(3, 'tail')])
+    const vm = w.vm as unknown as {
+      moveCursor: (d: number) => void
+      moveCursorCol: (m: string) => void
+      startVisual: (mode: string) => void
+      yank: () => { n: number }
+    }
+    vm.moveCursor(1)
+    vm.moveCursorCol('wordFwd') // col6
+    vm.startVisual('char') // 锚 (1,6)
+    vm.moveCursor(1) // 行2(列记忆 col6)
+    vm.moveCursor(1) // 行3(列记忆 clamp col3)
+    vm.moveCursorCol('start') // 归零再选(列记忆是设计行为,测试显式起步)
+    vm.moveCursorCol('right')
+    vm.moveCursorCol('right') // (3,2)
+    expect(vm.yank().n).toBe(21)
+    expect(ClipboardSetText).toHaveBeenCalledWith('world\nsecond line\ntai')
+  })
+
+  it('V 行级现状回归:V+j+y 复制 raw 行区间', async () => {
+    const w = await setupSel([ln(1, 'm1'), ln(2, 'm2')])
+    const vm = w.vm as unknown as {
+      moveCursor: (d: number) => void
+      startVisual: (mode: string) => void
+      yank: () => { n: number }
+    }
+    vm.moveCursor(1)
+    vm.startVisual('line')
+    vm.moveCursor(1)
+    expect(vm.yank().n).toBe(2)
+    expect(ClipboardSetText).toHaveBeenCalledWith('m1\nm2')
+  })
+
+  it('v 后 Esc 退出选区;⌘C 通道 yankSelection 优先字符选区', async () => {
+    const w = await setupSel([ln(1, 'hello')])
+    const vm = w.vm as unknown as {
+      moveCursor: (d: number) => void
+      moveCursorCol: (m: string) => void
+      startVisual: (mode: string) => void
+      exitVisual: () => void
+      yankSelection: () => { n: number }
+      hasSelection: () => boolean
+    }
+    vm.moveCursor(1)
+    vm.moveCursorCol('start')
+    vm.startVisual('char')
+    vm.moveCursorCol('end') // col4
+    expect(vm.hasSelection()).toBe(true)
+    expect(vm.yankSelection().n).toBe(5) // ⌘C 通道:字符选区走 char 子串
+    expect(ClipboardSetText).toHaveBeenCalledWith('hello')
+    await new Promise((r) => setTimeout(r, 0))
+
+    // 重建选区再 Esc 退出
+    vm.startVisual('char')
+    vm.exitVisual()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.findAll('.char-sel')).toHaveLength(0)
+    expect(vm.hasSelection()).toBe(false)
   })
 })

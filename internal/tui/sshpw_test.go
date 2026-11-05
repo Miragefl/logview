@@ -14,12 +14,12 @@ func TestHighlightHideHistory(t *testing.T) {
 	resetUsage(t)
 	app := newTestApp()
 	// 高亮 tab 确认两次（第二次前清空回显值）
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
 	for _, r := range "err,fail" {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
 	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU}) // 清回显
 	for _, r := range "timeout" {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -34,7 +34,7 @@ func TestHighlightHideHistory(t *testing.T) {
 	}
 
 	// 隐藏 tab 确认
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	for _, r := range "health" {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
@@ -43,7 +43,7 @@ func TestHighlightHideHistory(t *testing.T) {
 		t.Fatal("隐藏词应计频")
 	}
 	// 高亮 tab C-r 打开词频列表并填入首行(三词同分,词序 err 最小)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
 	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
 	app.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	if !app.searchHistMode {
