@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 高亮/隐藏词管理框(第六轮 SLS 式改造):SearchBar 两按钮/h/x 键唤起。
-// 输入加词(逗号分词)+词表键盘流(ctrl+j/k 选中,d/x 删词)+ctrl+R 历史
+// 输入加词(逗号分词)+词表键盘流(ctrl+j/k 选中,ctrl+d·x 删词)+ctrl+R 历史
 // (usage.json 词频,scope 隔离)——键盘流全套迁自 SearchPopup 第四轮实现。
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { NButton, NInput, NModal } from 'naive-ui'
@@ -211,7 +211,7 @@ onBeforeUnmount(() => {
       </ul>
       <p v-else class="empty">{{ isHl ? '暂无高亮词——命中词以亮色粗体下划线展示' : '暂无隐藏词——右键日志行也可快捷加词' }}</p>
       <div class="foot">
-        <span class="hint">ctrl+j/k 选中 · d 删词 · ctrl+R 历史</span>
+        <span class="hint">ctrl+j/k 选中 · ctrl+d 删词 · ctrl+R 历史</span>
         <NButton v-if="!isHl && ann.hideRules.length" size="tiny" quaternary type="warning" @click="ann.clearHideRules()">
           清空全部
         </NButton>

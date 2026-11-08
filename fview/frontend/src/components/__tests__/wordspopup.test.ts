@@ -1,5 +1,5 @@
 // WordsPopup 高亮/隐藏词管理框测试(第六轮 SLS 式改造):
-// 模式驱动/加词/词表键盘流(ctrl+j/k 选中,d 删词)/Esc 关框/弹窗栈登记。
+// 模式驱动/加词/词表键盘流(ctrl+j/k 选中,ctrl+d 删词)/Esc 关框/弹窗栈登记。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'

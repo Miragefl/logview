@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // SSH 面板：~/.ssh/config 自动发现（cfg 角标，删不掉属预期）+ 手动增删 → 点击进目录浏览。
-// 键盘化(2026-11-04):ctrl+j/k 选主机、Enter 进浏览、d 删除选中(cfg 跳过)。
+// 键盘化(2026-11-04):ctrl+j/k 选主机、Enter 进浏览、⌃d 删除选中(cfg 跳过)。
 // 搜索+新增统一迭代:内联添加框改 NModal 弹窗(右上角 +/ctrl+a,FRP 同款 topDialog 层级)，
 // 裸键 a 退役;新增搜索过滤列表。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'

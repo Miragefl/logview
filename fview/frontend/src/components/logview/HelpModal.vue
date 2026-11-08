@@ -57,7 +57,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: '级别与显示',
     rows: [
       ['E / W / I / D / A', '级别档位:ERROR / ≥WARN / ≥INFO / DEBUG / 全部'],
-      ['F', '字段显隐面板(可连续勾选,点外部退出)'],
+      ['F', '字段显隐面板(⌃j/k 移动,Enter/Space 勾选,Esc 关)'],
       ['#', '行号开关'],
       ['ctrl+w', '换行开关(仅折 message 列)'],
     ],

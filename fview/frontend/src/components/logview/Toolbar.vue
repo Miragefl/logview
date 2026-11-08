@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 日志工具栏:字段显隐(单日志覆盖层,F 键)/Follow/字号(搜索/级别/高亮隐藏入口已迁 SearchBar)。
 // 字段勾选只 emit 覆盖给 App 落 localStorage——rules.yaml 默认层在设置中心管,两层互不沾。
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { NButton, NDropdown } from 'naive-ui'
 import { useTabsStore } from '../../stores/tabs'
 import { useAnnotationsStore } from '../../stores/annotations'
@@ -26,6 +26,57 @@ function toggleFields() {
   fieldsShow.value = !fieldsShow.value
 }
 defineExpose({ toggleFields })
+
+/** onFieldMenuKey 下拉打开时的键盘流(2026-11-08 r4~r6 三轮):
+ *  - ⌃j/⌃k 中继方向键:naive dropdown 键盘导航(vooks useKeyboard)经 evtd 委托、
+ *    只认方向键——evtd 监听挂 **window**、按 target→window 传播链匹配 document,
+ *    合成事件必须 bubbles:true 且派发到焦点元素(activeElement)复刻原生按键路径
+ *    (r4 派发 document 本体无 bubbles,evtd 匹配不到,jsdom spy 错层假绿)。
+ *  - Space 勾选:naive 键盘表无 Space(r5 想当然踩坑),中继为 Enter;勾选后 naive
+ *    的 doUpdateShow(false) 因 manual 受控无人接——歪打正着保住"连续勾选不关"。
+ *  - Esc 关闭:naive handleKeydownEsc 只 emit update:show,manual 受控没接回调
+ *    (r5 踩坑),自己关;故意不接 @update:show,否则 Enter 勾选后也会关。
+ *  capture 拦截后 stopPropagation,同时掐断 App.vue 全局 vim 键
+ *  (ctrl+j/k 原映射 navDown/navUp)。treemate 移动 pending 自动跳过 divider/禁用项。 */
+function onFieldMenuKey(e: KeyboardEvent) {
+  if (!fieldsShow.value) return
+  const inInput = (() => {
+    const t = e.target as HTMLElement | null
+    return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')
+  })()
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || e.key === 'k')) {
+    e.preventDefault()
+    e.stopPropagation()
+    synthKey(e.key === 'j' ? 'ArrowDown' : 'ArrowUp')
+  } else if (e.key === ' ' && !inInput) {
+    e.preventDefault() // 兼防按钮 focus 时 Space 原生触发 click(会把刚关的下拉重开)
+    e.stopPropagation()
+    synthKey('Enter')
+  } else if (e.key === 'Escape') {
+    e.stopPropagation()
+    fieldsShow.value = false
+  }
+}
+
+/** synthKey 合成按键派发到焦点元素(与原生按键传播路径一致,evtd 才能匹配)。 */
+function synthKey(key: string) {
+  const target = document.activeElement ?? document.body
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+}
+// 开关注册:弹窗栈登记(全局 vim 键让位,同 WordsPopup;合成方向键亦不穿透)+监听挂卸
+watch(fieldsShow, (v) => {
+  if (v) {
+    ui.dialogOpen('fields')
+    document.addEventListener('keydown', onFieldMenuKey, true)
+  } else {
+    ui.dialogClose('fields')
+    document.removeEventListener('keydown', onFieldMenuKey, true)
+  }
+})
+onBeforeUnmount(() => {
+  if (fieldsShow.value) ui.dialogClose('fields')
+  document.removeEventListener('keydown', onFieldMenuKey, true)
+})
 
 /**
  * fieldsOptions 字段下拉项:

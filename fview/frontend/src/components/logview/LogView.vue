@@ -1445,7 +1445,8 @@ defineExpose({
   position: relative;
   overflow: visible; /* 覆盖 .cell 的 hidden,把手可悬出右缘 */
 }
-/* 列宽拖拽把手 */
+/* 列宽拖拽把手:常驻 1px 竖线标记(否则常态透明,列间无分隔线找不到把手),
+   hover/拖动时竖线加粗为 accent 并叠半透明背景 */
 .col-handle {
   position: absolute;
   top: -2px;
@@ -1455,10 +1456,24 @@ defineExpose({
   cursor: col-resize;
   z-index: 2;
 }
+.col-handle::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 3px; /* 7px 宽把手中央 */
+  width: 1px;
+  background: var(--dim, #8b98a9);
+}
 .col-handle:hover,
 .col-handle:active {
   background: var(--accent, #7dc4e4);
   opacity: 0.7;
+}
+.col-handle:hover::before,
+.col-handle:active::before {
+  background: var(--accent, #7dc4e4);
+  width: 2px;
 }
 .f-time {
   color: var(--time, #5d7292);
