@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 func parsedLine(level, traceID, thread, logger, message string) *model.ParsedLine {

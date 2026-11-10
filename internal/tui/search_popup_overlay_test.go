@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // 回归保护（居中弹窗设计）：搜索/高亮/隐藏弹窗居中渲染且带遮罩。

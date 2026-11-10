@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // 回归保护：v0.12.11 曾因 recomputeView 在 partial query 时 early-return（freeze）

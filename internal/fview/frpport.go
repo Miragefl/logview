@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // FRPBrowseTarget FRP 浏览的 SSH 目标与端口：必须带连接用户名（丢 user@ 会以本地

@@ -12,12 +12,12 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
-	"github.com/justfun/logview/internal/stream"
-	"github.com/justfun/logview/internal/tui"
-	"github.com/justfun/logview/internal/upgrade"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/tui"
+	"github.com/Miragefl/logview/internal/upgrade"
 	"github.com/spf13/cobra"
 )
 

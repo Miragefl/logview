@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 	"github.com/muesli/termenv"
 )
 

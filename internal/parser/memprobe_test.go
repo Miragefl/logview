@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // TestMemoryFootprintPerLine 内存足迹探针(手动跑):纯 Parse+驻留,统计每行堆字节。

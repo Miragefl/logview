@@ -7,8 +7,8 @@ package fview
 import (
 	"time"
 
-	"github.com/justfun/logview/internal/buffer"
-	"github.com/justfun/logview/internal/stacktrace"
+	"github.com/Miragefl/logview/internal/buffer"
+	"github.com/Miragefl/logview/internal/stacktrace"
 )
 
 // foldWindow 尾窗行数:窗口越小单轮重扫越便宜(4096 行 Detect ≈1ms);

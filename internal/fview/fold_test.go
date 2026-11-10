@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/buffer"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/buffer"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // mkLine 构造单行 ParsedLine(Message span 覆盖全文,与 session 兜底行同构)。

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // writeAskpassScript 生成临时 askpass 脚本（回显 $SSH_PASSWORD），返回路径与清理函数。

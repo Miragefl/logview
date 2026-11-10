@@ -3,7 +3,7 @@ package fview
 import (
 	"testing"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // TestUsageRecentAndTouch Touch 计频后 Recent 返回该键且居首（热点面板数据源）。

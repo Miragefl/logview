@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // 视图滑窗:filteredView 与 ring buffer 同容量边界,超限滑掉头部,

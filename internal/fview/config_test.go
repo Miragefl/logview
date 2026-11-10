@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // TestUpdateHidesAndFields 写回共享 rules.yaml：目标键替换、其余键保留（spec 4.5）。

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // usageScore 薄包装（仅测试使用）：读 key 的当前衰减频次。

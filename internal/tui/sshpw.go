@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // SSH 密码认证流程：SSHSource 失败且 stderr 含 Permission denied 时，

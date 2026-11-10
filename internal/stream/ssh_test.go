@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // fakeSSHScript writes a shell script masquerading as ssh (PATH injected),

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 func TestJSONParser(t *testing.T) {

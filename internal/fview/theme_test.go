@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justfun/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/logcore"
 )
 
 // TestThemeToCSSKeys 每个内置主题产出含 bg/fg/级别色键且值为 #hex（计划 Task 12 Step 1）。

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // handleDetailKeys 详情面板按键：C-j/C-k 联动移动光标（面板内容跟随，方向键兜底），Esc/d/Enter/q 关闭。

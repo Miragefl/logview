@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // resetUsage 清空 usage 全局缓存(隔离跨测试污染,惯例同 frppicker_test)。

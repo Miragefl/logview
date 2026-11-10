@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/parser"
 	"gopkg.in/yaml.v3"
 )
 

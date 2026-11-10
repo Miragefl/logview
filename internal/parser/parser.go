@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/justfun/logview/internal/model"
+import "github.com/Miragefl/logview/internal/model"
 
 // Parser converts raw text into structured log lines.
 type Parser interface {

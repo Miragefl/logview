@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // 热点数据通用逻辑（加载/衰减/Bump/持久化）在 internal/usage 共享包，

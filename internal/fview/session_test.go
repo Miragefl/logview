@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // feedStream 预置行批的测试流：Start 一次性灌入后关闭（模拟文件读毕/管道 EOF）。

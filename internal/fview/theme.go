@@ -2,7 +2,7 @@
 package fview
 
 import (
-	"github.com/justfun/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/logcore"
 )
 
 // ThemeToCSS 主题色转 CSS 变量 KV（前端 :root 注入；--level-* 为各级别色）。

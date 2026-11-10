@@ -11,8 +11,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // 源选择器（o 键）：K8s / 本地 / SSH 三 tab，选中后 ReplaceStream 热切换。

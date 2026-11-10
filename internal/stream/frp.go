@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // frpTunnelHandle 隧道能力（*frp.Tunnel 实现；测试用 fake）。

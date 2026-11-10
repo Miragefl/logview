@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/logcore"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // TestTimeFileModeMultiDay 原住 searchquery_time_test.go；searchquery 迁 internal/logcore 时留在

@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justfun/logview/internal/buffer"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/buffer"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // emitBatch 单次 EventsEmit 行批上限（spec：10 万行初始灌入分批推送）。

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/stacktrace"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/stacktrace"
 )
 
 // 搜索全量刷新性能基准:10 万行 logback,单关键词命中

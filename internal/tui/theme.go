@@ -2,7 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/justfun/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/logcore"
 )
 
 // 主题数据与解析（ThemeConfig/内置表/ResolveTheme）已迁 internal/logcore（fview 共享单源）；

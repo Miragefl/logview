@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // TestUpdateSSHHosts ssh_hosts 写回共享 rules.yaml（Task 13 Step 1）。

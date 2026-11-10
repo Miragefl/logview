@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/fview"
-	"github.com/justfun/logview/internal/logcore"
-	"github.com/justfun/logview/internal/parser"
-	"github.com/justfun/logview/internal/stream"
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/fview"
+	"github.com/Miragefl/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/usage"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 

@@ -4,7 +4,7 @@ package fview
 import (
 	"runtime"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // usageRecentLimit 本地面板最近源列表长度上限。

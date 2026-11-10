@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 	"gopkg.in/yaml.v3"
 )
 

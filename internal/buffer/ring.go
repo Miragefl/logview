@@ -1,6 +1,6 @@
 package buffer
 
-import "github.com/justfun/logview/internal/model"
+import "github.com/Miragefl/logview/internal/model"
 
 type RingBuffer struct {
 	buf   []*model.ParsedLine

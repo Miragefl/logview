@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // 高亮/隐藏确认拆词计频;C-r 打开当前源词频列表并可填入。

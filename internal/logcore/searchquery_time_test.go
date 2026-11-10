@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // anchorA0 矩阵默认锚点:A0 = 2026-08-28T10:00:00Z。

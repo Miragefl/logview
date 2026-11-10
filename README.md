@@ -1,5 +1,7 @@
 # LogView
 
+**TUI log viewer for terminal** — tail local, SSH & Kubernetes logs with real-time search, filtering and highlighting. A fast `kubectl logs` alternative, written in Go.
+
 终端实时日志查看器，支持实时搜索、高亮、字段过滤、多资源聚合。
 
 ![LogView 主界面](docs/screenshot-main.png)
@@ -16,6 +18,14 @@
 | ![源选择器](docs/screenshot-picker.png) | ![搜索](docs/screenshot-search.png) |
 
 </details>
+
+## Use Cases
+
+- **`kubectl logs` alternative** — multi-resource Kubernetes log aggregation (stern-style)
+- Tail logs from multiple SSH hosts in one terminal
+- Reach intranet logs through FRP tunnels
+- Read gzip logs directly; load 1GB files in seconds
+- Auto-detect java-logback / JSON log formats
 
 ---
 

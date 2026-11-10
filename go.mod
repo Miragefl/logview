@@ -1,4 +1,4 @@
-module github.com/justfun/logview
+module github.com/Miragefl/logview
 
 go 1.26.3
 

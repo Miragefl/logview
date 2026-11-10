@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // drainLines 收流至通道关闭(超时兜底)。

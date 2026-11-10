@@ -9,8 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // 源选择器（o 键）— 浏览式交互：

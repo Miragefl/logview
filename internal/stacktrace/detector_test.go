@@ -3,7 +3,7 @@ package stacktrace
 import (
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 func TestDetectStackTrace(t *testing.T) {

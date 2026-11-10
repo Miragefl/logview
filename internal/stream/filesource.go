@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 type FileSource struct {

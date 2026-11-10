@@ -3,7 +3,7 @@ package stacktrace
 import (
 	"strings"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 type Group struct {

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // TestSearchIgnoresANSIColorCodes 搜索命中判定须忽略行内 ANSI 颜色码:

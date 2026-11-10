@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // resetUsage HOME 指到临时目录并清 usage 内存缓存(词频落盘/加载隔离)。

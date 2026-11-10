@@ -3,8 +3,8 @@
 package fview
 
 import (
-	"github.com/justfun/logview/internal/logcore"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // QueryMeta 搜索语法元信息（前端校验错误/高亮词/时间范围提示）。

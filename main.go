@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/justfun/logview/cmd"
+	"github.com/Miragefl/logview/cmd"
 )
 
 var (

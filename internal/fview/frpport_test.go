@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/justfun/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/frp"
 )
 
 // TestFRPLookup 连接不存在/必需字段缺失时返回含连接名的明确错误。

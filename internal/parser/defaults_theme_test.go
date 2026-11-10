@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justfun/logview/internal/logcore"
+	"github.com/Miragefl/logview/internal/logcore"
 )
 
 // 默认模板注释推荐的主题名单必须与 logcore 注册表完全一致:

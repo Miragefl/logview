@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/stacktrace"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/stacktrace"
 	"github.com/mattn/go-runewidth"
 )
 

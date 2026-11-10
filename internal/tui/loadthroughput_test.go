@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // 全链数据吞吐(手动跑,分离数据链与渲染占比):FileSource 块读→processBatch

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // 防回归：hides 激活时必须 (1) 正确统计被隐藏的行数 (2) 在搜索模式下也显示醒目 badge。

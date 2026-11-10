@@ -13,13 +13,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/justfun/logview/internal/buffer"
-	"github.com/justfun/logview/internal/export"
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
-	"github.com/justfun/logview/internal/stacktrace"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/buffer"
+	"github.com/Miragefl/logview/internal/export"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/stacktrace"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 type App struct {

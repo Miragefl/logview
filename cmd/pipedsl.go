@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 
 	"github.com/creack/pty"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/stream"
 	"golang.org/x/sys/unix"
 )
 

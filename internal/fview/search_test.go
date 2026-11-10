@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // TestMatchLines 全量匹配返回命中索引（logcore 单源执行；语法错误返回 nil）。

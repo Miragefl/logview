@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // mockStream implements stream.LogStream for testing

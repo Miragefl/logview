@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justfun/logview/internal/usage"
+	"github.com/Miragefl/logview/internal/usage"
 )
 
 // kindPrefix 前端短名 → usage key 前缀。

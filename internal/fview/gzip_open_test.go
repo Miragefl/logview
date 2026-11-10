@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/justfun/logview/internal/parser"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // TestGzipOpenEOF gzip 归档经 Manager 完整管线：自动解压读满、EOF 即止、

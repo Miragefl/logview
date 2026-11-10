@@ -3,7 +3,7 @@ package buffer
 import (
 	"testing"
 
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 func TestRingBufferNonPositiveCapacity(t *testing.T) {

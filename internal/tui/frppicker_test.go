@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/frp"
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/frp"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 // fakeFRPTunnel 测试用隧道句柄（记录 Cleanup 调用）。

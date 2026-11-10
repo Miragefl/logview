@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/stream"
+	"github.com/Miragefl/logview/internal/stream"
 )
 
 func TestSplitPipeSegments(t *testing.T) {

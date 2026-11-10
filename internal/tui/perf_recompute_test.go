@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justfun/logview/internal/model"
-	"github.com/justfun/logview/internal/parser"
+	"github.com/Miragefl/logview/internal/model"
+	"github.com/Miragefl/logview/internal/parser"
 )
 
 // perfFill 向 app 灌 n 行日志(n ≤ 容量时流式统计精确,> 容量后发生淘汰)。

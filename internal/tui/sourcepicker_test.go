@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/justfun/logview/internal/model"
+	"github.com/Miragefl/logview/internal/model"
 )
 
 // setupLocalBrowseFixture 自建本地浏览测试夹具（/tmp 会被系统定期清理，
