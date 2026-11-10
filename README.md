@@ -318,8 +318,8 @@ rules:
 # history: -f 模式默认加载的尾行数
 history: 5000
 
-# theme: 配色主题（dark 系: dark/dracula/tokyo-storm/nord/gruvbox/catppuccin/one-dark
-#                  light系: light/gruvbox-light/catppuccin-latte/nord-light/tokyo-day/solarized-light）
+# theme: 配色主题（dark 系: dark/dracula/tokyo-storm/gruvbox/solarized-dark/kanagawa/everforest/rose-pine-moon/monokai-pro/synthwave-84
+#                  light系: light/gruvbox-light/tokyo-day/solarized-light/one-half-light/rose-pine-dawn/ayu-light）
 theme: dark
 
 # theme_colors: 覆盖主题颜色（十六进制）
@@ -366,7 +366,7 @@ fields:
 | `patterns` | 可复用正则片段，rules 中用 `{name}` 引用 | 无 |
 | `rules` | 解析规则列表，按顺序匹配 | 内置 java-logback / json / plain-text |
 | `history` | `-f` 模式默认尾行数 | `5000` |
-| `theme` | 配色主题，13 个内置（见下表） | `dark` |
+| `theme` | 配色主题，17 个内置（见下表） | `dark` |
 | `theme_colors` | 覆盖主题颜色（十六进制） | 无 |
 | `fields` | 字段显示控制，隐藏后搜索仍可用；`width` 设固定列宽（超长截断，logger 缩写为 `c.y.c.Foo`，时间列超宽自动保时分秒） | 全部显示，默认列宽 time 12/thread 10/traceId 12/logger 20 |
 | `hides` | 默认隐藏关键词 | 无 |
@@ -381,11 +381,14 @@ fields:
 |------|------|------|------|
 | `dark` | 默认深色 | `light` | 默认浅色 |
 | `dracula` | Dracula 紫 | `gruvbox-light` | Gruvbox 暖浅 |
-| `tokyo-storm` | Tokyo Night 蓝紫 | `catppuccin-latte` | Catppuccin 柔浅 |
-| `nord` | Nord 冷灰蓝 | `nord-light` | Nord 冷浅 |
-| `gruvbox` | Gruvbox 暖深 | `tokyo-day` | Tokyo Day 蓝浅 |
-| `catppuccin` | Catppuccin Mocha | `solarized-light` | Solarized 经典浅 |
-| `one-dark` | Atom One Dark | | |
+| `tokyo-storm` | Tokyo Night 蓝紫 | `tokyo-day` | Tokyo Day 蓝浅 |
+| `gruvbox` | Gruvbox 暖深 | `solarized-light` | Solarized 经典浅 |
+| `solarized-dark` | Solarized 经典深 | `one-half-light` | One Half 灰浅 |
+| `kanagawa` | Kanagawa 墨底浮世绘 | `rose-pine-dawn` | Rosé Pine 米纸 |
+| `everforest` | Everforest 绿灰柔和 | `ayu-light` | Ayu 极简浅 |
+| `rose-pine-moon` | Rosé Pine 夜紫 | | |
+| `monokai-pro` | Monokai Pro 紫灰 | | |
+| `synthwave-84` | Synthwave '84 蒸汽波 | | |
 
 ### 规则匹配机制
 

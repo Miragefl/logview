@@ -45,10 +45,53 @@ func TestResolveThemeFallback(t *testing.T) {
 	}
 }
 
+// 被删主题名不再注册，且回落 DarkTheme(老配置 theme: nord 静默降级,不 panic)。
+func TestRemovedThemesFallBack(t *testing.T) {
+	for _, gone := range []string{"nord", "catppuccin", "one-dark", "catppuccin-latte", "nord-light"} {
+		for _, n := range ThemeNames() {
+			if n == gone {
+				t.Errorf("removed theme %s still registered", gone)
+			}
+		}
+		if cfg := ResolveTheme(gone, nil); cfg.TitleBG != DarkTheme.TitleBG {
+			t.Errorf("removed theme %s should fall back to dark", gone)
+		}
+	}
+}
+
 // theme_colors 覆盖在任意主题上生效。
 func TestThemeColorOverride(t *testing.T) {
-	cfg := ResolveTheme("dracula", map[string]string{"level.error": "#FF0000"})
+	cfg := ResolveTheme("kanagawa", map[string]string{"level.error": "#FF0000"})
 	if cfg.LevelError != "#FF0000" {
 		t.Errorf("override not applied: %s", cfg.LevelError)
+	}
+}
+
+// 新增 9 款签名槽位抽查(全槽位值见 spec 色值表,防复制错主题)。
+func TestNewBuiltinThemesSignatureSlots(t *testing.T) {
+	want := map[string][4]string{ // slug: {TitleBG, LevelError, LevelInfo, Bg}
+		"solarized-dark": {"#268BD2", "#DC322F", "#A6B34D", ""},
+		"kanagawa":       {"#938AA9", "#E82424", "#97B473", ""},
+		"everforest":     {"#DF69BA", "#F85552", "#6F8746", ""},
+		"rose-pine-moon": {"#C4A7E7", "#EB6F92", "#53869B", ""},
+		"monokai-pro":    {"#AB9DF2", "#FF6188", "#A9C38F", ""},
+		"synthwave-84":   {"#FF7EDB", "#F841A0", "#50965D", ""},
+		"one-half-light": {"#A626A4", "#E45649", "#2F9E44", "#FAFAFA"},
+		"rose-pine-dawn": {"#907AA9", "#B4637A", "#266A85", "#FAF4ED"},
+		"ayu-light":      {"#9E75C7", "#EA6C6D", "#55B03F", "#F8F9FA"},
+	}
+	registered := map[string]bool{}
+	for _, n := range ThemeNames() {
+		registered[n] = true
+	}
+	for slug, w := range want {
+		if !registered[slug] {
+			t.Errorf("new theme %s not in ThemeNames", slug)
+			continue
+		}
+		cfg := ResolveTheme(slug, nil)
+		if cfg.TitleBG != w[0] || cfg.LevelError != w[1] || cfg.LevelInfo != w[2] || cfg.Bg != w[3] {
+			t.Errorf("theme %s signature slots mismatch: got TitleBG=%s Err=%s Info=%s Bg=%s", slug, cfg.TitleBG, cfg.LevelError, cfg.LevelInfo, cfg.Bg)
+		}
 	}
 }

@@ -37,8 +37,8 @@ rules:
 history: 5000
 
 # theme: 配色主题
-#   dark 系: dark / dracula / tokyo-storm / nord / gruvbox / catppuccin / one-dark
-#   light系: light / gruvbox-light / catppuccin-latte / nord-light / tokyo-day / solarized-light
+#   dark 系: dark / dracula / tokyo-storm / gruvbox / solarized-dark / kanagawa / everforest / rose-pine-moon / monokai-pro / synthwave-84
+#   light系: light / gruvbox-light / tokyo-day / solarized-light / one-half-light / rose-pine-dawn / ayu-light
 theme: dark
 
 # theme_colors: 覆盖主题中的具体颜色（十六进制色码）
