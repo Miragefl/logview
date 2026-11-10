@@ -58,6 +58,9 @@ brew tap Miragefl/logview
 brew install logview
 ```
 
+<details>
+<summary>其他安装方式（Linux 二进制 / Gitee 国内镜像 / 源码编译）</summary>
+
 ### Linux
 
 ```bash
@@ -96,6 +99,8 @@ cd logview && go build -o logview . && sudo mv logview /usr/local/bin/
 git clone https://github.com/Miragefl/logview.git
 cd logview && go build -o logview .
 ```
+
+</details>
 
 ---
 
@@ -149,7 +154,10 @@ logview --config /path/to/config ...        # 指定配置目录
 
 ## 快捷键
 
-按 `?` 查看内置帮助面板。
+按 `?` 查看内置帮助面板；完整键表点击展开。
+
+<details>
+<summary>⌨️ 完整快捷键表</summary>
 
 ### 导航
 
@@ -253,6 +261,8 @@ SSH 认证完全复用系统 `ssh`（密钥/agent/跳板/别名均可用）；�
 | `←` / `→`（`h` / `l`） | 调整当前项（范围：当前筛选 / 全部缓冲；格式：原始 / JSON） |
 | `Enter` | 确认导出，`Esc` / `q` 取消 |
 
+</details>
+
 ---
 
 ## 搜索语法
@@ -298,7 +308,40 @@ level:ERROR AND time:>-30s       与其它条件自由组合
 
 配置目录：`~/.config/logview/`，首次运行自动生成。修改后重启 logview 生效。
 
-### rules.yaml 完整示例
+### rules.yaml
+
+核心字段速览（首跑自动生成完整注释版 `~/.config/logview/rules.yaml`）：
+
+```yaml
+# patterns: 可复用的正则片段，rules 中用 {name} 引用（完整定义见下方模板）
+patterns:
+  time: '(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d{3})'
+
+# rules: 解析规则，按顺序匹配，每个来源选第一个命中的
+rules:
+  - name: java-logback
+    pattern: '{time} \[{thread}\] \[{traceId}\] {level}\s+{logger} - {message}'
+
+# theme: 配色主题（17 个内置见下表；theme_colors 逐项覆盖颜色）
+theme: dracula
+# theme_colors:
+#   level.error: "#FF0000"
+
+# hides: 默认隐藏包含这些关键词的日志行
+# hides:
+#   - health check
+
+# fields: 字段显示/隐藏；width 为固定列宽
+fields:
+  - name: time
+    visible: true
+    width: 12
+  - name: message
+    visible: true
+```
+
+<details>
+<summary>📜 完整 rules.yaml 模板</summary>
 
 ```yaml
 # patterns: 可复用的正则片段，在 rules 中用 {name} 引用
@@ -369,6 +412,8 @@ fields:
 #   search-next: "n"
 ```
 
+</details>
+
 ### 配置项说明
 
 | 字段 | 说明 | 默认值 |
@@ -411,7 +456,8 @@ fields:
 
 ## 命令补全
 
-支持 bash / zsh / fish，Tab 自动补全子命令、k8s 资源和 namespace：
+<details>
+<summary>命令补全（bash / zsh / fish，Tab 补全子命令、k8s 资源和 namespace）</summary>
 
 ```bash
 # zsh
@@ -429,6 +475,8 @@ logview <tab>              # 子命令: picker, k8s, tail, file, pipe, version, 
 logview k8s -n <tab>       # namespace 列表
 logview k8s deploy/<tab>   # Deployment 列表
 ```
+
+</details>
 
 ---
 
@@ -455,7 +503,7 @@ logview k8s deploy/<tab>   # Deployment 列表
 | 多文件颜色 | 不同来源自动分配颜色 |
 | Vim 滚动 | `zt/zz/zb`、`H/M/L`、`C-d/C-u`、`C-f/C-b`、scrolloff |
 | 可视化选择 | `v` 选择，`y` 复制 |
-| 主题配置 | 13 个内置主题，可逐项覆盖颜色 |
+| 主题配置 | 17 个内置主题，可逐项覆盖颜色 |
 | 自定义快捷键 | `rules.yaml` 的 `keybindings`（预留，当前版本未生效） |
 | 配置文件 | `rules.yaml` 解析规则/主题/字段显隐/默认隐藏词，重启生效 |
 | 命令补全 | bash / zsh / fish |
