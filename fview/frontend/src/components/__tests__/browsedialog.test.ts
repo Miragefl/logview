@@ -18,6 +18,7 @@ vi.mock('../../lib/backend', () => ({
 }))
 
 import BrowseDialog from '../sources/BrowseDialog.vue'
+import * as backend from '../../lib/backend'
 import { getSavedPass, openSSHTab, savePass, sshBrowse, usageTouch } from '../../lib/backend'
 
 const b = {
@@ -201,7 +202,7 @@ describe('BrowseDialog 打字过滤与路径直达（无框,面板同款）', ()
     expect(b.openSSHTab).toHaveBeenCalledWith('web1', '/app.log', 0, '')
   })
 
-  it('ctrl+j/k 导航光标移动', async () => {
+  it('C-j/k 导航光标移动', async () => {
     await mounted()
     key('j', { ctrlKey: true })
     await flush()
@@ -241,7 +242,7 @@ describe('BrowseDialog 打字过滤与路径直达（无框,面板同款）', ()
     expect(b.sshBrowse).toHaveBeenLastCalledWith('web1', '/', '')
   })
 
-  it('裸 h 进词、⌃h 回上级（h 退役用户裁决）', async () => {
+  it('裸 h 进词、C-h 回上级（h 退役用户裁决）', async () => {
     await mounted({ initPath: '/var/logs' }) // path=/var
     key('h') // 词 h：剩 hardware.log
     await flush()
@@ -314,5 +315,43 @@ describe('BrowseDialog 打字过滤与路径直达（无框,面板同款）', ()
     await flush()
     await flush()
     expect(b.sshBrowse).toHaveBeenLastCalledWith('web2', '/', 'p2') // 旧 IIFE 不得再 browse
+  })
+})
+
+describe('BrowseDialog 密码框聚焦(frp-pwd-focus)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('认证失败弹密码框后自动聚焦——打字进密码框不进过滤词', async () => {
+    vi.mocked(backend.browseFRP).mockRejectedValue(new Error('ssh: Permission denied (publickey,password)'))
+    const w = mount(BrowseDialog, {
+      props: { show: true, mode: 'frp', connName: 'office-frp' },
+      global: { plugins: [naive] },
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    // NModal teleport 到 body:不走 w.find(现有用例同款 document 查询)
+    expect(document.body.querySelector('.pwd')).toBeTruthy() // needPwd 弹框
+    // 根因断言:焦点必须在密码 INPUT 上(修复前留 body,打字被 typeKey 吃进过滤词)
+    const active = document.activeElement as HTMLInputElement | null
+    expect(active?.tagName).toBe('INPUT')
+    expect(active?.type).toBe('password')
+  })
+
+  it('已聚焦态打字不进过滤词(inInput 放行)', async () => {
+    vi.mocked(backend.browseFRP).mockRejectedValue(new Error('ssh: Permission denied (publickey,password)'))
+    const w = mount(BrowseDialog, {
+      props: { show: true, mode: 'frp', connName: 'office-frp' },
+      global: { plugins: [naive] },
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    const input = document.activeElement as HTMLInputElement
+    // 焦点在密码框时 keydown 冒泡到 document:onDocKey inInput 放行,字符不进 filter
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(document.body.querySelector('.filter-hint')).toBeNull()
   })
 })

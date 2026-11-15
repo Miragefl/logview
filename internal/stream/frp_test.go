@@ -76,3 +76,18 @@ func TestFRPSourceStreamsAndCleansTunnel(t *testing.T) {
 		t.Fatal("Cleanup 应清理隧道")
 	}
 }
+
+// Label 展示别名（空回落 name）；Scope 恒 name（别名纯展示不进逻辑键）。
+func TestFRPSourceLabelAliasFallback(t *testing.T) {
+	s := NewFRPSource("ssh-x", &fakeTunnel{port: 6022}, "root", "/var/log/app.log", 200)
+	if got := s.Label(); got != "frp://ssh-x/var/log/app.log" {
+		t.Fatalf("无别名应回落 name，实际 %q", got)
+	}
+	s.SetAlias("生产网关")
+	if got := s.Label(); got != "frp://生产网关/var/log/app.log" {
+		t.Fatalf("有别名师 Label 应用别名，实际 %q", got)
+	}
+	if got := s.Scope(); got != "ssh-x" {
+		t.Fatalf("Scope 应恒为连接名，实际 %q", got)
+	}
+}

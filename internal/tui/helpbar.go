@@ -24,14 +24,7 @@ func (a *App) shortcutItems() []helpItem {
 			{"Esc/d", "关闭"},
 		}
 	case a.sourcePickerMode:
-		return []helpItem{
-			{"Enter", "确认"},
-			{"Space", "勾选"},
-			{"Backspace", "返回"},
-			{"Tab", "切分类"},
-			{"C-j/C-k", "移动"},
-			{"Esc", "取消"},
-		}
+		return a.pickerShortcutItems()
 	case a.sshPwMode:
 		return []helpItem{
 			{"Enter", "重连"},
@@ -39,7 +32,7 @@ func (a *App) shortcutItems() []helpItem {
 		}
 	case a.helpMode:
 		return []helpItem{
-			{"Esc/Enter", "关闭"},
+			{"任意键", "关闭"},
 		}
 	case a.statsPanel:
 		return []helpItem{
@@ -50,8 +43,8 @@ func (a *App) shortcutItems() []helpItem {
 			{"Enter", "确认"},
 			{"Tab", "切换分区"},
 			{"C-t", "时间片"},
-			{"C-j/C-k", "切换字段"},
-			{"C-u", "清空输入"},
+			{"C-j/C-k", "历史/词表导航"},
+			{"C-d", "删词(高亮/隐藏)"},
 			{"C-r", "历史"},
 			{"Esc", "取消"},
 		}
@@ -88,6 +81,94 @@ func (a *App) shortcutItems() []helpItem {
 			{"v/y", "选择复制"},
 			{"?", "帮助"},
 			{"\\", "收起提示"},
+		}
+	}
+}
+
+// pickerShortcutItems 源选择器按需键位：tab×层级×输入态返回当前实际可用的
+// 快捷键（picker-width-hints，正本为 handleSourcePickerKeys 实测行为——
+// 弹窗内不再印快捷键 hint，此栏是唯一提示源）。
+func (a *App) pickerShortcutItems() []helpItem {
+	switch {
+	case a.sourceTab == 2 && a.pickerSSHInputMode: // 新增主机表单(keybind-unify-r2 A3:C-a 进)
+		return []helpItem{
+			{"Enter", "保存"},
+			{"Esc", "取消"},
+			{"Tab", "切分类"},
+		}
+	case a.sourceTab == 2 && a.pickerSSHHost == "": // 主机列表·过滤态
+		return []helpItem{
+			{"Enter", "连接"},
+			{"C-j/C-k", "移动"},
+			{"C-a", "新增主机"},
+			{"C-d", "删除"},
+			{"Tab", "切分类"},
+			{"Esc", "关闭"},
+		}
+	case a.sourceTab == 3 && a.pickerFRPLevel == 1: // 新建/编辑表单
+		return []helpItem{
+			{"Enter", "下一步"},
+			{"C-u", "清空"},
+			{"Esc", "回退"},
+			{"Tab", "切分类"},
+		}
+	case a.sourceTab == 3 && a.pickerFRPLevel == 2: // 远程目录浏览
+		return []helpItem{
+			{"Enter", "打开"},
+			{"C-j/C-k", "移动"},
+			{"Backspace", "删词/上级"},
+			{"C-h", "上级"},
+			{"Tab", "切分类"},
+			{"Esc", "返回"},
+		}
+	case a.sourceTab == 3: // FRP 连接列表(L0)
+		return []helpItem{
+			{"Enter", "连接"},
+			{"C-j/C-k", "移动"},
+			{"C-a", "新增"},
+			{"C-e", "编辑"},
+			{"C-d", "删除"},
+			{"Tab", "切分类"},
+			{"Esc", "关闭"},
+		}
+	case a.sourceTab == 0 && a.pickerK8sLevel == 2: // 资源层(多选)
+		return []helpItem{
+			{"Enter", "打开"},
+			{"Space", "多选"},
+			{"C-j/C-k", "移动"},
+			{"C-c/C-n", "直达"},
+			{"Tab", "切分类"},
+			{"Esc", "返回"},
+		}
+	case a.sourceTab == 0: // K8s ctx/ns 层
+		enter, esc := "进入", "关闭"
+		if a.pickerK8sLevel == 1 {
+			enter, esc = "选择", "返回"
+		}
+		return []helpItem{
+			{"Enter", enter},
+			{"C-j/C-k", "移动"},
+			{"C-c/C-n", "直达"},
+			{"Tab", "切分类"},
+			{"Esc", esc},
+		}
+	case a.sourceTab == 2: // SSH 目录浏览(Esc 回主机层,不关弹窗)
+		return []helpItem{
+			{"Enter", "打开"},
+			{"C-j/C-k", "移动"},
+			{"Backspace", "删词/上级"},
+			{"C-h", "上级"},
+			{"Tab", "切分类"},
+			{"Esc", "返回"},
+		}
+	default: // 本地目录浏览
+		return []helpItem{
+			{"Enter", "打开"},
+			{"C-j/C-k", "移动"},
+			{"Backspace", "删词/上级"},
+			{"C-h", "上级"},
+			{"Tab", "切分类"},
+			{"Esc", "关闭"},
 		}
 	}
 }

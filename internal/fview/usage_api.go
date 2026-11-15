@@ -3,6 +3,7 @@ package fview
 
 import (
 	"runtime"
+	"time"
 
 	"github.com/Miragefl/logview/internal/usage"
 )
@@ -19,6 +20,20 @@ func UsageRecent() []string {
 // UsageTouch 记录一次源使用（key 由前端按前缀规范拼接，如 file:/path/app.log）。
 func UsageTouch(key string) {
 	usage.Bump(key)
+}
+
+// UsageScores 批量取衰减分（panel-hot-sort 三面板排序数据源；7 天半衰期，
+// 与 TUI sortCandidatesHot 同一口径）。缺失 key 不出现在结果——前端 ?? 0 归一。
+func UsageScores(keys []string) map[string]float64 {
+	m := usage.Load()
+	now := time.Now()
+	out := make(map[string]float64, len(keys))
+	for _, k := range keys {
+		if e, ok := m[k]; ok {
+			out[k] = e.Decayed(now)
+		}
+	}
+	return out
 }
 
 // MemStatsBytes 状态栏内存徽章口径：Sys - HeapReleased（对齐 TUI perf-1g-load 口径，

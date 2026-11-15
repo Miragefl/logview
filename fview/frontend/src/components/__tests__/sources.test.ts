@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import naive from 'naive-ui'
+import { NSelect } from 'naive-ui'
 import { useUiStore } from '../../stores/ui'
 
 // mock backend：源面板只消费封装函数（jsdom 无 Wails 运行时）
 vi.mock('../../lib/backend', () => ({
   usageRecent: vi.fn().mockResolvedValue(['file:/tmp/app.log', 'file:/tmp/error.log']),
   usageTouch: vi.fn().mockResolvedValue(undefined),
+  usageScores: vi.fn().mockResolvedValue({}),
   getSavedPass: vi.fn().mockResolvedValue(''),
   savePass: vi.fn().mockResolvedValue(undefined),
   openFileTab: vi.fn().mockResolvedValue('tab-1'),
@@ -107,7 +109,7 @@ describe('源面板', () => {
     expect(backend.removeSSHHost).toHaveBeenCalledWith('dev-box')
     await w.findAll('.host-item')[0].trigger('click')
     // 全局浏览弹窗（App.vue 单例）：面板点击改为触发 ui.browse 态
-    expect(useUiStore().browse).toMatchObject({ show: true, mode: 'ssh', host: 'web1' })
+    expect(useUiStore().browse).toMatchObject({ show: true, mode: 'ssh', host: 'dev-box' })
   })
 
   it('K8sPanel：渲染 context 与资源列表，点击资源开 tab', async () => {
@@ -117,14 +119,14 @@ describe('源面板', () => {
     expect(w.text()).toContain('order-svc-xk2lp')
     await w.findAll('.res-item')[0].trigger('click')
     expect(backend.openK8sTab).toHaveBeenCalledWith(
-      'pod/order-svc-xk2lp',
+      'deployment/pay-svc', // 首项=名称序 deployment(panel-hot-sort)
       'default',
       'prod',
       0
     )
     // 写读对称回归网：v2 键前缀 k8sres 与 lib/recent.ts openRecent 拆解格式必须一致
     //（Final Review C1：plan 笔误 k8res 两侧自洽地一起错，此断言钉死契约）
-    expect(backend.usageTouch).toHaveBeenCalledWith('k8sres:prod/default/pod/order-svc-xk2lp')
+    expect(backend.usageTouch).toHaveBeenCalledWith('k8sres:prod/default/deployment/pay-svc')
   })
 
   it('FRPPanel：渲染连接列表（别名优先/回落 name，类型徽标+摘要），点击进入浏览', async () => {
@@ -142,7 +144,7 @@ describe('源面板', () => {
     }
     await w.findAll('.conn-item')[0].trigger('click')
     // 全局浏览弹窗：触发 ui.browse 态（BrowseDialog 挂 App.vue 单例）
-    expect(useUiStore().browse).toMatchObject({ show: true, mode: 'frp', connName: 'office-frp' })
+    expect(useUiStore().browse).toMatchObject({ show: true, mode: 'frp', connName: 'home-frp' })
   })
 
   it('FRPPanel：新增 stcp 连接（官方字段）与删除', async () => {
@@ -174,7 +176,7 @@ describe('源面板', () => {
     )
     // 删除连接
     await w.findAll('.conn-del')[0].trigger('click')
-    expect(backend.deleteFrpConn).toHaveBeenCalledWith('office-frp')
+    expect(backend.deleteFrpConn).toHaveBeenCalledWith('home-frp')
   })
 
   it('FRPPanel：stcp 缺 serverName/secretKey 时保存拦截', async () => {
@@ -201,8 +203,8 @@ describe('源面板', () => {
   it('FRPPanel：编辑 tcp 连接——全字段预填、remotePort 显隐、改名删旧名', async () => {
     const w = mountC(FRPPanel)
     await new Promise((r) => setTimeout(r, 0))
-    // 第二条 home-frp 是 tcp 连接（带 remotePort/path）
-    await w.findAll('.conn-edit')[1].trigger('click')
+    // home-frp 是 tcp 连接（带 remotePort/path）;名称序在前(panel-hot-sort)
+    await w.findAll('.conn-edit')[0].trigger('click')
     await new Promise((r) => setTimeout(r, 0))
     const q = (ph: string) =>
       document.body.querySelector<HTMLInputElement>(`.conn-form input[placeholder="${ph}"]`)!
@@ -229,7 +231,7 @@ describe('源面板', () => {
   it('FRPPanel：编辑改名撞已有连接名——报错拦截不落库', async () => {
     const w = mountC(FRPPanel)
     await new Promise((r) => setTimeout(r, 0))
-    await w.findAll('.conn-edit')[0].trigger('click') // office-frp（stcp）
+    await w.findAll('.conn-edit')[1].trigger('click') // office-frp（stcp;名称序落第二,panel-hot-sort）
     await new Promise((r) => setTimeout(r, 0))
     const q = (ph: string) =>
       document.body.querySelector<HTMLInputElement>(`.conn-form input[placeholder="${ph}"]`)!
@@ -263,7 +265,7 @@ describe('源面板', () => {
   })
 })
 
-// ---- 源面板键盘化(2026-11-04):ctrl+j/k 导航+Enter 激活+动作键,capture 消费 ----
+// ---- 源面板键盘化(2026-11-04):C-j/k 导航+Enter 激活+动作键,capture 消费 ----
 function key(k: string, ctrl = false) {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: ctrl, bubbles: true, cancelable: true }))
 }
@@ -275,7 +277,7 @@ describe('源面板键盘化', () => {
   })
   afterEach(unmountAll)
 
-  it('LocalPanel:ctrl+j 选中+Enter 打开+ctrl+a 呼系统框(裸 o 退役)', async () => {
+  it('LocalPanel:C-j 选中+Enter 打开+C-a 呼系统框(裸 o 退役)', async () => {
     const w = mountC(LocalPanel)
     await new Promise((r) => setTimeout(r, 0))
     key('j', true)
@@ -308,7 +310,7 @@ describe('源面板键盘化', () => {
     key('Backspace')
     await new Promise((r) => setTimeout(r, 0))
     expect(w.findAll('.recent-item').length).toBe(1)
-    // ctrl+j 选中过滤域 → Enter 打开
+    // C-j 选中过滤域 → Enter 打开
     key('j', true)
     key('Enter')
     await new Promise((r) => setTimeout(r, 0))
@@ -327,7 +329,7 @@ describe('源面板键盘化', () => {
     await new Promise((r) => setTimeout(r, 0))
   })
 
-  it('SSHPanel:ctrl+j/k 移动+Enter 进浏览+⌃d 删除选中(cfg 主机跳过)', async () => {
+  it('SSHPanel:C-j/k 移动+Enter 进浏览+C-d 删除选中(cfg 主机跳过)', async () => {
     const w = mountC(SSHPanel)
     await new Promise((r) => setTimeout(r, 0))
     key('j', true)
@@ -336,33 +338,33 @@ describe('源面板键盘化', () => {
     expect(w.findAll('.host-item')[1].classes()).toContain('sel')
     key('Enter')
     await new Promise((r) => setTimeout(r, 0))
-    expect(useUiStore().browse).toMatchObject({ show: true, mode: 'ssh', host: 'dev-box' })
-    // 光标回第一项(cfg 主机)按 ⌃d:~/.ssh/config 来源删不掉,跳过不调 remove
+    expect(useUiStore().browse).toMatchObject({ show: true, mode: 'ssh', host: 'web1' })
+    // 光标回第一项(手动主机,名称序在前)C-d 直接删(panel-hot-sort:dev-box<web1)
     useUiStore().browse.show = false
     key('k', true)
     await new Promise((r) => setTimeout(r, 0))
     key('d', true)
     await new Promise((r) => setTimeout(r, 0))
-    expect(backend.removeSSHHost).not.toHaveBeenCalled()
-    // 第二项(手动主机)⌃d 直接删
+    expect(backend.removeSSHHost).toHaveBeenCalledWith('dev-box')
+    // 第二项(cfg 主机)C-d:~/.ssh/config 来源删不掉,跳过
     key('j', true)
     key('d', true)
     await new Promise((r) => setTimeout(r, 0))
-    expect(backend.removeSSHHost).toHaveBeenCalledWith('dev-box')
+    expect(backend.removeSSHHost).toHaveBeenCalledTimes(1)
   })
 
-  it('FRPPanel:ctrl+a 开表单+表单期列表键让位+e 编辑预填+d 删除(裸 n 退役)', async () => {
+  it('FRPPanel:C-a 开表单+表单期列表键让位+e 编辑预填+d 删除(裸 n 退役)', async () => {
     const w = mountC(FRPPanel)
     await new Promise((r) => setTimeout(r, 0))
     key('a', true)
     await new Promise((r) => setTimeout(r, 0))
     const ui = useUiStore()
     expect(ui.dialogs).toContain('frp-form')
-    // 表单开着:ctrl+j 不得动列表选中(列表键全让位)
+    // 表单开着:C-j 不得动列表选中(列表键全让位)
     key('j', true)
     await new Promise((r) => setTimeout(r, 0))
     expect(w.findAll('.conn-item')[0].classes()).not.toContain('sel')
-    // Esc 关表单后:ctrl+j 选中第一项,⌃e 编辑预填 office-frp
+    // Esc 关表单后:C-j 选中第一项(名称序 home-frp),C-e 编辑预填
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
     key('j', true)
@@ -371,13 +373,13 @@ describe('源面板键盘化', () => {
     key('e', true)
     await new Promise((r) => setTimeout(r, 0))
     expect(ui.dialogs).toContain('frp-form')
-    expect((w.vm as unknown as { form: { name: string } }).form.name).toBe('office-frp')
-    // 关表单,⌃d 删除选中
+    expect((w.vm as unknown as { form: { name: string } }).form.name).toBe('home-frp')
+    // 关表单,C-d 删除选中
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
     key('d', true)
     await new Promise((r) => setTimeout(r, 0))
-    expect(backend.deleteFrpConn).toHaveBeenCalledWith('office-frp')
+    expect(backend.deleteFrpConn).toHaveBeenCalledWith('home-frp')
     // 旧裸键 n/e/d 退役:不触发动作(裸字母进词)
     vi.mocked(backend.deleteFrpConn).mockClear()
     key('n')
@@ -401,7 +403,7 @@ describe('源面板键盘化', () => {
     let items = w.findAll('.conn-item')
     expect(items.length).toBe(1)
     expect(items[0].find('.kw-hit').text()).toBe('home')
-    // ctrl+j 选中过滤域 → Enter 进浏览
+    // C-j 选中过滤域 → Enter 进浏览
     key('j', true)
     key('Enter')
     await new Promise((r) => setTimeout(r, 0))
@@ -420,7 +422,7 @@ describe('源面板键盘化', () => {
     expect(w.findAll('.conn-item').length).toBe(2)
   })
 
-  it('K8sPanel:资源列表 ctrl+j 选中+Enter 开 tab', async () => {
+  it('K8sPanel:资源列表 C-j 选中+Enter 开 tab', async () => {
     const w = mountC(K8sPanel)
     await new Promise((r) => setTimeout(r, 0))
     await new Promise((r) => setTimeout(r, 0))
@@ -429,10 +431,10 @@ describe('源面板键盘化', () => {
     expect(w.findAll('.res-item')[0].classes()).toContain('sel')
     key('Enter')
     await new Promise((r) => setTimeout(r, 0))
-    expect(backend.openK8sTab).toHaveBeenCalledWith('pod/order-svc-xk2lp', 'default', 'prod', 0)
+    expect(backend.openK8sTab).toHaveBeenCalledWith('deployment/pay-svc', 'default', 'prod', 0) // 首项=名称序 deployment(panel-hot-sort)
   })
 
-  it('K8sPanel:contexts 加载 pending(kubectl 慢/hang)时键盘监听已可用——真机"ctrl+j/k 没用"回归', async () => {
+  it('K8sPanel:contexts 加载 pending(kubectl 慢/hang)时键盘监听已可用——真机"C-j/k 没用"回归', async () => {
     // 数据链唯一慢源(exec kubectl):监听若挂在 await 后,慢源期间按键全失效
     vi.mocked(backend.getK8sContexts).mockReturnValue(new Promise(() => {}))
     const w = mountC(K8sPanel)
@@ -447,7 +449,7 @@ describe('源面板键盘化', () => {
     void w
   })
 
-  it('K8sPanel:ctrl+c 循环 context(联动 ns 重载)、ctrl+n 循环 namespace(裸 c/n 退役)', async () => {
+  it('K8sPanel:C-c 循环 context(联动 ns 重载)、C-n 循环 namespace(裸 c/n 退役)', async () => {
     // 上一用例把 getK8sContexts 换成了 never-pending(mockReturnValue 属 implementation,
     // clearAllMocks 不清)——显式恢复,否则 mounted 链断在第一步
     vi.mocked(backend.getK8sContexts).mockResolvedValue(['prod', 'dev'])
@@ -474,7 +476,7 @@ describe('源面板键盘化', () => {
     key('n')
     await new Promise((r) => setTimeout(r, 0))
     expect(vi.mocked(backend.getK8sNamespaces).mock.calls.length).toBe(ctxCalls)
-    // ⌘C 放行钉死(mac 复制键 meta+c 面板不拦,⌃c=切 ctx 复制让位是用户拍板语义)
+    // ⌘C 放行钉死(mac 复制键 meta+c 面板不拦,C-c=切 ctx 复制让位是用户拍板语义)
     const evMeta = new KeyboardEvent('keydown', { key: 'c', metaKey: true, bubbles: true, cancelable: true })
     document.dispatchEvent(evMeta)
     await new Promise((r) => setTimeout(r, 0))
@@ -500,7 +502,7 @@ describe('源面板键盘化', () => {
     items = w.findAll('.res-item')
     expect(items.length).toBe(1)
     expect(items[0].find('.kw-hit').text()).toBe('deployment')
-    // ctrl+j 选中过滤域 → Enter 开 tab
+    // C-j 选中过滤域 → Enter 开 tab
     key('j', true)
     vi.mocked(backend.openK8sTab).mockClear()
     key('Enter')
@@ -510,7 +512,7 @@ describe('源面板键盘化', () => {
     await new Promise((r) => setTimeout(r, 0))
   })
 
-  it('SSHPanel:ctrl+a 开添加弹窗,Enter 提交添加,Esc 兜底关闭(裸 a 退役)', async () => {
+  it('SSHPanel:C-a 开添加弹窗,Enter 提交添加,Esc 兜底关闭(裸 a 退役)', async () => {
     const w = mountC(SSHPanel)
     await new Promise((r) => setTimeout(r, 0))
     key('a', true)
@@ -525,7 +527,7 @@ describe('源面板键盘化', () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(backend.addSSHHost).toHaveBeenCalledWith('root@10.0.0.1:2222')
     expect(ui.dialogs).not.toContain('ssh-form')
-    // 弹窗期列表键让位(FRP 同款):ctrl+j 不得动列表选中
+    // 弹窗期列表键让位(FRP 同款):C-j 不得动列表选中
     key('a', true)
     await new Promise((r) => setTimeout(r, 0))
     expect(ui.dialogs).toContain('ssh-form')
@@ -547,13 +549,13 @@ describe('源面板键盘化', () => {
   it('SSHPanel:打字过滤(d 开头词不误触删除)+高亮+Enter 进浏览', async () => {
     const w = mountC(SSHPanel)
     await new Promise((r) => setTimeout(r, 0))
-    // d 开头过滤词:裸 d 已退役进词,不触发删除(⌃d 才是删除)
+    // d 开头过滤词:裸 d 已退役进词,不触发删除(C-d 才是删除)
     for (const ch of 'dev') key(ch)
     await new Promise((r) => setTimeout(r, 0))
     const items = w.findAll('.host-item')
     expect(items.length).toBe(1)
     expect(items[0].find('.kw-hit').text()).toBe('dev')
-    // ctrl+j 选中过滤域 → Enter 进浏览
+    // C-j 选中过滤域 → Enter 进浏览
     key('j', true)
     key('Enter')
     await new Promise((r) => setTimeout(r, 0))
@@ -601,14 +603,14 @@ describe('源面板键盘化', () => {
 
   // ---- Final Review 修复轮(I1/I2):面板 capture 与其他 document 键盘消费者共存 ----
 
-  it('BrowseDialog 打开期面板键全让位:ctrl+j 不动背面 sel、Enter 不切浏览目标、d 不误删', async () => {
+  it('BrowseDialog 打开期面板键全让位:C-j 不动背面 sel、Enter 不切浏览目标、d 不误删', async () => {
     const w = mountC(SSHPanel)
     await new Promise((r) => setTimeout(r, 0))
     key('j', true)
-    key('Enter') // 选中 web1 进目录浏览 → ui.browse 弹窗(登记 dialogs 栈)
+    key('Enter') // 选中 dev-box(首项)进目录浏览 → ui.browse 弹窗(登记 dialogs 栈)
     await new Promise((r) => setTimeout(r, 0))
     const ui = useUiStore()
-    expect(ui.browse).toMatchObject({ show: true, host: 'web1' })
+    expect(ui.browse).toMatchObject({ show: true, host: 'dev-box' })
     // 弹窗期按面板键:sel 保持第一项不动、不误删主机、不把浏览弹窗切到另一台主机
     vi.mocked(backend.removeSSHHost).mockClear()
     key('j', true)
@@ -618,21 +620,21 @@ describe('源面板键盘化', () => {
     expect(w.findAll('.host-item')[0].classes()).toContain('sel')
     expect(w.findAll('.host-item')[1].classes()).not.toContain('sel')
     expect(backend.removeSSHHost).not.toHaveBeenCalled()
-    expect(useUiStore().browse).toMatchObject({ show: true, host: 'web1' })
+    expect(useUiStore().browse).toMatchObject({ show: true, host: 'dev-box' })
   })
 
   it('BrowseDialog 打开期 FRP d 不静默删除背后面板选中的连接(配置丢失路径)', async () => {
     const w = mountC(FRPPanel)
     await new Promise((r) => setTimeout(r, 0))
     key('j', true)
-    key('Enter') // 选中 office-frp 进浏览
+    key('Enter') // 选中 home-frp(首项)进浏览
     await new Promise((r) => setTimeout(r, 0))
-    expect(useUiStore().browse).toMatchObject({ show: true, connName: 'office-frp' })
+    expect(useUiStore().browse).toMatchObject({ show: true, connName: 'home-frp' })
     vi.mocked(backend.deleteFrpConn).mockClear()
     key('d')
     await new Promise((r) => setTimeout(r, 0))
     expect(backend.deleteFrpConn).not.toHaveBeenCalled()
-    expect(useUiStore().browse).toMatchObject({ show: true, connName: 'office-frp' })
+    expect(useUiStore().browse).toMatchObject({ show: true, connName: 'home-frp' })
   })
 
   it('SidebarRail:Esc 逐级退出——词非空清词面板在,词空关面板,弹窗期让位', async () => {
@@ -676,7 +678,7 @@ describe('源面板键盘化', () => {
     void w
   })
 
-  it('K8sPanel:无 kubeconfig 时 ⌃c/⌃n 仍消费不放行(防穿透 App ⌃c 复制)', async () => {
+  it('K8sPanel:无 kubeconfig 时 C-c/C-n 仍消费不放行(防穿透 App C-c 复制)', async () => {
     vi.mocked(backend.getK8sContexts).mockResolvedValue([])
     const w = mountC(K8sPanel)
     await new Promise((r) => setTimeout(r, 0))
@@ -780,7 +782,7 @@ describe('源面板键盘化', () => {
     expect(w.findAll('.mark').length).toBe(0)
   })
 
-  it('K8sPanel:NSelect 聚焦态 Enter/ctrl+n 放行(下拉键盘可达路径不被面板抢跑)', async () => {
+  it('K8sPanel:NSelect 聚焦态 Enter/C-n 放行(下拉键盘可达路径不被面板抢跑)', async () => {
     vi.mocked(backend.getK8sContexts).mockResolvedValue(['prod', 'dev'])
     const w = mountC(K8sPanel)
     await new Promise((r) => setTimeout(r, 0))
@@ -798,5 +800,138 @@ describe('源面板键盘化', () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(backend.openK8sTab).not.toHaveBeenCalled()
     expect(vi.mocked(backend.getK8sNamespaces).mock.calls.length).toBe(nsCalls)
+  })
+})
+
+describe('cyclePane 反向循环(vim-count:Q 键)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  /** activeOn 当前激活面板图标 title(无激活=空串) */
+  function activeOn(w: ReturnType<typeof mount>): string {
+    const on = w.find('.icon-btn.on')
+    return on.exists() ? (on.attributes('title') ?? '') : ''
+  }
+
+  it('cyclePane(-1) 反向序:收起→FRP→K8s→SSH→本地→收起', async () => {
+    const w = mount(SidebarRail, { global: { plugins: [naive] } })
+    const rail = w.vm as unknown as { cyclePane: (dir?: 1 | -1) => void }
+    expect(activeOn(w)).toBe('')
+    rail.cyclePane(-1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('FRP')
+    rail.cyclePane(-1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('K8s')
+    rail.cyclePane(-1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('SSH')
+    rail.cyclePane(-1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('本地文件')
+    rail.cyclePane(-1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('')
+  })
+
+  it('cyclePane() 默认正向保持现状:收起→本地→SSH', async () => {
+    const w = mount(SidebarRail, { global: { plugins: [naive] } })
+    const rail = w.vm as unknown as { cyclePane: (dir?: 1 | -1) => void }
+    rail.cyclePane()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('本地文件')
+    rail.cyclePane()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(activeOn(w)).toBe('SSH')
+  })
+})
+
+describe('面板热点排序(panel-hot-sort)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('SSHPanel:热度前置(分高反超名称序)+★ 常用标记+过滤后保持热度序', async () => {
+    // 分数反转场景:web1 得 3 分反超名称序第一的 dev-box——锁"分数真参与排序",
+    // keyOf 拼错域/refreshHot 静默落空时回落纯名称序,本用例必红(Final Review I1)
+    vi.mocked(backend.usageScores).mockResolvedValue({ 'ssh:web1': 3 })
+    const w = mount(SSHPanel, { global: { plugins: [naive] } })
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    const names = w.findAll('.host-item .name')
+    expect(names[0].text()).toContain('web1')
+    expect(names[1].text()).toContain('dev-box')
+    // ★:web1 有(3≥0.99),dev-box 无(无记录)
+    expect(names[0].find('.hot').exists()).toBe(true)
+    expect(names[1].find('.hot').exists()).toBe(false)
+    // 过滤只筛不排:打字 'e'(两主机子序列都含 e)后热度序不变
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true, cancelable: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    const filtered = w.findAll('.host-item .name')
+    expect(filtered).toHaveLength(2)
+    expect(filtered[0].text()).toContain('web1')
+    // 清词:过滤词 ui.n 会话级共享,不残留给后续用例
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await new Promise((r) => setTimeout(r, 0))
+  })
+
+  it('FRPPanel:热度前置(分高反超名称序)+★', async () => {
+    useUiStore().panelFilter = '' // 防上游用例过滤词残留(会话级共享)
+    // 防上游 mockImplementation 粘性(d 删除用例的可变清单剩 1 条):显式重设两条
+    vi.mocked(backend.getFrpConns).mockResolvedValue([
+      { name: 'office-frp', alias: '办公隧道', type: 'stcp', serverAddr: 'frps.example.com', serverPort: 7000, token: 't', serverName: 'ssh-a', secretKey: 'xxx', remotePort: 0, user: '', path: '' },
+      { name: 'home-frp', alias: '', type: 'tcp', serverAddr: 'frps.example.com', serverPort: 7000, token: '', serverName: '', secretKey: '', remotePort: 6000, user: 'u2', path: '/var/log/nas.log' },
+    ])
+    // 分数反转:office-frp 得分反超名称序第一的 home-frp(Final Review I1 同款锁定)
+    vi.mocked(backend.usageScores).mockResolvedValue({ 'frp:office-frp': 1.5 })
+    const w = mount(FRPPanel, { global: { plugins: [naive] } })
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    const items = w.findAll('.list li')
+    expect(items[0].text()).toContain('办公隧道') // office-frp 显示别名,分高在前
+    expect(items[1].text()).toContain('home-frp')
+    expect(items[0].find('.hot').exists()).toBe(true)
+    expect(items[1].find('.hot').exists()).toBe(false)
+  })
+})
+
+describe('K8sPanel 热点排序(panel-hot-sort)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useUiStore().panelFilter = ''
+  })
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+
+  it('资源列表热度序+★;打开 touch 四段 k8sres key(fview 域,recent.ts 拆解依赖全参)', async () => {
+    vi.mocked(backend.usageScores).mockResolvedValue({ 'k8sres:prod/default/pod/order-svc-xk2lp': 2 })
+    const w = mount(K8sPanel, { global: { plugins: [naive] } })
+    for (let i = 0; i < 5; i++) await tick()
+    const items = w.findAll('.res-item')
+    expect(items.length).toBeGreaterThanOrEqual(2)
+    // 名称序 pod/order-svc < deployment/pay;热度 pod/order-svc=2 前置+★
+    expect(items[0].text()).toContain('order-svc-xk2lp')
+    expect(items[0].find('.hot').exists()).toBe(true)
+    expect(items[1].find('.hot').exists()).toBe(false)
+    // 打开 → touch 四段 key(fview 域拼法,recent.ts 直开依赖;panel-hot-sort Ruling 修订)
+    await items[0].trigger('click')
+    expect(backend.usageTouch).toHaveBeenCalledWith('k8sres:prod/default/pod/order-svc-xk2lp')
+  })
+
+  it('ctx options 热点排前;用户切 ctx 记 k8sctx(自动首选不记)', async () => {
+    vi.mocked(backend.usageScores).mockResolvedValue({ 'k8sctx:dev': 3 })
+    const w = mount(K8sPanel, { global: { plugins: [naive] } })
+    for (let i = 0; i < 5; i++) await tick()
+    // 自动选中 prod(首项)但不得 touch——程序初设非用户选择
+    expect(backend.usageTouch).not.toHaveBeenCalled()
+    // options 热度序:dev(3 分)排 prod 前(NSelect options props 可断言)
+    const sel = w.findComponent(NSelect)
+    expect((sel.props('options') as { value: string }[])[0].value).toBe('dev')
+    // 用户切换走 update:value → touch k8sctx:dev
+    sel.vm.$emit('update:value', 'dev')
+    await tick()
+    expect(backend.usageTouch).toHaveBeenCalledWith('k8sctx:dev')
   })
 })

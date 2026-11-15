@@ -26,7 +26,7 @@ describe('useTypeFilter 打字过滤', () => {
     expect(q.value).toBe('dev ')
   })
 
-  it('ctrl/meta/alt 修饰字符一律不进词不消费(与 ⌃j/k/a/d/e 天然互斥)', () => {
+  it('ctrl/meta/alt 修饰字符一律不进词不消费(与 C-j/k/a/d/e 天然互斥)', () => {
     const { q, typeKey } = useTypeFilter()
     expect(typeKey(ev('d', { ctrlKey: true }))).toBe(false)
     expect(typeKey(ev('e', { metaKey: true }))).toBe(false)

@@ -608,8 +608,9 @@ func loadConfig() (appConfig, error) {
 	if len(rules) == 0 {
 		rules = defaultFallbackRules()
 	}
-	// SSH 主机候选：显式配置 + ~/.ssh/config 自动发现
-	tui.SetSSHHosts(stream.MergeSSHHosts(res.SSHHosts, stream.ParseSSHConfigHosts()))
+	// SSH 主机候选：显式配置 + ~/.ssh/config 自动发现（keybind-unify-r2 A3：
+	// 双源分别注入，⌃a/⌃d 写回只动 rules 源）
+	tui.SetSSHHosts(res.SSHHosts, stream.ParseSSHConfigHosts())
 	// frp 连接存储注入（~/.local/state/logview/frp.json，缺失自动降级空 store）
 	tui.SetFRPStore(frp.LoadStore())
 

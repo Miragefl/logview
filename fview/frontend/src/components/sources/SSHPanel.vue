@@ -1,24 +1,32 @@
 <script setup lang="ts">
 // SSH 面板：~/.ssh/config 自动发现（cfg 角标，删不掉属预期）+ 手动增删 → 点击进目录浏览。
-// 键盘化(2026-11-04):ctrl+j/k 选主机、Enter 进浏览、⌃d 删除选中(cfg 跳过)。
-// 搜索+新增统一迭代:内联添加框改 NModal 弹窗(右上角 +/ctrl+a,FRP 同款 topDialog 层级)，
+// 键盘化(2026-11-04):C-j/k 选主机、Enter 进浏览、C-d 删除选中(cfg 跳过)。
+// 搜索+新增统一迭代:内联添加框改 NModal 弹窗(右上角 +/C-a,FRP 同款 topDialog 层级)，
 // 裸键 a 退役;新增搜索过滤列表。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NInput, NModal } from 'naive-ui'
-import { addSSHHost, getSSHHosts, removeSSHHost, type SSHHost } from '../../lib/backend'
+import { addSSHHost, getSSHHosts, removeSSHHost, usageScores, type SSHHost } from '../../lib/backend'
 import { useUiStore } from '../../stores/ui'
 import { isSubseq, splitHighlight } from '../../lib/highlight'
+import { hotSorted, isHot } from '../../lib/hotSort'
 import { useTypeFilter } from './useTypeFilter'
 
 const ui = useUiStore()
 const hosts = ref<SSHHost[]>([])
+/** hot 衰减分(panel-hot-sort:key='ssh:'+name,与 TUI 同一份 usage.json)。 */
+const hot = ref<Record<string, number>>({})
 /** q 打字过滤词(r2 无框:直接敲字母进词,退格删尾,Esc 清空)。 */
 const { q, typeKey } = useTypeFilter()
-/** items 可选列表（主机 ∩ 子序列过滤词命中——连续/非连续(hde→hardware)，键盘导航域）。 */
+/** items 可选列表（热度序 → 子序列过滤只筛不排——连续/非连续(hde→hardware)，键盘导航域）。 */
 const items = computed(() => {
+  const sorted = hotSorted(hosts.value, (h) => 'ssh:' + h.name, hot.value)
   const kw = q.value.trim()
-  return kw ? hosts.value.filter((h) => isSubseq(h.name, kw)) : hosts.value
+  return kw ? sorted.filter((h) => isSubseq(h.name, kw)) : sorted
 })
+/** hotScore 面板项分数(★ 判定用;缺失=无热度)。 */
+function hotScore(name: string): number {
+  return hot.value['ssh:' + name] ?? 0
+}
 const navIdx = ref(-1)
 // 过滤域变化 → sel 指向的行可能已不在视图,重置(K8sPanel 切 ns 同款)
 watch(q, () => {
@@ -39,6 +47,16 @@ async function reload() {
     hosts.value = (await getSSHHosts()) ?? []
   } catch {
     hosts.value = []
+  }
+  refreshHot()
+}
+
+/** refreshHot 拉批量衰减分(面板 v-if 重挂载即重拉,打开过源回来序不 stale)。 */
+async function refreshHot() {
+  try {
+    hot.value = (await usageScores(hosts.value.map((h) => 'ssh:' + h.name))) ?? {}
+  } catch {
+    hot.value = {}
   }
 }
 onMounted(() => {
@@ -83,7 +101,7 @@ function open(h: string) {
   ui.openBrowse({ mode: 'ssh', host: h })
 }
 
-/** navMove ctrl+j/k 上下（首次 j 落 0 / k 落尾,搜索历史下拉同款）。 */
+/** navMove C-j/k 上下（首次 j 落 0 / k 落尾,搜索历史下拉同款）。 */
 function navMove(delta: number) {
   const n = items.value.length
   if (n === 0) return
@@ -126,11 +144,11 @@ function onDocKey(e: KeyboardEvent) {
     confirmSel()
     hit = true
   } else if (e.ctrlKey && e.key === 'a') {
-    // 新增统一:ctrl+a 开添加弹窗(裸 a 退役)
+    // 新增统一:C-a 开添加弹窗(裸 a 退役)
     openForm()
     hit = true
   } else if (e.ctrlKey && e.key === 'd') {
-    // ⌃d 删除选中(原裸 d 迁移——r2 打字过滤占用字母域;cfg 主机 ~/.ssh/config 来源,
+    // C-d 删除选中(原裸 d 迁移——r2 打字过滤占用字母域;cfg 主机 ~/.ssh/config 来源,
     // 删了也会被重新发现——跳过);删后 navIdx 落到顶上来的下一项(clamp),sel 焦点不消失。
     // 无条件消费(不可动作也不放行,防穿透 App 全局键——r1 Final M2 顺手修)
     const h = items.value[navIdx.value]
@@ -156,10 +174,10 @@ function onDocKey(e: KeyboardEvent) {
 <template>
   <div class="panel">
     <div class="head">
-      <span>SSH 主机 <span class="kbd-hint">⌃j/k</span></span>
-      <button class="panel-add" title="添加主机 (⌃a)" @click="openForm">
+      <span>SSH 主机 <span class="kbd-hint">C-j/k</span></span>
+      <button class="panel-add" title="添加主机 (C-a)" @click="openForm">
         <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
-        <span class="kbd-hint">⌃a</span>
+        <span class="kbd-hint">C-a</span>
       </button>
     </div>
     <p v-if="q" class="filter-hint">⌕ {{ q }}</p>
@@ -174,13 +192,15 @@ function onDocKey(e: KeyboardEvent) {
       >
         <span class="name">
           <svg class="ico" viewBox="0 0 24 24"><path d="M2 3h20v14H2z" /><path d="M8 21h8M12 17v4" /></svg>
+          <!-- ★ 常用标记(热点分≥0.99,TUI 同阈值) -->
+          <span v-if="isHot(hotScore(h.name))" class="hot" title="常用">★</span>
           <!-- 命中字母高亮(segments 插值,不用 v-html) -->
           <span v-for="(s, si) in splitHighlight(h.name, q)" :key="si" :class="{ 'kw-hit': s.hit }">{{ s.t }}</span><span v-if="h.fromSshConfig" class="cfg" title="~/.ssh/config 自动发现">cfg</span>
         </span>
         <!-- cfg 主机来自 ~/.ssh/config，删了也会被重新发现——不提供 ×，只留手动添加的 -->
-        <span v-if="!h.fromSshConfig" class="del" title="移除 (⌃d)" @click.stop="remove(h.name)">
+        <span v-if="!h.fromSshConfig" class="del" title="移除 (C-d)" @click.stop="remove(h.name)">
           <svg class="ico" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
-          <span class="kbd-hint">(⌃d)</span>
+          <span class="kbd-hint">(C-d)</span>
         </span>
       </li>
     </ul>
@@ -204,6 +224,12 @@ function onDocKey(e: KeyboardEvent) {
 </template>
 
 <style scoped>
+/* ★ 常用标记:accent 暖色小标,弱于选中态(面板热度排序,panel-hot-sort) */
+.hot {
+  color: var(--accent-warm, #e2b93b);
+  font-size: var(--font-ui-sm, 11px);
+  margin-right: 2px;
+}
 .panel {
   /* 宽随内容自适应(验收反馈:边框按文字长度调整);上限防超长主机名撑爆,
      超长项 ellipsis+title 截断 */

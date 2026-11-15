@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // K8s 面板：context → namespace 两级下拉 + 资源列表，点资源直接开 tab（kubectl logs 复用）。
-// 键盘化(2026-11-04):ctrl+j/k 选资源、Enter 开 tab;两级 NSelect 走 naive 原生 Tab 可达。
-// 搜索+新增统一迭代:切 ctx/ns 键迁移 c/n→ctrl+c/ctrl+n(循环行为不变,裸键退役)+搜索过滤资源。
+// 键盘化(2026-11-04):C-j/k 选资源、Enter 开 tab;两级 NSelect 走 naive 原生 Tab 可达。
+// 搜索+新增统一迭代:切 ctx/ns 键迁移 c/n→C-c/C-n(循环行为不变,裸键退役)+搜索过滤资源。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NSelect } from 'naive-ui'
-import { getK8sContexts, getK8sNamespaces, getK8sResources, openK8sMergedTab, openK8sTab, usageTouch } from '../../lib/backend'
+import { getK8sContexts, getK8sNamespaces, getK8sResources, openK8sMergedTab, openK8sTab, usageScores, usageTouch } from '../../lib/backend'
 import { useUiStore } from '../../stores/ui'
 import { isSubseq, splitHighlight } from '../../lib/highlight'
+import { hotSorted, isHot } from '../../lib/hotSort'
 import { useTypeFilter } from './useTypeFilter'
 
 const ui = useUiStore()
@@ -16,15 +17,48 @@ const ns = ref<string | null>(null)
 const ctxOptions = ref<{ label: string; value: string }[]>([])
 const nsOptions = ref<{ label: string; value: string }[]>([])
 const resources = ref<{ kind: string; name: string }[]>([])
+/** hot 衰减分(panel-hot-sort;k8sres key=fview 四段 ctx/ns/kind/name——recent.ts
+ *  直开拆解依赖全参,多 ctx 无歧义;与 TUI 两段不互通系维度差异,Ruling 修订)。 */
+const hot = ref<Record<string, number>>({})
 
 /** q 打字过滤词(r2 无框:直接敲字母进词,退格删尾,Esc 清空)。 */
 const { q, typeKey } = useTypeFilter()
 /** items 可选列表（资源 ∩ 子序列过滤词命中——kind/name 拼接域(与高亮一致，跨界
  * 如 d/p 亦命中)，连续/非连续(hde→hardware)，键盘导航域）。 */
 const items = computed(() => {
+  const sorted = hotSorted(resources.value, (r) => `k8sres:${ctx.value}/${ns.value}/${r.kind}/${r.name}`, hot.value)
   const kw = q.value.trim()
-  return kw ? resources.value.filter((r) => isSubseq(r.kind + '/' + r.name, kw)) : resources.value
+  return kw ? sorted.filter((r) => isSubseq(r.kind + '/' + r.name, kw)) : sorted
 })
+/** hotScore 资源项分数(★ 判定;缺失=无热度;key=四段全参)。 */
+function hotScore(key: string): number {
+  return hot.value[`k8sres:${ctx.value}/${ns.value}/${key}`] ?? 0
+}
+/** ctxHotOptions/nsHotOptions 下拉热度序(panel-hot-sort:只排序不加 ★,下拉保持简洁)。 */
+const ctxHotOptions = computed(() => hotSorted(ctxOptions.value, (o) => 'k8sctx:' + o.value, hot.value))
+const nsHotOptions = computed(() => hotSorted(nsOptions.value, (o) => 'k8sns:' + o.value, hot.value))
+/** onCtx/onNs 用户选择才记频(TUI sourcepicker Enter 确认同款;程序初设不走 handler 不记)。 */
+function onCtx(v: string | null) {
+  ctx.value = v
+  if (v) usageTouch('k8sctx:' + v)
+}
+function onNs(v: string | null) {
+  ns.value = v
+  if (v) usageTouch('k8sns:' + v)
+}
+/** refreshHot 三域分数一起拉(三跳数据链每跳后调;面板 v-if 重挂载即重拉,不 stale)。 */
+async function refreshHot() {
+  const keys: string[] = []
+  for (const o of ctxOptions.value) keys.push('k8sctx:' + o.value)
+  for (const o of nsOptions.value) keys.push('k8sns:' + o.value)
+  for (const r of resources.value) keys.push(`k8sres:${ctx.value}/${ns.value}/${r.kind}/${r.name}`)
+  if (!keys.length) return
+  try {
+    hot.value = (await usageScores(keys)) ?? {}
+  } catch {
+    hot.value = {}
+  }
+}
 const navIdx = ref(-1)
 /** marked 多选标记集合(key=kind/name)——Space toggle(TUI sourcepicker 同款),
  * Enter 合流开单 tab/⌘Enter 各开多 tab;切 ctx/ns 清,q 过滤不清(隐藏项保留)。 */
@@ -36,13 +70,14 @@ watch(q, () => {
 
 onMounted(async () => {
   // 监听必须先于任何 await 挂载——getK8sContexts 是 exec kubectl(四面板唯一慢源),
-  // 挂在 await 后则慢源期间/hang 时键盘全失效(真机"ctrl+j/k 没用"根因)
+  // 挂在 await 后则慢源期间/hang 时键盘全失效(真机"C-j/k 没用"根因)
   document.addEventListener('keydown', onDocKey, true)
   try {
     ctxOptions.value = ((await getK8sContexts()) ?? []).map((c) => ({ label: c, value: c }))
     if (ctxOptions.value.length) {
       ctx.value = ctxOptions.value[0].value
     }
+    await refreshHot()
   } catch {
     /* 无 kubeconfig：下拉为空 */
   }
@@ -59,6 +94,7 @@ watch(ctx, async (c) => {
     if (nsOptions.value.length) {
       ns.value = nsOptions.value[0].value
     }
+    await refreshHot()
   } catch {
     nsOptions.value = []
   }
@@ -72,6 +108,7 @@ watch(ns, async (n) => {
   try {
     const rs = (await getK8sResources(ctx.value, n)) ?? []
     resources.value = rs.map((r) => ({ kind: r.kind, name: r.name }))
+    await refreshHot()
   } catch {
     resources.value = []
   }
@@ -81,7 +118,7 @@ async function open(r: { kind: string; name: string }) {
   if (!ctx.value || !ns.value) return
   try {
     await openK8sTab(`${r.kind}/${r.name}`, ns.value, ctx.value, 0)
-    usageTouch(`k8sres:${ctx.value}/${ns.value}/${r.kind}/${r.name}`)
+    usageTouch(`k8sres:${ctx.value}/${ns.value}/${r.kind}/${r.name}`) // 四段:recent.ts 直开拆解依赖 ctx/ns(panel-hot-sort Ruling)
   } catch {
     /* 打开失败静默 */
   }
@@ -109,14 +146,14 @@ async function openMerged(keys: string[]) {
   }
   try {
     await openK8sMergedTab([...keys].sort(), ns.value, ctx.value, 0)
-    for (const k of keys) usageTouch(`k8sres:${ctx.value}/${ns.value}/${k}`)
+    for (const k of keys) usageTouch(`k8sres:${ctx.value}/${ns.value}/${k}`) // 四段,recent.ts 拆解依赖
     marked.value.clear()
   } catch (e) {
     mergeErr.value = `合流失败: ${[...keys].sort().join(', ')}${e instanceof Error ? ` (${e.message})` : ''}`
   }
 }
 
-/** navMove ctrl+j/k 上下(首次 j 落 0 / k 落尾,搜索历史下拉同款)。 */
+/** navMove C-j/k 上下(首次 j 落 0 / k 落尾,搜索历史下拉同款)。 */
 function navMove(delta: number) {
   const n = items.value.length
   if (n === 0) return
@@ -177,7 +214,7 @@ function onDocKey(e: KeyboardEvent) {
     hit = true
   } else if (e.ctrlKey && e.key === 'c') {
     // 循环下一个 context(尾回首)——watch 链自动重载 ns/资源(裸 c 退役,纯键位迁移);
-    // opts 空(无 kubeconfig)也消费——⌃d/⌃e 无条件消费同款,防穿透 App ⌃c 复制(Final Review)
+    // opts 空(无 kubeconfig)也消费——C-d/C-e 无条件消费同款,防穿透 App C-c 复制(Final Review)
     const opts = ctxOptions.value
     if (opts.length) {
       const i = opts.findIndex((o) => o.value === ctx.value)
@@ -209,12 +246,12 @@ function onDocKey(e: KeyboardEvent) {
 <template>
   <div class="panel">
     <div class="head">
-      <span>Kubernetes <span class="kbd-hint">⌃j/k 资源 · ⌃c/⌃n 切换 · Space 多选</span></span>
+      <span>Kubernetes <span class="kbd-hint">C-j/k 资源 · C-c/C-n 切换 · Space 多选</span></span>
     </div>
     <div class="sel-row">
       <!-- r2:tiny 字号过小(真机验收反馈),升 small(FRP 表单同档) -->
-      <NSelect v-model:value="ctx" size="small" placeholder="context (⌃c)" :options="ctxOptions" />
-      <NSelect v-model:value="ns" size="small" placeholder="namespace (⌃n)" :options="nsOptions" />
+      <NSelect :value="ctx" size="small" placeholder="context (C-c)" :options="ctxHotOptions" @update:value="onCtx" />
+      <NSelect :value="ns" size="small" placeholder="namespace (C-n)" :options="nsHotOptions" @update:value="onNs" />
     </div>
     <p v-if="q" class="filter-hint">⌕ {{ q }}</p>
     <ul class="list">
@@ -225,8 +262,8 @@ function onDocKey(e: KeyboardEvent) {
         :class="{ sel: i === navIdx }"
         @click="open(r)"
       >
-        <!-- 命中字母高亮(segments 插值,不用 v-html;kind/name 拼接串统一切分);✓ 多选标记 -->
-        🟢 <span v-if="marked.has(r.kind + '/' + r.name)" class="mark">✓</span> <span v-for="(s, si) in splitHighlight(r.kind + '/' + r.name, q)" :key="si" :class="{ 'kw-hit': s.hit }">{{ s.t }}</span>
+        <!-- 命中字母高亮(segments 插值,不用 v-html;kind/name 拼接串统一切分);✓ 多选标记;★ 常用 -->
+        🟢 <span v-if="isHot(hotScore(r.kind + '/' + r.name))" class="hot" title="常用">★</span> <span v-if="marked.has(r.kind + '/' + r.name)" class="mark">✓</span> <span v-for="(s, si) in splitHighlight(r.kind + '/' + r.name, q)" :key="si" :class="{ 'kw-hit': s.hit }">{{ s.t }}</span>
       </li>
     </ul>
     <p v-if="!items.length" class="empty">{{ q ? '无匹配资源' : ctx ? '该 namespace 暂无工作负载' : '未发现 kubeconfig' }}</p>
@@ -235,6 +272,12 @@ function onDocKey(e: KeyboardEvent) {
 </template>
 
 <style scoped>
+/* ★ 常用标记(热点分≥0.99,TUI 同阈值;SSH/FRP 面板同款) */
+.hot {
+  color: var(--accent-warm, #e2b93b);
+  font-size: var(--font-ui-sm, 11px);
+  margin-right: 2px;
+}
 .panel {
   /* 宽随内容自适应(验收反馈:边框按文字长度调整);上限防超长路径撑爆,
      超长项 ellipsis+title 截断 */

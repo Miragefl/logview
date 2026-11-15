@@ -44,7 +44,7 @@ body,
   background: var(--popup-bg, #1f2c3f);
   box-shadow: inset 2px 0 0 var(--accent, #4a8fe0);
 }
-/* 按钮快捷键标注(编辑(e)/删除(d)…)+面板头部 ⌃j/k 提示(2026-11-04 全键盘化) */
+/* 按钮快捷键标注(编辑(e)/删除(d)…)+面板头部 C-j/k 提示(2026-11-04 全键盘化) */
 .kbd-hint {
   color: var(--dim, #5d7292);
   font-size: var(--font-ui-xs, 10px);

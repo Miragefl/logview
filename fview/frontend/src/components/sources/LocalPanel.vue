@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 本地文件面板：最近文件（usage.json 热点排序，与 TUI 共享）+ 系统选择框新增。
-// 键盘化(2026-11-04):ctrl+j/k 选文件、Enter 打开;搜索+新增统一迭代:ctrl+a 呼系统框(裸 o 退役)+搜索过滤。
+// 键盘化(2026-11-04):C-j/k 选文件、Enter 打开;搜索+新增统一迭代:C-a 呼系统框(裸 o 退役)+搜索过滤。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { openFileViaDialog, usageRecent } from '../../lib/backend'
 import { openRecent } from '../../lib/recent'
@@ -43,7 +43,7 @@ watch(q, () => {
   navIdx.value = -1
 })
 
-/** navMove ctrl+j/k 上下（首次 j 落 0 / k 落尾，搜索历史下拉同款）。 */
+/** navMove C-j/k 上下（首次 j 落 0 / k 落尾，搜索历史下拉同款）。 */
 function navMove(delta: number) {
   const n = items.value.length
   if (n === 0) return
@@ -95,7 +95,7 @@ function onDocKey(e: KeyboardEvent) {
     confirmSel()
     hit = true
   } else if (e.ctrlKey && e.key === 'a') {
-    // 新增统一:ctrl+a 呼系统文件框(裸 o 退役)
+    // 新增统一:C-a 呼系统文件框(裸 o 退役)
     void pick()
     hit = true
   } else if ((e.key === 'q' || e.key === '?') && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -115,10 +115,10 @@ function onDocKey(e: KeyboardEvent) {
 <template>
   <div class="panel">
     <div class="head">
-      <span>最近文件 <span class="kbd-hint">⌃j/k</span></span>
-      <button class="panel-add" title="打开日志文件 (⌃a)" @click="pick">
+      <span>最近文件 <span class="kbd-hint">C-j/k</span></span>
+      <button class="panel-add" title="打开日志文件 (C-a)" @click="pick">
         <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
-        <span class="kbd-hint">⌃a</span>
+        <span class="kbd-hint">C-a</span>
       </button>
     </div>
     <p v-if="q" class="filter-hint">⌕ {{ q }}</p>

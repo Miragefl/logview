@@ -94,14 +94,14 @@ describe('Toolbar 字段下拉(覆盖层)', () => {
     expect(w.emitted('override-fields')![0]).toEqual([null])
   })
 
-  // r4 验收:字段下拉键盘流——⌃j/⌃k 中继方向键 + 弹窗栈让位 + 关闭恢复
+  // r4 验收:字段下拉键盘流——C-j/C-k 中继方向键 + 弹窗栈让位 + 关闭恢复
   // r5 教训:evtd 委托监听挂 window(非 document),spy 必须挂 window 才是 naive 真实
   // 消费层——首版挂 document 全绿但真机 evtd 收不到(bubbles 缺失),断言错层即假绿
-  it('打开登记弹窗栈(全局 vim 键让位);⌃j/⌃k 中继为 ArrowDown/ArrowUp 且掐断传播;关闭出栈停中继', async () => {
+  it('打开登记弹窗栈(全局 vim 键让位);C-j/C-k 中继为 ArrowDown/ArrowUp 且掐断传播;关闭出栈停中继', async () => {
     const w = mountToolbar(['time', 'level', 'message'])
     const ui = useUiStore()
     // spy 挂 window:relayFieldNav(capture,document)先执行,合成方向键 bubbles 到
-    // window 在此断言——与 naive/evtd 同层;原生 ctrl+j 被掐不应出现在此
+    // window 在此断言——与 naive/evtd 同层;原生 C-j 被掐不应出现在此
     const got: string[] = []
     const spy = (e: KeyboardEvent) => got.push(e.key)
     window.addEventListener('keydown', spy)
@@ -110,7 +110,7 @@ describe('Toolbar 字段下拉(覆盖层)', () => {
     const press = (k: string) =>
       btn.dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: true, bubbles: true, cancelable: true }))
     try {
-      // 未打开:⌃j 不中继、原样冒泡到达
+      // 未打开:C-j 不中继、原样冒泡到达
       press('j')
       expect(got).toEqual(['j'])
       // 打开:让位登记 + 中继翻译(naive pending 高亮应出现——组件级端到端)
@@ -150,7 +150,7 @@ describe('Toolbar 字段下拉(覆盖层)', () => {
       w.vm.toggleFields()
       await nextTick()
       await nextTick()
-      // ⌃j 移 pending 到首项 time(已勾),Space 中继 Enter → toggle 掉 time
+      // C-j 移 pending 到首项 time(已勾),Space 中继 Enter → toggle 掉 time
       press('j')
       press(' ')
       await nextTick()

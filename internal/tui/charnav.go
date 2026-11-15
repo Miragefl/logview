@@ -50,6 +50,29 @@ func isWordRune(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
+// wordAt 光标取词(tui-word-field):词段=字母数字下划线串(与 w/b/e 同词口径);
+// col 落标点/空白返回 ""(灌标点进搜索框是噪声,fview 验收 #6 同款——非 vim *
+// 取邻词);col 越界 clamp 行内。语义与 fview charMotion.ts wordAt 逐字对齐。
+func wordAt(msg string, col int) string {
+	r := []rune(msg)
+	n := len(r)
+	if n == 0 {
+		return ""
+	}
+	c := min(max(col, 0), n-1)
+	if classOf(r[c]) != classWord {
+		return ""
+	}
+	lo, hi := c, c
+	for lo > 0 && classOf(r[lo-1]) == classWord {
+		lo--
+	}
+	for hi < n-1 && classOf(r[hi+1]) == classWord {
+		hi++
+	}
+	return string(r[lo : hi+1])
+}
+
 // ApplyMotion 消息内 rune 列移动;空消息返回 0,结果 clamp 到 [0, len-1]。
 func ApplyMotion(msg string, col int, m Motion) int {
 	r := []rune(msg)

@@ -92,9 +92,9 @@ func (a *App) buildLogLines(vl int) []string {
 	addLine := func(idx int) {
 		if g := a.foldedGroup(idx); g != nil && !rendered[g.Start] {
 			rendered[g.Start] = true
-			hint := "ctrl+e展开"
+			hint := "C-e展开"
 			if a.expanded[g.Start] {
-				hint = "ctrl+e收起"
+				hint = "C-e收起"
 			}
 			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines) [%s]", g.End-g.Start, hint)))
 		} else if g == nil {
@@ -199,9 +199,9 @@ func (a *App) buildWrapLines(vl int) []string {
 				continue
 			}
 			rendered[g.Start] = true
-			hint := "ctrl+e展开"
+			hint := "C-e展开"
 			if a.expanded[g.Start] {
-				hint = "ctrl+e收起"
+				hint = "C-e收起"
 			}
 			lines = append(lines, FoldedStyle.Render(fmt.Sprintf("  (%d lines) [%s]", g.End-g.Start, hint)))
 			if len(lines) >= vl {
@@ -455,6 +455,7 @@ func (a *App) cursorLineEq(line *model.ParsedLine) bool {
 // lineIdx 供 vim-copy 字符光标/选区注入(非日志区调用传 -1 跳过)。
 func (a *App) renderLineText(line *model.ParsedLine, lineIdx int) string {
 	var parts []string
+	fi := 0 // tui-word-field:非 message 可见字段栏序(与 visibleFieldAt 同源)
 	for _, f := range model.AllFields {
 		if !a.fieldMask.IsVisible(f) {
 			continue
@@ -464,6 +465,9 @@ func (a *App) renderLineText(line *model.ParsedLine, lineIdx int) string {
 		if val == "" {
 			if cw > 0 {
 				parts = append(parts, strings.Repeat(" ", cw)) // 空字段占位，保持列对齐
+			}
+			if f != model.FieldMessage {
+				fi++
 			}
 			continue
 		}
@@ -501,6 +505,13 @@ func (a *App) renderLineText(line *model.ParsedLine, lineIdx int) string {
 		if cw > 0 && f != model.FieldLevel {
 			styled = padDisplayWidth(styled, cw)
 		}
+		// tui-word-field:光标行字段域栏位逆视频高亮(与 message 光标块同视觉族)
+		if f != model.FieldMessage && a.fieldFocus == fi && a.cursorLineEq(line) {
+			styled = lipgloss.NewStyle().Reverse(true).Render(styled)
+		}
+		if f != model.FieldMessage {
+			fi++
+		}
 		parts = append(parts, styled)
 	}
 	return a.applyHighlights(strings.Join(parts, "  "))
@@ -511,6 +522,7 @@ func (a *App) renderLineText(line *model.ParsedLine, lineIdx int) string {
 // lineIdx 供 vim-copy 字符光标/选区注入(非日志区调用传 -1 跳过)。
 func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg lipgloss.Color, lineIdx int) string {
 	var parts []string
+	fi := 0 // tui-word-field:非 message 可见字段栏序(与 visibleFieldAt 同源)
 	for _, f := range model.AllFields {
 		if !a.fieldMask.IsVisible(f) {
 			continue
@@ -520,6 +532,9 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 		if val == "" {
 			if cw > 0 {
 				parts = append(parts, lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", cw)))
+			}
+			if f != model.FieldMessage {
+				fi++
 			}
 			continue
 		}
@@ -552,6 +567,13 @@ func (a *App) renderLineTextWithBg(line *model.ParsedLine, bg lipgloss.Color, fg
 		}
 		if cw > 0 && f != model.FieldLevel {
 			styled = padDisplayWidth(styled, cw)
+		}
+		// tui-word-field:光标行字段域栏位逆视频高亮(renderLineText 同款)
+		if f != model.FieldMessage && a.fieldFocus == fi && a.cursorLineEq(line) {
+			styled = lipgloss.NewStyle().Reverse(true).Render(styled)
+		}
+		if f != model.FieldMessage {
+			fi++
 		}
 		parts = append(parts, styled)
 	}
@@ -787,4 +809,62 @@ func padDisplayWidth(s string, w int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", w-d)
+}
+
+// markListOverlay 标记列表浮层（keybind-unify-r2 A2，fview LogView 书签列表同款）：
+// 过滤视图序、长列表窗口化滚动跟随 markIdx；非模态，由 View 叠加于日志区右上。
+func (a *App) markListOverlay(cw int) string {
+	rows := a.markListRows()
+	const maxVis = 12 // 浮层最大可见项数，超出窗口化
+	off := 0
+	if a.markIdx >= maxVis {
+		off = a.markIdx - maxVis + 1
+	}
+	end := min(len(rows), off+maxVis)
+	body := make([]string, 0, end-off)
+	for i := off; i < end; i++ {
+		r := []rune(a.filteredView[rows[i]].Raw.Text)
+		if len(r) > 46 {
+			r = append(r[:46], '…')
+		}
+		line := fmt.Sprintf("%5d  %s", rows[i]+1, string(r))
+		if i == a.markIdx {
+			body = append(body, SelArrowStyle.Render("▶ "+line))
+		} else {
+			body = append(body, "  "+line)
+		}
+	}
+	if len(rows) == 0 {
+		body = []string{"  （无标记，m 添加）"}
+	}
+	title := " 标记(Esc 关闭，m 添加 · C-j/C-k 选中，Enter 跳转) "
+	innerW := displayWidth(title)
+	for _, b := range body {
+		if w := displayWidth(b); w > innerW { // displayWidth 自带 ANSI 剥离
+			innerW = w
+		}
+	}
+	innerW = min(innerW+2, cw-6)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(SelectedBgColor).
+		PaddingLeft(1).PaddingRight(1).
+		Width(innerW)
+	return box.Render(title + "\n" + strings.Join(body, "\n"))
+}
+
+// overlayRightTop 浮层叠加（ANSI 感知）：从背景第 y 行起，把 box 各行贴到行内
+// x 显示列处（背景行按 truncateVisible 截前缀，浮层覆盖右侧）。lipgloss v1.1.0
+// 无 Overlay API，自写（keybind-unify-r2 A2）。
+func overlayRightTop(bg, box string, x, y int) string {
+	bl := strings.Split(bg, "\n")
+	bx := strings.Split(box, "\n")
+	for i, line := range bx {
+		row := y + i
+		if row < 0 || row >= len(bl) {
+			continue
+		}
+		bl[row] = truncateVisible(bl[row], x) + line
+	}
+	return strings.Join(bl, "\n")
 }

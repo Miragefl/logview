@@ -49,4 +49,31 @@ describe('useSearchStore', () => {
     s.addSearchHistory('   ')
     expect(s.history[0]).toBe('q22')
   })
+
+  it('seed 通道(field-interact):focusBar 带词写 seedQ,无 seed 不清已有值', () => {
+    const s = useSearchStore()
+    expect(s.seedQ).toBe('')
+    s.focusBar('timeout')
+    expect(s.seedQ).toBe('timeout')
+    expect(s.barFocused).toBe(true)
+    // 无 seed 调用不清已有 seed(只聚焦)
+    s.blurBar()
+    s.seedQ = 'keep'
+    s.focusBar()
+    expect(s.seedQ).toBe('keep')
+    expect(s.barFocused).toBe(true)
+  })
+
+  it('seed 通道(field-interact):openWords 带词写 wordsSeed,无 seed 不清已有值', () => {
+    const s = useSearchStore()
+    expect(s.wordsSeed).toBe('')
+    s.openWords('hl', 'foo')
+    expect(s.wordsShow).toBe('hl')
+    expect(s.wordsSeed).toBe('foo')
+    // 无 seed 调用不清已有 seed(只切模式)
+    s.wordsSeed = 'keep'
+    s.openWords('hide')
+    expect(s.wordsShow).toBe('hide')
+    expect(s.wordsSeed).toBe('keep')
+  })
 })

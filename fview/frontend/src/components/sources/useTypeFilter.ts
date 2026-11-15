@@ -2,7 +2,7 @@
 // 面板 onDocKey 对未消费的可打印无修饰字符直接进词,退格删尾,Esc 词非空清空。
 // 词存 ui.panelFilter(会话级):SidebarRail 挂 document capture 先于面板注册,
 // 须凭词非空让位(词空才关面板)——Esc 逐级退出的层级依据。
-// 修饰键(ctrl/meta/alt)一律不消费:与面板 ⌃j/k/a/d/e/c/n 组合键天然互斥,
+// 修饰键(ctrl/meta/alt)一律不消费:与面板 C-j/k/a/d/e/c/n 组合键天然互斥,
 // 由面板在调用 typeKey 之前处理。
 // r3(browse-typeahead):核心抽纯函数 typeFilterKey + useLocalTypeFilter 本地词版
 // (BrowseDialog 弹窗用,词随弹窗生命周期,不进面板共享词 ui.panelFilter)。

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -439,5 +440,150 @@ func TestSearchPopupHidesCurrentLineFields(t *testing.T) {
 		if strings.Contains(joined, secret) {
 			t.Fatalf("搜索弹窗泄露当前行字段值 %q:\n%s", secret, joined)
 		}
+	}
+}
+
+// keybind-unify-r2 A8：帮助弹窗任意键关闭（fview HelpModal 同款），按键不透传。
+func TestHelpAnyKeyClose(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if !app.helpMode {
+		t.Fatal("按 ? 应打开帮助弹窗")
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	if app.helpMode {
+		t.Fatal("任意键（含非关闭键 m）应关闭帮助弹窗")
+	}
+	if len(app.bookmarkSeq) != 0 {
+		t.Fatal("帮助弹窗内按 m 不应透传成标记动作")
+	}
+}
+
+// markSetup 灌 12 行唯一 Seq 日志（newTestApp 默认 20 行 Seq 全 0，标记/列表语义无法区分行）。
+func markSetup(t *testing.T) *App {
+	t.Helper()
+	app := newTestApp()
+	app.width = 200
+	app.height = 50
+	app.buffer.Clear()
+	app.levelCounts = map[string]int{}
+	app.filteredView = nil
+	for i := 1; i <= 12; i++ {
+		msg := fmt.Sprintf("L%02d", i)
+		app.buffer.Push(&model.ParsedLine{
+			Raw:    model.RawLine{Text: "2026-11-15 10:00:00.000 [t] INFO  c.x.Svc - " + msg, Source: "mark.log", Seq: uint64(i)},
+			Fields: map[model.Field]string{model.FieldLevel: "INFO", model.FieldMessage: msg},
+		})
+	}
+	app.recomputeView()
+	app.cursor = 0
+	return app
+}
+
+// keybind-unify-r2 A2：标记列表浮层——' 开关/C-jC-k 导航(不动日志光标)/Enter 跳转
+// (列表保持开)/Esc 只关列表/m 删标记后 clamp，非模态对齐 fview 书签列表。
+func TestMarkListOverlay(t *testing.T) {
+	app := markSetup(t)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}}) // 标记 L01 行
+	for i := 0; i < 8; i++ {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}}) // 标记 L09 行(cursor=8)
+	if len(app.bookmarks) != 2 {
+		t.Fatalf("应有两处标记，实际 %d", len(app.bookmarks))
+	}
+	if rows := app.markListRows(); len(rows) != 2 || rows[0] != 0 || rows[1] != 8 {
+		t.Fatalf("markListRows 应为 [0 8]，实际 %v", rows)
+	}
+	second := 8
+
+	// ' 开列表：光标落第一项，浮层渲染 fview 同款头部与选中前缀
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\''}})
+	if !app.markListOpen || app.markIdx != 0 {
+		t.Fatalf("' 应开列表且光标落首项 open=%v idx=%d", app.markListOpen, app.markIdx)
+	}
+	view := stripANSI(app.View())
+	if !strings.Contains(view, "标记(Esc 关闭") || !strings.Contains(view, "Enter 跳转") {
+		t.Fatalf("浮层应含 fview 同款头部提示:\n%s", view)
+	}
+	if !strings.Contains(view, "▶") {
+		t.Fatal("浮层应有选中行 ▶ 前缀")
+	}
+	if len(app.markListRows()) != 2 {
+		t.Fatalf("markListRows 应为 2，实际 %d", len(app.markListRows()))
+	}
+
+	// C-j：列表光标下移，日志光标不动
+	cur := app.cursor
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if app.markIdx != 1 || app.cursor != cur {
+		t.Fatalf("C-j 应动列表不动日志光标 idx=%d cursor=%d(原 %d)", app.markIdx, app.cursor, cur)
+	}
+
+	// Enter：跳到第二个标记并居中（Final Review I4），列表关闭（对齐 fview
+	// gotoBookmark 跳转即关列表——Final Declined#2 Ruling）
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.cursor != second {
+		t.Fatalf("Enter 应跳到第二标记行，实际 cursor=%d(期望 %d)", app.cursor, second)
+	}
+	if app.markListOpen {
+		t.Fatal("Enter 跳转后列表应关闭(对齐 fview)")
+	}
+	if app.scrollAnchor != 2 {
+		t.Fatalf("Enter 跳转应居中锚定(scrollAnchor=2)，实际 %d", app.scrollAnchor)
+	}
+
+	// Esc（列表已关）：无副作用，光标保持
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.cursor != second {
+		t.Fatalf("列表已关 Esc 应无副作用 cursor=%d", app.cursor)
+	}
+
+	// 重开；删当前行标记 → 列表缩短 markIdx clamp 0
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\''}})
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})                    // idx=1
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}}) // 取消当前行标记
+	if len(app.markListRows()) != 1 || app.markIdx != 0 {
+		t.Fatalf("删标记后列表应缩为1且 idx clamp，实际 rows=%d idx=%d", len(app.markListRows()), app.markIdx)
+	}
+}
+
+// A2 边界：空标记也可开列表(空态提示)，C-k 不越界，Enter 无选中无动作。
+func TestMarkListEmpty(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\''}})
+	if !app.markListOpen {
+		t.Fatal("空标记按 ' 也应开列表")
+	}
+	if view := stripANSI(app.View()); !strings.Contains(view, "无标记") {
+		t.Fatalf("空列表应有空态提示:\n%s", view)
+	}
+	cur := app.cursor
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlK}) // 越界保护
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 无选中无动作
+	if app.cursor != cur || !app.markListOpen {
+		t.Fatalf("空列表 C-k/Enter 应无副作用 cursor=%d open=%v", app.cursor, app.markListOpen)
+	}
+}
+
+// A8 回归：原关闭键 Esc/q/Enter 仍关闭。
+func TestHelpLegacyKeysClose(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.helpMode {
+		t.Fatal("按 Esc 应关闭帮助弹窗")
+	}
+	app2 := newTestApp()
+	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if app2.helpMode {
+		t.Fatal("按 q 应关闭帮助弹窗")
+	}
+	app3 := newTestApp()
+	app3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	app3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app3.helpMode {
+		t.Fatal("按 Enter 应关闭帮助弹窗")
 	}
 }

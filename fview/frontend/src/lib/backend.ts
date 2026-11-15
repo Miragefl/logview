@@ -9,6 +9,7 @@ import {
   PickAndOpenFile,
   SystemFonts,
   UsageRecent,
+  UsageScores,
   UsageTouch,
   UsageKeywords,
   BumpKeyword,
@@ -365,6 +366,11 @@ export function openFileTab(path: string, tailLines: number, follow: boolean): P
 /** usageRecent 源热点 key 列表（四类键：file:/ssh:/frp:/k8sres: 前缀，衰减分降序）。 */
 export function usageRecent(): Promise<string[]> {
   return UsageRecent()
+}
+
+/** usageScores 批量取衰减分(panel-hot-sort 三面板排序数据源;缺失 key 不在结果)。 */
+export function usageScores(keys: string[]): Promise<Record<string, number>> {
+  return UsageScores(keys)
 }
 
 /** usageTouch 记录一次源使用（本地文件传 'file:' + 绝对路径）。 */

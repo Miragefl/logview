@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/Miragefl/logview/internal/frp"
 	"github.com/Miragefl/logview/internal/model"
 )
 
@@ -152,11 +153,11 @@ func TestSourcePickerLocalBrowse(t *testing.T) {
 
 // SSH tab：主机层 Enter 进入远程目录浏览态，Backspace 返回主机层。
 func TestSourcePickerSSHBrowse(t *testing.T) {
-	SetSSHHosts([]string{"web1", "web2"})
+	SetSSHHosts([]string{"web1", "web2"}, nil)
 	app := newTestApp()
 	app.openSourcePicker(2)
-	// 主机层候选过滤
-	app.pickerHostInput = "web2"
+	// 主机层候选过滤(tui-picker-unify:默认过滤态词源 pickerDirFilter)
+	app.pickerDirFilter = "web2"
 	cands := app.visiblePickerCandidates()
 	if len(cands) != 1 || cands[0].value != "web2" {
 		t.Fatalf("主机过滤失败: %v", cands)
@@ -421,33 +422,101 @@ func TestSourcePickerCtrlJK(t *testing.T) {
 	}
 }
 
-// q 键：日志页打开选择器；选择器内 q（输入为空）退出会话；过滤中 q 作为字符。
+// q 键：日志页打开选择器；选择器内 q（输入为空）关 picker 回主界面（keybind-unify-r2 A1，
+// fview 准绳：q 永不杀程序，退出仅 C-c）；过滤中 q 作为字符。
 func TestQKeyPickerFlow(t *testing.T) {
 	app := newTestApp()
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if !app.sourcePickerMode {
 		t.Fatal("日志页按 q 应打开源选择器")
 	}
-	// 选择器内 q（context 层无输入框）→ 返回 tea.Cmd 退出
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	if cmd == nil {
-		t.Fatal("选择器内按 q 应返回退出 cmd")
+	// 选择器内 q（context 层无输入框）→ 关 picker 回主界面，不退出
+	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd != nil {
+		t.Fatal("选择器内按 q 不应产生 cmd（退出仅 C-c）")
 	}
-	// tea.Quit cmd 执行产生 tea.QuitMsg
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("cmd 应为 tea.Quit")
+	if m, ok := model.(*App); !ok || m.sourcePickerMode {
+		t.Fatal("选择器内按 q 应关闭 picker 回主界面")
 	}
-	// 本地 tab 过滤中输入 q：不退出、进入过滤框
+	// 本地 tab 过滤中输入 q：不关 picker、进入过滤框
 	app2 := newTestApp()
 	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	app2.Update(tea.KeyMsg{Type: tea.KeyTab}) // 本地 tab
 	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}) // 先输入字符
 	app2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}) // q 作为过滤字符
 	if !app2.sourcePickerMode {
-		t.Fatal("过滤中按 q 不应退出")
+		t.Fatal("过滤中按 q 不应关 picker")
 	}
 	if app2.pickerDirFilter != "lq" {
 		t.Fatalf("q 应进入过滤框，实际 %q", app2.pickerDirFilter)
+	}
+}
+
+// keybind-unify-r2 B1：目录浏览层 C-h 回上级（fview BrowseDialog 同款；词非空也直接回，
+// 词随目录切换清空——区别于 Backspace 词非空只删词）。仅本地/SSH 目录/FRP L2 响应。
+func TestCtrlHBackDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home = filepath.Clean(home) // TestMain 设的 HOME 带尾斜杠，Dir() 结果无斜杠，归一对齐
+	sub := filepath.Join(home, "dir1")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 本地 tab：位于子目录、词非空，C-h 直接回上级并清词
+	app := newTestApp()
+	app.openSourcePicker(1)
+	app.pickerLocalDir = sub
+	app.pickerDirFilter = "xx"
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
+	if app.pickerLocalDir != home {
+		t.Fatalf("C-h 应回上级目录，实际 %q", app.pickerLocalDir)
+	}
+	if app.pickerDirFilter != "" {
+		t.Fatalf("回上级应清过滤词，实际 %q", app.pickerDirFilter)
+	}
+	if !app.sourcePickerMode {
+		t.Fatal("C-h 不应关 picker")
+	}
+
+	// SSH 目录层：下钻目录 C-h 上翻（触发重拉）
+	app2 := newTestApp()
+	app2.openSourcePicker(2)
+	app2.pickerSSHHost = "h1"
+	app2.pickerSSHDir = "/var/log/app"
+	app2.pickerSSHRoot = "/var/log"
+	app2.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
+	if app2.pickerSSHDir != "/var/log" || !app2.pickerLoading {
+		t.Fatalf("SSH 目录上翻失败 dir=%q loading=%v", app2.pickerSSHDir, app2.pickerLoading)
+	}
+
+	// SSH 目录层：已在起始目录 C-h → 回主机层
+	app3 := newTestApp()
+	app3.openSourcePicker(2)
+	app3.pickerSSHHost = "h1"
+	app3.pickerSSHDir = "/var/log"
+	app3.pickerSSHRoot = "/var/log"
+	app3.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
+	if app3.pickerSSHHost != "" {
+		t.Fatalf("SSH 起始目录 C-h 应回主机层，实际 host=%q", app3.pickerSSHHost)
+	}
+
+	// SSH 主机列表层：C-h 无操作
+	app4 := newTestApp()
+	app4.openSourcePicker(2)
+	app4.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
+	if !app4.sourcePickerMode || app4.pickerSSHHost != "" {
+		t.Fatal("主机列表层 C-h 应无操作")
+	}
+
+	// FRP L0：C-h 无操作（仅 L2 目录浏览响应）
+	app5 := newTestApp()
+	app5.openSourcePicker(3)
+	app5.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
+	if !app5.sourcePickerMode {
+		t.Fatal("FRP L0 C-h 应无操作")
 	}
 }
 
@@ -611,5 +680,236 @@ func TestSourcePickerLinesHidesUnavailableTabs(t *testing.T) {
 	}
 	if !strings.Contains(tabBar, "本地") {
 		t.Fatal("远端会话 tab 栏应包含 本地")
+	}
+}
+
+// pickerBoxW 纯函数表驱动：下限 64（视觉零变化）/ 内容驱动 / 窄终端上限 termW-4。
+func TestPickerBoxW(t *testing.T) {
+	cases := []struct{ maxW, termW, want int }{
+		{30, 200, 64},   // 内容短：下限 64
+		{60, 200, 64},   // 60+2=62 仍在 64 内
+		{100, 200, 102}, // 内容驱动：最长行+2 padding 恰好装下
+		{100, 68, 64},   // 上限恰为 64
+		{100, 60, 56},   // 窄终端：termW-4 压过下限
+	}
+	for _, c := range cases {
+		if got := pickerBoxW(c.maxW, c.termW); got != c.want {
+			t.Errorf("pickerBoxW(%d, %d) = %d, want %d", c.maxW, c.termW, got, c.want)
+		}
+	}
+}
+
+// sepDashCount 找 popup tab 分隔线（连续 ─ 行），返回 ─ 个数。
+// 主界面日志区圆角边框（╭╮╰╯ 角 + ─）不算——按角字符排除。
+func sepDashCount(view string) int {
+	best := 0
+	for _, line := range strings.Split(view, "\n") {
+		clean := stripANSI(line)
+		if strings.ContainsAny(clean, "╭╮╰╯") {
+			continue
+		}
+		if c := strings.Count(clean, "─"); c > best {
+			best = c
+		}
+	}
+	return best
+}
+
+// 超宽 FRP 连接行不 wrap、弹窗随内容撑宽（含过滤词命中→ANSI 高亮场景，
+// 宽度计算必须剥 ANSI）；短内容时宽度与现状一致（64 内容宽）。
+func TestPickerDynamicWidthRender(t *testing.T) {
+	longAlias := "生产日志中心华东一区集群网关"
+	conn := frp.Conn{
+		Name: "prod-gw", Type: frp.TypeSTCP,
+		ServerAddr: "frps.example.com", ServerPort: 7000,
+		ServerName: "secret-svc", SecretKey: "sk", User: "root",
+		Alias: longAlias, Path: "/var/log/very/long/path/to/app/server.log",
+	}
+	setupFRPStore(t, conn)
+	app := newTestApp()
+	app.width = 200
+	app.openSourcePicker(3)
+	app.pickerDirFilter = "frps" // 命中 label（serverAddr），hlLabel 产生 ANSI 高亮
+
+	label := longAlias + "  [stcp secret-svc@frps.example.com]"
+	view := app.View()
+
+	// ①整行出现：wrap 时 label 断成两行必失败
+	found := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(stripANSI(line), label) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("超宽 FRP 连接被 wrap，label 未整行出现")
+	}
+
+	// ②sep 线 ─ 个数 == 光标行显示宽（label+前缀 5）：box 精确贴合内容
+	if want := displayWidth(label) + 5; sepDashCount(view) != want {
+		t.Errorf("sep 线 ─ 数 = %d, want %d（内容驱动撑宽）", sepDashCount(view), want)
+	}
+
+	// ③短内容：宽度与现状一致（64 内容宽 → 62 线）。
+	// frp-path-hide 后无路径/占位段，Name 单字符即保证最长行 <62，
+	// 锁定"零变化"基线。
+	short := stcpConn("a")
+	short.ServerName = "a"
+	setupFRPStore(t, short)
+	app2 := newTestApp()
+	app2.width = 200
+	app2.openSourcePicker(3)
+	if c := sepDashCount(app2.View()); c != 62 {
+		t.Errorf("短内容 sep 线 ─ 数 = %d, want 62（视觉零变化）", c)
+	}
+}
+
+// 弹窗内不再印快捷键说明（沉到底部快捷键栏）——SSH 主机层与 FRP L0 两处
+// hint 行删除后，View 不含快捷键字样，底部栏仍含对应键位（沉底而非丢失）。
+func TestPickerHintDedup(t *testing.T) {
+	app := newTestApp()
+	app.width = 200
+
+	// FRP L0：弹窗内无快捷键 hint（底部栏也在 View 里，故按次数断言：
+	// "打字过滤"应零出现，"C-a 新增" 仅底部栏一次）；底部栏有 新增/编辑/删除
+	setupFRPStore(t, stcpConn("client-a"))
+	app.openSourcePicker(3)
+	view := app.View()
+	if n := strings.Count(view, "打字过滤"); n != 0 {
+		t.Errorf("FRP L0 弹窗内不应再有 打字过滤 hint（出现 %d 次）", n)
+	}
+	if n := strings.Count(view, "C-a 新增"); n != 1 {
+		t.Errorf("C-a 新增 应仅底部栏出现一次，实际 %d 次", n)
+	}
+	for _, kw := range []string{"新增", "编辑", "删除"} {
+		if !strings.Contains(app.renderFooter(), kw) {
+			t.Errorf("FRP L0 底部栏应含 %q", kw)
+		}
+	}
+
+	// SSH 主机层：同理
+	app2 := newTestApp()
+	app2.width = 200
+	app2.openSourcePicker(2)
+	if n := strings.Count(app2.View(), "C-a 新增主机"); n != 1 {
+		t.Errorf("SSH 主机层 C-a 新增主机 应仅底部栏一次，实际 %d 次", n)
+	}
+	if !strings.Contains(app2.renderFooter(), "新增主机") {
+		t.Error("SSH 主机层底部栏应含 新增主机")
+	}
+
+	// SSH 输入态无匹配：Enter 直连是假承诺（pickerEnter 越界分支只路由 K8s ns/
+	// FRP 表单，SSH 输入态穿透 return nil）——文案不得承诺不存在的行为
+	// （Final Review Important-1；行为修复超本需求键位零变更边界，另行立项）
+	app3 := newTestApp()
+	app3.width = 200
+	app3.openSourcePicker(2)
+	app3.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	app3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("nomatch")})
+	if v := app3.View(); strings.Contains(v, "Enter 直连") {
+		t.Error("SSH 输入态无匹配不应承诺 Enter 直连（该键此态无效）")
+	}
+}
+
+// keybind-unify-r2 A3：SSH C-a 保存型新增主机表单（fview 同款单字段 user@host[:port]，
+// 存 rules.yaml ssh_hosts，列表立即出现）+ C-d 删主机（~/.ssh/config 发现源跳过）。
+func TestSSHHostFormAddRemove(t *testing.T) {
+	dir := t.TempDir()
+	rp := filepath.Join(dir, "rules.yaml")
+	if err := os.WriteFile(rp, []byte("ssh_hosts: [web1]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer SetSSHHosts(nil, nil) // 包级状态复位，防泄漏后续测试
+	SetSSHHosts([]string{"web1"}, []string{"cfg1"})
+
+	app := newTestApp()
+	app.rulesPath = rp
+	app.openSourcePicker(2)
+	// C-a 开表单 → 输入 user@web9:22 → Enter 保存
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	if !app.pickerSSHInputMode {
+		t.Fatal("C-a 应开新增主机表单")
+	}
+	for _, r := range "user@web9:22" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.pickerSSHInputMode {
+		t.Fatal("Enter 保存后应退表单")
+	}
+	found := false
+	for _, c := range app.visiblePickerCandidates() {
+		if c.value == "user@web9:22" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("新主机应立即出现在候选列表")
+	}
+	data, _ := os.ReadFile(rp)
+	if !strings.Contains(string(data), "user@web9:22") {
+		t.Fatalf("rules.yaml 应写入新主机:\n%s", data)
+	}
+
+	// C-d 删除 rules 源主机（候选序：web1,user@web9:22,cfg1——配置优先+发现）
+	app.pickerDirFilter = ""
+	cands := app.visiblePickerCandidates()
+	idx := -1
+	for i, c := range cands {
+		if c.value == "user@web9:22" {
+			idx = i
+		}
+	}
+	app.pickerCursor = idx
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	for _, c := range app.visiblePickerCandidates() {
+		if c.value == "user@web9:22" {
+			t.Fatal("C-d 后新主机应从候选消失")
+		}
+	}
+	data, _ = os.ReadFile(rp)
+	if strings.Contains(string(data), "user@web9:22") {
+		t.Fatalf("C-d 后 rules.yaml 应移除主机:\n%s", data)
+	}
+
+	// C-d 发现源（cfg1）跳过：不删
+	app.pickerCursor = 1 // web1 之后 = cfg1
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	still := false
+	for _, c := range app.visiblePickerCandidates() {
+		if c.value == "cfg1" {
+			still = true
+		}
+	}
+	if !still {
+		t.Fatal("~/.ssh/config 发现源主机 C-d 应跳过不删")
+	}
+
+	// 空输入 Enter 留框（fview"无效 host 静默留框"同款）；Esc 取消
+	app2 := newTestApp()
+	app2.rulesPath = rp
+	app2.openSourcePicker(2)
+	app2.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	app2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !app2.pickerSSHInputMode {
+		t.Fatal("空输入 Enter 应留表单不保存")
+	}
+	app2.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app2.pickerSSHInputMode {
+		t.Fatal("Esc 应取消表单")
+	}
+
+	// Final Review I5：写盘失败不静默——错误上屏提示
+	app3 := newTestApp()
+	app3.rulesPath = filepath.Join(dir, "no-such-dir", "rules.yaml")
+	app3.openSourcePicker(2)
+	app3.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	for _, r := range "user@fail:22" {
+		app3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	app3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(app3.yankMsg, "失败") {
+		t.Fatalf("写盘失败应提示, got %q", app3.yankMsg)
 	}
 }

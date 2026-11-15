@@ -122,3 +122,19 @@ export function colToSeg(segs: string[], col: number): { segIdx: number; colInSe
   }
   return { segIdx: segs.length - 1, colInSeg: 0 }
 }
+
+/** wordAt 光标取词(field-interact):词段=字母数字下划线串(与 w/b/e 同词口径),
+ *  标点/空白上返回 ''(vim * 手感——灌标点进搜索框是噪声,验收 #6);
+ *  col 越界 clamp 到行内。 */
+export function wordAt(msg: string, col: number): string {
+  const r = Array.from(msg)
+  const n = r.length
+  if (n === 0) return ''
+  const c = Math.max(0, Math.min(n - 1, col))
+  if (classOf(r[c]) !== 'word') return ''
+  let lo = c
+  let hi = c
+  while (lo > 0 && classOf(r[lo - 1]) === 'word') lo--
+  while (hi < n - 1 && classOf(r[hi + 1]) === 'word') hi++
+  return r.slice(lo, hi + 1).join('')
+}

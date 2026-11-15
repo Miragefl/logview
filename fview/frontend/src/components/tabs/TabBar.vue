@@ -9,13 +9,15 @@ const tabs = useTabsStore()
 <template>
   <div class="tabbar">
     <button
-      v-for="t in tabs.tabs"
+      v-for="(t, i) in tabs.tabs"
       :key="t.info.id"
       class="tab"
       :class="{ active: t.info.id === tabs.activeId }"
       :title="t.info.info || t.info.label"
       @click="tabs.activeId = t.info.id"
     >
+      <!-- vim-count:数字角标 ⌘N 快捷切换可达提示(≤9;⌘ 只到 9,第 10+ 不显示) -->
+      <span v-if="i < 9" class="idx">{{ i + 1 }}</span>
       <span class="label">{{ t.info.display || t.info.label }}</span>
       <span class="lines">{{ t.info.lines }}</span>
       <span
@@ -65,6 +67,11 @@ const tabs = useTabsStore()
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 140px;
+}
+/* 数字角标:dim 略小不抢戏,⌘N 可达提示(vim-count r1) */
+.idx {
+  color: var(--dim, #5d7292);
+  font-size: var(--font-ui-sm, 11px);
 }
 .lines {
   opacity: 0.5;

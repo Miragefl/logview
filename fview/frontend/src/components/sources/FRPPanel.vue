@@ -3,28 +3,36 @@
 // "浏览中"为前端本地标记（存在已开 tab 即活跃——后端无状态机，spec 决策）。
 // 新增/删除/编辑（✎）走同一表单：字段=frp 官方名所见即 frpc 参数；
 // stcp=拉 visitor 隧道（serverName+secretKey），tcp=frps remotePort 直连（零配置不拉 frpc）。
-// 搜索+新增统一迭代(2026-11-04):新增表单键 n→ctrl+a(三面板统一,裸 n 退役)+搜索过滤(name/alias)。
+// 搜索+新增统一迭代(2026-11-04):新增表单键 n→C-a(三面板统一,裸 n 退役)+搜索过滤(name/alias)。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NInput, NInputNumber, NModal, NSelect } from 'naive-ui'
 import { useTabsStore } from '../../stores/tabs'
 import { useUiStore } from '../../stores/ui'
-import { deleteFrpConn, getFrpConns, upsertFrpConn, type FrpConn } from '../../lib/backend'
+import { deleteFrpConn, getFrpConns, upsertFrpConn, usageScores, type FrpConn } from '../../lib/backend'
 import { isSubseq, splitHighlight } from '../../lib/highlight'
+import { hotSorted, isHot } from '../../lib/hotSort'
 import { useTypeFilter } from './useTypeFilter'
 
 const tabs = useTabsStore()
 const ui = useUiStore()
 const conns = ref<FrpConn[]>([])
+/** hot 衰减分(panel-hot-sort:key='frp:'+name,与 TUI 同一份 usage.json)。 */
+const hot = ref<Record<string, number>>({})
 
 /** q 打字过滤词(r2 无框:直接敲字母进词,退格删尾,Esc 清空)。 */
 const { q, typeKey } = useTypeFilter()
-/** items 可选列表（连接 ∩ 子序列过滤词命中——name/alias 双域，连续/非连续(hde→hardware)，键盘导航域）。 */
+/** items 可选列表（热度序 → 子序列过滤只筛不排——name/alias 双域，连续/非连续(hde→hardware)，键盘导航域）。 */
 const items = computed(() => {
+  const sorted = hotSorted(conns.value, (c) => 'frp:' + c.name, hot.value)
   const kw = q.value.trim()
   return kw
-    ? conns.value.filter((c) => isSubseq(c.name, kw) || isSubseq(c.alias || '', kw))
-    : conns.value
+    ? sorted.filter((c) => isSubseq(c.name, kw) || isSubseq(c.alias || '', kw))
+    : sorted
 })
+/** hotScore 面板项分数(★ 判定用;缺失=无热度)。 */
+function hotScore(name: string): number {
+  return hot.value['frp:' + name] ?? 0
+}
 const navIdx = ref(-1)
 // 过滤域变化 → sel 指向的行可能已不在视图,重置(K8sPanel 切 ns 同款)
 watch(q, () => {
@@ -36,6 +44,16 @@ async function reload() {
     conns.value = (await getFrpConns()) ?? []
   } catch {
     conns.value = []
+  }
+  refreshHot()
+}
+
+/** refreshHot 拉批量衰减分(面板 v-if 重挂载即重拉,序不 stale)。 */
+async function refreshHot() {
+  try {
+    hot.value = (await usageScores(conns.value.map((c) => 'frp:' + c.name))) ?? {}
+  } catch {
+    hot.value = {}
   }
 }
 onMounted(() => {
@@ -105,7 +123,7 @@ watch(
 // e/d/n 在 App 是 fold/detail/nextHit——不阻断双动作);表单开着列表键全让位
 // 只留 Esc;未消费键放行(仅余少数非打印态;字母归打字过滤)。挂载在 onMounted(reload) 处。
 
-/** navMove ctrl+j/k 上下(首次 j 落 0 / k 落尾,搜索历史下拉同款)。 */
+/** navMove C-j/k 上下(首次 j 落 0 / k 落尾,搜索历史下拉同款)。 */
 function navMove(delta: number) {
   const n = items.value.length
   if (n === 0) return
@@ -144,16 +162,16 @@ function onDocKey(e: KeyboardEvent) {
     confirmSel()
     hit = true
   } else if (e.ctrlKey && e.key === 'a') {
-    // 新增统一:ctrl+a 开新建表单(裸 n 退役)
+    // 新增统一:C-a 开新建表单(裸 n 退役)
     openForm()
     hit = true
   } else if (e.ctrlKey && e.key === 'e') {
-    // ⌃e 编辑选中(原裸 e 迁移——r2 打字过滤占用字母域);无条件消费防穿透 App 全局
+    // C-e 编辑选中(原裸 e 迁移——r2 打字过滤占用字母域);无条件消费防穿透 App 全局
     const c = items.value[navIdx.value]
     if (c) openForm(c)
     hit = true
   } else if (e.ctrlKey && e.key === 'd') {
-    // ⌃d 删除选中(原裸 d 迁移);删除后 navIdx 落到顶上来的下一项(clamp),sel 焦点不消失;
+    // C-d 删除选中(原裸 d 迁移);删除后 navIdx 落到顶上来的下一项(clamp),sel 焦点不消失;
     // 无条件消费(不可动作也不放行,防穿透——r1 Final M2 顺手修)
     const c = items.value[navIdx.value]
     if (c) {
@@ -252,10 +270,10 @@ async function saveForm() {
 <template>
   <div class="panel">
     <div class="head">
-      <span>FRP 连接 <span class="kbd-hint">⌃j/k</span></span>
-      <button class="panel-add conn-add" title="新增连接 (⌃a)" @click="openForm()">
+      <span>FRP 连接 <span class="kbd-hint">C-j/k</span></span>
+      <button class="panel-add conn-add" title="新增连接 (C-a)" @click="openForm()">
         <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
-        <span class="kbd-hint">⌃a</span>
+        <span class="kbd-hint">C-a</span>
       </button>
     </div>
     <p v-if="q" class="filter-hint">⌕ {{ q }}</p>
@@ -271,17 +289,19 @@ async function saveForm() {
           ><svg class="ico" viewBox="0 0 24 24"
             ><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path
               d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+          <!-- ★ 常用标记(热点分≥0.99,TUI 同阈值) -->
+          <span v-if="isHot(hotScore(c.name))" class="hot" title="常用">★</span>
           <!-- 命中字母高亮(segments 插值,不用 v-html;显示什么高亮什么——name 命中而显示别名时不高亮) -->
           <span v-for="(s, si) in splitHighlight(c.alias || c.name, q)" :key="si" :class="{ 'kw-hit': s.hit }">{{ s.t }}</span><span class="tag" :class="c.type">{{ c.type }}</span></span>
         <span class="meta">
           <span v-if="isActive(c)" class="live">浏览中</span>
-          <span class="conn-edit" title="编辑连接 (⌃e)" @click.stop="openForm(c)">
+          <span class="conn-edit" title="编辑连接 (C-e)" @click.stop="openForm(c)">
             <svg class="ico" viewBox="0 0 24 24"><path d="M17 3l4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
-            <span class="kbd-hint">(⌃e)</span>
+            <span class="kbd-hint">(C-e)</span>
           </span>
-          <span class="conn-del" title="删除连接 (⌃d)" @click.stop="remove(c.name)">
+          <span class="conn-del" title="删除连接 (C-d)" @click.stop="remove(c.name)">
             <svg class="ico" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
-            <span class="kbd-hint">(⌃d)</span>
+            <span class="kbd-hint">(C-d)</span>
           </span>
         </span>
         <span class="summary">{{ connSummary(c) }}</span>
@@ -335,6 +355,12 @@ async function saveForm() {
 </template>
 
 <style scoped>
+/* ★ 常用标记:accent 暖色小标(面板热度排序,panel-hot-sort;SSH 面板同款) */
+.hot {
+  color: var(--accent-warm, #e2b93b);
+  font-size: var(--font-ui-sm, 11px);
+  margin-right: 2px;
+}
 .panel {
   /* 宽随内容自适应(验收反馈:边框按文字长度调整);上限防超长路径撑爆,
      超长项 ellipsis+title 截断 */

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 远程目录浏览对话框（SSH/FRP 共用）：进入目录、选文件开 tab、密码认证态重试。
-// 键盘流对齐 TUI 弹窗:ctrl+j/k 上下、Enter 进目录/选文件、ctrl+h/Backspace 回上级、Esc 关闭(第三轮验收④)。
+// 键盘流对齐 TUI 弹窗:C-j/k 上下、Enter 进目录/选文件、C-h/Backspace 回上级、Esc 关闭(第三轮验收④)。
 // 无框打字过滤(browse-typeahead):面板 r2/r3 同款——打开直接敲字母即过滤(不依赖焦点,
 // 旧"打开即聚焦过滤框"排在网络往返后,FRP 建隧道慢时物理键全漏),子序列匹配+命中高亮。
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
@@ -38,6 +38,13 @@ const entries = ref<DirEntry[]>([])
 const password = ref('')
 const err = ref('')
 const needPwd = ref(false)
+/** pwdEl 密码框组件 ref:needPwd 弹出即聚焦(frp-pwd-focus——NModal auto-focus=false
+ *  下焦点留 body,打字被 onDocKey typeKey 吃进过滤词、Enter 被让位吞掉,键盘重输断)。
+ *  WordsPopup 同款 nextTick 聚焦先例。 */
+const pwdEl = ref<{ focus: () => void } | null>(null)
+watch(needPwd, (v) => {
+  if (v) nextTick(() => pwdEl.value?.focus())
+})
 const loading = ref(false)
 /** cursor 键盘选中索引 + itemEls 列表项 DOM(scrollIntoView 跟随)。 */
 const cursor = ref(0)
@@ -179,7 +186,7 @@ function move(delta: number) {
 }
 
 /** onDocKey 键盘流(document 级,焦点无关——无框打字不依赖焦点):
- *  Esc 分层(词非空清词→关窗) · ctrl+j/k 上下 · ctrl+h 回上级(裸 h 进词,用户裁决)
+ *  Esc 分层(词非空清词→关窗) · C-j/k 上下 · C-h 回上级(裸 h 进词,用户裁决)
  *  · Enter(词以 / 开头路径直达,否则激活选中项;needPwd 让位 keyup retry)
  *  · Backspace 分层(词非空删尾→回上级) · 其余可打印无修饰字符进词。
  *  needPwd 密码框输入态放行(仅 Esc 穿透),密码字符不进过滤词。 */
@@ -253,10 +260,11 @@ onBeforeUnmount(() => {
     @update:show="(v: boolean) => (v ? null : close())"
   >
     <div class="head">
-      <a class="up" title="回上级(ctrl+h)" @click="goUp">⬆</a>
+      <a class="up" title="回上级(C-h)" @click="goUp">⬆</a>
       <span class="path">{{ path }}</span>
       <NInput
         v-if="needPwd"
+        ref="pwdEl"
         v-model:value="password"
         size="tiny"
         type="password"
@@ -285,7 +293,7 @@ onBeforeUnmount(() => {
         </span><span v-for="(s, si) in splitHighlight(e.name, filter)" :key="si" :class="{ 'kw-hit': s.hit }">{{ s.t }}</span>
       </li>
     </ul>
-    <p class="keyhint">ctrl+j/k 移动 · Enter 打开/直达 · 打字过滤 · Backspace 删词/回上级 · ctrl+h 回上级 · Esc 关闭</p>
+    <p class="keyhint">C-j/k 移动 · Enter 打开/直达 · 打字过滤 · Backspace 删词/回上级 · C-h 回上级 · Esc 关闭</p>
   </NModal>
 </template>
 

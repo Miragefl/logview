@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import naive from 'naive-ui'
@@ -24,21 +24,34 @@ vi.mock('../../lib/backend', () => ({
 
 import App from '../../App.vue'
 import SearchBar from '../logview/SearchBar.vue'
+import LogView from '../logview/LogView.vue'
 import { closeTab, onShortcutCloseTab } from '../../lib/backend'
 import { useTabsStore } from '../../stores/tabs'
+import { useSearchStore } from '../../stores/searchStore'
 import { useUiStore } from '../../stores/ui'
 import type { LineDTO } from '../../lib/types'
 
 // mount 用当前 active pinia（beforeEach 已 setActivePinia），保证与测试内 store 同源
+const mounted: ReturnType<typeof mount>[] = []
 function mountApp() {
-  return mount(App, { global: { plugins: [naive] } })
+  const w = mount(App, { global: { plugins: [naive] } })
+  mounted.push(w)
+  return w
 }
+
+// 顶层 afterEach:App 实例必须卸载——document 级 keydown listener 与 NModal
+// teleport 会跨用例/跨 describe 残留(dispatch 时旧实例并发开框,body 里堆
+// 多个 wordspopup,querySelector 误中旧空框——field-interact 真机路径踩坑)
+afterEach(() => {
+  mounted.forEach((w) => w.unmount())
+  mounted.length = 0
+  document.body.innerHTML = ''
+})
 
 describe('应用壳', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
   })
-
   it('无 tab 时渲染欢迎页（含最近源文件名）', async () => {
     const w = mountApp()
     await new Promise((r) => setTimeout(r, 0)) // 等 usageRecent promise
@@ -158,5 +171,211 @@ describe('⌘W 菜单快捷键(shortcut:closeTab 派遣)', () => {
     expect(useTabsStore().tabs).toHaveLength(0)
     // 欢迎页含最近源 error.log(tab label 是 a.log,不会与断言混淆)
     expect(w.text()).toContain('error.log')
+  })
+
+  // ---- 带词分发(field-interact Task7):光标词/选区词直达输入框 ----
+
+  it('/ 键带光标词聚焦搜索条(field-interact)', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({
+      tabId: 't1',
+      lines: [{ seq: 1, time: '', level: 'INFO', thread: '', traceId: '', logger: '', message: 'w1 timeout w2', raw: '' }],
+    })
+    const w = mountApp()
+    await new Promise((r) => setTimeout(r, 0))
+    const lv = w.findComponent(LogView).vm as unknown as {
+      moveCursor: (d: number) => void
+      moveCursorCol: (m: string) => void
+    }
+    lv.moveCursor(1)
+    await new Promise((r) => setTimeout(r, 0))
+    // 光标移到 timeout 词中(col4)
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    await new Promise((r) => setTimeout(r, 0))
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    const search = useSearchStore()
+    expect(search.barFocused).toBe(true)
+    // App 挂真 SearchBar:seed 已被消费进输入框(端到端断言 value;
+    // App mount 在内存树不进 document,走 wrapper 查询)
+    const input = w.find('.searchbar input').element as HTMLInputElement
+    expect(input.value).toBe('timeout')
+  })
+
+  it('C-h 带光标词打开高亮弹窗(field-interact)', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({
+      tabId: 't1',
+      lines: [{ seq: 1, time: '', level: 'INFO', thread: '', traceId: '', logger: '', message: 'w1 timeout w2', raw: '' }],
+    })
+    const w = mountApp()
+    await new Promise((r) => setTimeout(r, 0))
+    const lv = w.findComponent(LogView).vm as unknown as {
+      moveCursor: (d: number) => void
+      moveCursorCol: (m: string) => void
+    }
+    lv.moveCursor(1)
+    await new Promise((r) => setTimeout(r, 0))
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    lv.moveCursorCol('right')
+    await new Promise((r) => setTimeout(r, 0))
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true, bubbles: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    const search = useSearchStore()
+    expect(search.wordsShow).toBe('hl')
+    // App 挂真 WordsPopup:seed 已被消费进输入框(端到端断言 value)
+    const input = document.body.querySelector('.wordspopup input') as HTMLInputElement
+    expect(input.value).toBe('timeout')
+  })
+})
+
+describe('vim-count 数字前缀(组件链路)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  const key = (k: string, mod: KeyboardEventInit = {}) =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...mod }))
+  const mk = (seq: number, m: string): LineDTO => ({
+    seq, time: '', level: 'INFO', thread: '', traceId: '', logger: '', message: m, raw: m,
+  })
+  const seed = (n: number): LineDTO[] => Array.from({ length: n }, (_, i) => mk(100 + i, `m${i + 1}`))
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+  /** curRow 光标行可见序(0 基,-1=无光标)与文本 */
+  function curRow(w: ReturnType<typeof mountApp>) {
+    const rows = w.findAll('.row:not(.header)')
+    const i = rows.findIndex((r) => r.classes().includes('cur'))
+    return { i, text: i >= 0 ? rows[i].text() : '' }
+  }
+
+  it('3j:无光标首按激活+走满 3 步(=第 4 行,vim 语义 count 优先于激活落子)', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: seed(5) })
+    const w = mountApp()
+    await tick()
+    key('3')
+    key('j')
+    await tick()
+    expect(curRow(w).text).toContain('m4')
+  })
+
+  it('2w:词前进 2 次(char-cursor 落 cc 首字符)', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: [mk(100, 'aa bb cc dd')] })
+    const w = mountApp()
+    await tick()
+    key('2')
+    key('w')
+    await tick()
+    const cur = w.find('.char-cursor')
+    expect(cur.exists()).toBe(true)
+    expect(cur.text()).toBe('c')
+  })
+
+  it('5G/10g:跳视图第 N 行;过滤态 clamp 到末可见行', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: seed(10) })
+    const w = mountApp()
+    await tick()
+    key('5')
+    key('G')
+    await tick()
+    expect(curRow(w).text).toContain('m5')
+    key('1')
+    key('0')
+    key('g')
+    await tick()
+    expect(curRow(w).text).toContain('m10')
+    // 过滤剩 3 可见行:5G clamp 第 3 可见行
+    const bar = w.findComponent(SearchBar)
+    bar.vm.$emit('search', { hitSeqs: [100, 102, 104], words: [] })
+    await tick()
+    await tick()
+    expect(w.findAll('.row:not(.header)')).toHaveLength(3)
+    key('5')
+    key('G')
+    await tick()
+    expect(curRow(w).i).toBe(2)
+  })
+
+  it('2C-d:两倍半页(jsdom 视口保底 1 行/半页 → 下移 2 行)', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: seed(6) })
+    const w = mountApp()
+    await tick()
+    key('2')
+    key('d', { ctrlKey: true })
+    await tick()
+    expect(curRow(w).text).toContain('m3')
+  })
+
+  it('count 态被不吃 count 的键(#/Esc)清零,后续 j 单步', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: seed(5) })
+    const w = mountApp()
+    await tick()
+    key('3')
+    key('#')
+    await tick()
+    key('j')
+    await tick()
+    expect(curRow(w).text).toContain('m1')
+    key('3')
+    key('Escape')
+    key('j')
+    await tick()
+    // Esc 后 j:上一 j 已激活 m1,单步 → m2
+    expect(curRow(w).text).toContain('m2')
+  })
+
+  it('StatusBar 显示 pending count(showcmd 式反馈),动作后消失', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: seed(5) })
+    const w = mountApp()
+    await tick()
+    key('3')
+    await tick()
+    const hint = w.find('.statusbar .count-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('3')
+    key('j')
+    await tick()
+    expect(w.find('.statusbar .count-hint').exists()).toBe(false)
+  })
+
+  it('visual 态 3w 扩选:光标走 3 词,VISUAL 徽标在', async () => {
+    const tabs = useTabsStore()
+    tabs.applyOpened({ tabId: 't1', label: 'a.log' })
+    tabs.applyLines({ tabId: 't1', lines: [mk(100, 'aa bb cc dd ee')] })
+    const w = mountApp()
+    await tick()
+    key('j') // 激活光标(startVisual 需光标行)
+    await tick()
+    key('v')
+    await tick()
+    expect(w.find('.visual-badge').exists()).toBe(true)
+    key('3')
+    key('w')
+    await tick()
+    expect(w.find('.char-cursor').text()).toBe('d') // dd 首字符
   })
 })

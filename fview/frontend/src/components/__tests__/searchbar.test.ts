@@ -230,7 +230,7 @@ describe('SearchBar 常驻搜索条', () => {
     expect(document.activeElement).toBe(input)
   })
 
-  it('历史下拉失焦关闭:ctrl+R 开历史后 blur,浮层收起(I3)', async () => {
+  it('历史下拉失焦关闭:C-R 开历史后 blur,浮层收起(I3)', async () => {
     const search = useSearchStore()
     search.addSearchHistory('w1')
     useTabsStore().applyOpened({ tabId: 't1', label: 'a.log' })
@@ -246,5 +246,70 @@ describe('SearchBar 常驻搜索条', () => {
     input.blur() // 点日志区 → 浮层必须收起,不得残留遮挡
     await new Promise((r) => setTimeout(r, 0))
     expect(document.body.querySelector('.searchbar .hist')).toBeNull()
+  })
+
+  it('seed 预填(field-interact):focusBar(word) 带词聚焦,seed 一次性消费', async () => {
+    const search = useSearchStore()
+    useTabsStore().applyOpened({ tabId: 't1', label: 'a.log' })
+    mountBar({ hitCount: 0, levelMode: 'A' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    search.focusBar('timeout')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(input.value).toBe('timeout')
+    expect(document.activeElement).toBe(input)
+    // 一次性:seed 消费即清,不得残留影响下次聚焦
+    expect(search.seedQ).toBe('')
+  })
+
+  it('seed 追加(field-interact r2):原值非空 AND 连接不覆盖,连续带词逐次叠加', async () => {
+    const search = useSearchStore()
+    useTabsStore().applyOpened({ tabId: 't1', label: 'a.log' })
+    mountBar({ hitCount: 0, levelMode: 'A' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    setQ('timeout')
+    search.focusBar('OrderService')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(input.value).toBe('timeout AND OrderService')
+    // r2 核心差异:追加态不 select(全选会让打字连原词一起覆盖——回归成全选本断言挂)
+    expect(input.selectionStart).toBe(input.selectionEnd)
+
+    // 连续第二次带词再叠加(值不丢)。blur 与再 focusBar 之间隔 tick:
+    // 同 tick 内 false→true 会被 watch 合并去重(旧值==新值不触发),
+    // 真实节奏(失焦后隔按键时间再带词)天然跨 tick
+    search.blurBar()
+    await new Promise((r) => setTimeout(r, 0))
+    search.focusBar('pool-3')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(input.value).toBe('timeout AND OrderService AND pool-3')
+  })
+
+  it('seed 追加(field-interact r2):原值纯空格视为空,预填覆盖无 AND 前缀', async () => {
+    const search = useSearchStore()
+    useTabsStore().applyOpened({ tabId: 't1', label: 'a.log' })
+    mountBar({ hitCount: 0, levelMode: 'A' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    setQ('   ')
+    search.focusBar('timeout')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(input.value).toBe('timeout')
+  })
+
+  it('seed 预填(field-interact):无 seed 聚焦不动现有词', async () => {
+    const search = useSearchStore()
+    useTabsStore().applyOpened({ tabId: 't1', label: 'a.log' })
+    mountBar({ hitCount: 0, levelMode: 'A' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.searchbar input') as HTMLInputElement
+    setQ('keep-me')
+    search.focusBar()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(input.value).toBe('keep-me')
   })
 })

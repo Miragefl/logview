@@ -153,8 +153,11 @@ func (a *App) promptSSHPwForHost(target string) {
 }
 
 // promptFRPPw frp 目录浏览认证失败：弹密码框（隧道保留，确认后继续浏览）。
+// user 为空是合法配置(默认 root):不得拦弹框——曾因 user=="" 守卫吞掉密码框,
+// 错误上屏却无重输入口(frp-pwd-focus TUI 侧);confirmSSHPw 重拉走
+// fetchFRPDirCmd 内的 FRPDefaultUser 兜底,空 user 自洽。
 func (a *App) promptFRPPw() {
-	if a.pickerFRPPort == 0 || a.pickerFRPUser == "" {
+	if a.pickerFRPPort == 0 {
 		return
 	}
 	// 浏览态三件套先暂存：closeSourcePicker 会清理（tunnel/host/port/快照同待遇）

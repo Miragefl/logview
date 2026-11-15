@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/Miragefl/logview/internal/frp"
+	fview "github.com/Miragefl/logview/internal/fview"
 	"github.com/Miragefl/logview/internal/stream"
 )
 
@@ -35,9 +36,40 @@ type candidatesMsg struct {
 // sshHostCandidates 全局注入（loadConfig 时 set）。
 var sshHostCandidates []string
 
-// SetSSHHosts 注入 SSH 主机候选（rules.yaml ssh_hosts + ~/.ssh/config）。
-func SetSSHHosts(hosts []string) {
-	sshHostCandidates = hosts
+// sshRulesHosts/sshDiscoveredSet rules.yaml 手动登记源与 ~/.ssh/config 发现源
+// （keybind-unify-r2 A3：C-d 删除只动 rules 源，发现源跳过——fview SSHPanel 同款）。
+var (
+	sshRulesHosts    []string
+	sshDiscoveredSet = map[string]bool{}
+)
+
+// SetSSHHosts 注入 SSH 主机候选（rules.yaml ssh_hosts + ~/.ssh/config 发现，配置优先）。
+func SetSSHHosts(rules []string, discovered []string) {
+	sshRulesHosts = rules
+	sshDiscoveredSet = map[string]bool{}
+	for _, h := range discovered {
+		sshDiscoveredSet[h] = true
+	}
+	sshHostCandidates = stream.MergeSSHHosts(rules, discovered)
+}
+
+// refreshSSHCandidates 新增/删除主机后写回 rules.yaml 并重注入候选（A3；
+// Final Review I5：写盘错误上抛由调用方提示，不静默——否则重启后回滚）。
+func refreshSSHCandidates(path string) error {
+	var err error
+	if path != "" {
+		err = fview.UpdateSSHHosts(path, sshRulesHosts)
+	}
+	sshHostCandidates = stream.MergeSSHHosts(sshRulesHosts, discoveredList())
+	return err
+}
+
+func discoveredList() []string {
+	out := make([]string, 0, len(sshDiscoveredSet))
+	for h := range sshDiscoveredSet {
+		out = append(out, h)
+	}
+	return out
 }
 
 // kubectlTimeout 防止 RBAC/网络问题导致候选查询挂起。
@@ -275,14 +307,11 @@ func fetchFRPDirCmd(user, host string, port int, path, password string) tea.Cmd 
 }
 
 // frpConnCandidates FRP L0 候选：+ 新建连接 恒在首位，其后已存记录（频次降序）。
-// label：展示别名（空回落 name）+ 类型/关键参数 + 上次访问目录（frp 官方字段，所见即 frpc 参数）。
+// label：展示别名（空回落 name）+ 类型/关键参数（frp 官方字段，所见即 frpc 参数）。
+// frp-path-hide：日志路径不进 label——超长路径撑爆弹窗，路径仅在 C-e 编辑回填时可见。
 func frpConnCandidates(filter string) []sourceCandidate {
 	var conns []sourceCandidate
 	for _, c := range frpStore().Conns {
-		path := c.Path
-		if path == "" {
-			path = "（未选过日志）"
-		}
 		var key string
 		if c.Type == frp.TypeTCP {
 			key = "tcp " + c.ServerAddr + ":" + fmt.Sprintf("%d", c.RemotePort)
@@ -294,15 +323,18 @@ func frpConnCandidates(filter string) []sourceCandidate {
 			disp = c.Name
 		}
 		conns = append(conns, sourceCandidate{
-			label: disp + "  [" + key + "]  " + path,
+			label: disp + "  [" + key + "]",
 			value: c.Name,
 		})
 	}
 	conns = sortCandidatesHot(conns, usageFRPConn, true)
-	out := []sourceCandidate{{label: "+ 新建连接", value: "+new"}}
-	f := strings.ToLower(strings.TrimSpace(filter))
+	f := strings.TrimSpace(filter)
+	out := []sourceCandidate{}
+	if f == "" {
+		out = append(out, sourceCandidate{label: "+ 新建连接", value: "+new"}) // 词态隐藏 +new(在找不新建)
+	}
 	for _, c := range conns {
-		if f == "" || strings.Contains(strings.ToLower(c.label), f) {
+		if f == "" || isSubseq(c.label, f) { // 子序列(tui-picker-unify)
 			out = append(out, c)
 		}
 	}

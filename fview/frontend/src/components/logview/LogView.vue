@@ -19,7 +19,7 @@ import { buildCtxMixed } from '../../lib/ctxmix'
 import { selectedSeqRange, charSelRows } from '../../lib/visualSel'
 import type { SeqRange, CharSelRow } from '../../lib/visualSel'
 import { wrapSegments, HeightIndex, visibleRows } from '../../lib/wrap'
-import { applyMotion, charSelText, colToSeg, type Motion } from '../../lib/charMotion'
+import { applyMotion, charSelText, colToSeg, wordAt, type Motion } from '../../lib/charMotion'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 import { bumpKeyword, getLine, setFollow } from '../../lib/backend'
 import { scopeOfLabel } from '../../lib/scope'
@@ -43,7 +43,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:widths', widths: Record<string, number>): void
   /** 拖选松手复制反馈(通道给 App 状态栏闪现) */
-  (e: 'copied', r: { n: number; unit: '行' | '字符' }): void
+  (e: 'copied', r: { n: number; unit: '行' | '字符'; empty?: boolean }): void
 }>()
 
 const tabs = useTabsStore()
@@ -95,6 +95,9 @@ const charPx = ref(7)
 // 即求值)引用它,不能落在光标模型区(文件后段)造成 TDZ
 const cursorCol = ref(-1)
 const colWish = ref(0)
+// 字段域光标(field-interact):null=message 域/未激活;数字=从右数第几个字段栏
+// (0=最右字段列,紧邻 message;块光标熄灭,当前栏 cell 加 fcur 高亮框)
+const fieldFocus = ref<number | null>(null)
 // 行号开关状态(#):声明前置同上(msgWidthCh 引用)
 const showLineNum = ref(false)
 /** colsW 生效列宽（分栏渲染,验收反馈②）;拖拽中优先本地态——
@@ -509,13 +512,16 @@ function setCursor(idx: number, scroll = true) {
   }
 }
 
-/** moveCursor 光标 ±delta;无光标时从可视区边缘起(跳过折叠占位行)。 */
+/** moveCursor 光标 ±delta;无光标时从可视区边缘起(跳过折叠占位行)。
+ *  vim-count:|delta|>1 时激活后走满余下步数(3j 首按=首行+3,count 优先于
+ *  激活落子);单步保持"落子即停"现状。 */
 function moveCursor(delta: number) {
   const arr = viewItems.value
   if (!arr.length) return
   const ci = cursorIdx.value
   if (ci < 0) {
     setCursor(delta > 0 ? range.value[0] : Math.max(0, range.value[1] - 1))
+    if (Math.abs(delta) > 1) setCursor(moveClamp(cursorIdx.value, delta, arr.length))
     return
   }
   setCursor(moveClamp(ci, delta, arr.length))
@@ -530,12 +536,57 @@ function clampCol(msg: string): number {
   return n === 0 ? 0 : Math.min(colWish.value, n - 1)
 }
 
+/** fieldCellsOf 行的可见字段 cell 数组(排除 message;field-interact
+ *  字段域从右数:fieldFocus=0 为最右字段列)。 */
+function fieldCellsOf(l: LineDTO | undefined): Cell[] {
+  if (!l) return []
+  return cellsOf(l).filter((c) => c.field !== 'message')
+}
+
+/** isFieldCur 字段 cell 是否为字段域光标所在栏(渲染 fcur 高亮框)。 */
+function isFieldCur(l: LineDTO, field: string): boolean {
+  if (fieldFocus.value === null || l.seq !== cursorSeq.value) return false
+  const cells = fieldCellsOf(l)
+  return cells.length - 1 - cells.findIndex((c) => c.field === field) === fieldFocus.value
+}
+
 /** moveCursorCol h/l/w/b/e/0/$/^:列光标激活并移动;行光标未激活时
- *  从可视区首行起(对齐 moveCursor 语义)。 */
-function moveCursorCol(m: Motion) {
+ *  从可视区首行起(对齐 moveCursor 语义)。field-interact:col0 再 h 跳入
+ *  字段域最右栏,h/l 栏间移动两端停,最右栏 l 回 message col0;其余
+ *  message motion(0/^/$/w/b/e)从字段域直接跳回 message(from=0 起步)。
+ *  times = vim-count 步数(3w=词进 3;逐步走,字段域跳转当步生效后
+ *  余步继续在 message 域走,vim 语义无字段概念不强拦)。 */
+function moveCursorCol(m: Motion, times = 1) {
+  for (let i = 0; i < Math.max(1, times); i++) stepCursorCol(m)
+}
+
+function stepCursorCol(m: Motion) {
   if (cursorIdx.value < 0) setCursor(range.value[0], false)
   const l = mixedView.value.lines.find((x) => x.seq === cursorSeq.value)
   const msg = l?.message ?? ''
+  if (fieldFocus.value !== null) {
+    const n = fieldCellsOf(l).length
+    if (m === 'left') {
+      if (fieldFocus.value < n - 1) fieldFocus.value++
+      return // 最左栏停住
+    }
+    if (m === 'right') {
+      if (fieldFocus.value > 0) {
+        fieldFocus.value--
+        return
+      }
+      fieldFocus.value = null // 最右栏 → 回 message col0
+      cursorCol.value = 0
+      colWish.value = 0
+      return
+    }
+    fieldFocus.value = null // 0/^/$/w/b/e 跳回 message
+  } else if (m === 'left' && cursorCol.value === 0 && fieldCellsOf(l).length > 0) {
+    // message 最左列再按 h:跳入字段域最右栏(块光标熄灭)
+    fieldFocus.value = 0
+    cursorCol.value = -1
+    return
+  }
   const from = cursorCol.value < 0 ? 0 : cursorCol.value
   cursorCol.value = applyMotion(msg, from, m)
   colWish.value = cursorCol.value
@@ -644,14 +695,24 @@ function gotoBottom() {
   if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
 }
 
-/** halfPage ctrl+d/u:光标 ±半页。 */
-function halfPage(dir: 1 | -1) {
-  moveCursor(dir * Math.max(1, Math.floor(rowsInView.value / 2)))
+/** halfPage C-d/u:光标 ±半页;times=vim-count 倍数(2C-d=两半页)。 */
+function halfPage(dir: 1 | -1, times = 1) {
+  moveCursor(dir * Math.max(1, Math.floor(rowsInView.value / 2)) * Math.max(1, times))
 }
 
-/** pageMove ctrl+f/b、pgup/pgdn:光标 ±整页（留 2 行上下文）。 */
-function pageMove(dir: 1 | -1) {
-  moveCursor(dir * Math.max(1, rowsInView.value - 2))
+/** pageMove C-f/b、pgup/pgdn:光标 ±整页（留 2 行上下文）。 */
+function pageMove(dir: 1 | -1, times = 1) {
+  moveCursor(dir * Math.max(1, rowsInView.value - 2) * Math.max(1, times))
+}
+
+/** gotoLine vim-count 5G/10g:跳当前视图第 N 行(1 基,过滤态所见即所得,
+ *  clamp 到末行);关 follow + 光标行居中(对齐 TUI 跳行语义)。 */
+function gotoLine(n: number) {
+  const arr = viewItems.value
+  if (!arr.length) return
+  stopFollow()
+  setCursor(Math.min(Math.max(1, n), arr.length) - 1)
+  anchorCursor('z')
 }
 
 /** openDetailAtCursor d:光标行详情（等价双击）。 */
@@ -704,6 +765,8 @@ function inVisual(seq: number): boolean {
 function startVisual(mode: 'char' | 'line') {
   const it = viewItems.value[cursorIdx.value]
   if (it && it.type === 'line') {
+    // 字段域进 visual:清字段态(锚回落 message,双态不并存)
+    fieldFocus.value = null
     visual.value = {
       active: true,
       mode,
@@ -849,10 +912,12 @@ watch(
   (v) => (v ? ui.dialogOpen('detail') : ui.dialogClose('detail'))
 )
 
-/** YankResult 复制反馈:n 数量 + unit 单位(状态栏文案)。 */
+/** YankResult 复制反馈:n 数量 + unit 单位(状态栏文案) + empty 空值标记
+ *  (字段复制主动尝试空值时 flash 提示"空值未复制",区别于无选区 no-op 静默)。 */
 interface YankResult {
   n: number
   unit: '行' | '字符'
+  empty?: boolean
 }
 
 /** yankSelection ⌘C/复制选区通道:字符选区(所见 message 子串)优先,行级选区
@@ -893,12 +958,62 @@ function yankVisual(): YankResult {
   return { n: chars, unit: '字符' }
 }
 
-/** yankLine yy:复制当前光标行 raw。 */
+/** fieldYank 复制字段原始值(field-interact):屏显列是截断/缩写文本,
+ *  复制一律原始值(ln[field]);空值不进剪贴板返回 n=0。 */
+function fieldYank(ln: LineDTO, field: string): YankResult {
+  const raw = (ln as unknown as Record<string, string>)[field] ?? ''
+  if (!raw) return { n: 0, unit: '字符', empty: true }
+  ClipboardSetText(raw).catch(() => {})
+  return { n: Array.from(raw).length, unit: '字符' }
+}
+
+/** yankLine yy:复制当前光标行 raw;字段域(field-interact)改复制当前栏位原始值。 */
 function yankLine(): YankResult {
   const cur = mixedView.value.lines.find((l) => l.seq === cursorSeq.value)
   if (!cur) return { n: 0, unit: '行' }
+  if (fieldFocus.value !== null) {
+    const cells = fieldCellsOf(cur)
+    const cell = cells[cells.length - 1 - fieldFocus.value]
+    return cell ? fieldYank(cur, cell.field) : { n: 0, unit: '字符' }
+  }
   ClipboardSetText(cur.raw).catch(() => {})
   return { n: 1, unit: '行' }
+}
+
+/** onFieldDblClick 双击字段 cell:复制该字段原始值(field-interact);
+ *  .stop 拦 row 的 openDetail(双击 message=详情不变)。空值也 emit
+ *  (带 empty 标记)——双击没反馈会被当"没生效",flash 提示"空值未复制"。 */
+function onFieldDblClick(ln: LineDTO, field: string) {
+  const r = fieldYank(ln, field)
+  if (r.n > 0 || r.empty) emit('copied', r)
+}
+
+/** cursorWord 取词(field-interact):visual 选区优先(char=首行子串——搜索词是
+ *  单行概念;line=锚行 message),字段域取整字段原始值,否则 message 光标词
+ *  (wordAt 同 w/b/e 词口径);无词返回 ''(调用方保持原行为不带词)。 */
+function cursorWord(): string {
+  if (visual.value.active) {
+    if (visual.value.mode === 'char') {
+      const m = charSelMap.value
+      if (!m || m.size === 0) return ''
+      const first = [...m.entries()].sort((a, b) => a[0] - b[0])[0]
+      const l = mixedView.value.lines.find((x) => x.seq === first[0])
+      if (!l) return ''
+      const to = first[1].to < 0 ? Number.MAX_SAFE_INTEGER : first[1].to
+      return charSelText([l.message], first[1].from, to).text
+    }
+    const anchor = mixedView.value.lines.find((x) => x.seq === visual.value.anchorSeq)
+    return anchor?.message ?? ''
+  }
+  const cur = mixedView.value.lines.find((l) => l.seq === cursorSeq.value)
+  if (!cur) return ''
+  if (fieldFocus.value !== null) {
+    const cells = fieldCellsOf(cur)
+    const cell = cells[cells.length - 1 - fieldFocus.value]
+    return cell ? ((cur as unknown as Record<string, string>)[cell.field] ?? '') : ''
+  }
+  if (cursorCol.value >= 0) return wordAt(cur.message, cursorCol.value)
+  return ''
 }
 
 /** yank 可视态 y 统一入口:选区在复制选区(char=子串/line=raw 行区间),否则 no-op
@@ -950,6 +1065,9 @@ function finishDrag() {
 
 function rowMouseDown(e: MouseEvent, seq: number) {
   if (e.button !== 0) return
+  // 鼠标路径(单击/拖选/双击起点)退出字段域(field-interact):不清会与块光标
+  // 双光标并存,且 /、yy 会带出残留栏位语义——对齐 v/V 进 visual 的清态
+  fieldFocus.value = null
   dragAnchor.value = { seq, col: hitCol(e, seq) }
   dragMoved = false
 }
@@ -1035,9 +1153,9 @@ function toggleLineNum() {
   showLineNum.value = !showLineNum.value
 }
 
-// ---- 书签列表键盘导航(第四轮验收③:ctrl+j/k 选中+Enter 跳转) ----
+// ---- 书签列表键盘导航(第四轮验收③:C-j/k 选中+Enter 跳转) ----
 const bmSel = ref(-1)
-/** bookmarkNav ctrl+j/k:列表开着时移动选中,返回是否消费(未开列表 false 交回全局)。 */
+/** bookmarkNav C-j/k:列表开着时移动选中,返回是否消费(未开列表 false 交回全局)。 */
 function bookmarkNav(delta: number): boolean {
   if (!bmShow.value) return false
   const n = bmItems.value.length
@@ -1062,6 +1180,7 @@ defineExpose({
   cursorToHit,
   gotoTop,
   gotoBottom,
+  gotoLine,
   halfPage,
   pageMove,
   openDetailAtCursor,
@@ -1071,6 +1190,7 @@ defineExpose({
   yankSelection,
   yank,
   yankLine,
+  cursorWord,
   hasSelection,
   toggleBookmark,
   showBookmarks,
@@ -1135,7 +1255,7 @@ defineExpose({
             v-if="showLineNum"
             class="lnum"
             >{{ String(range[0] + i + 1).padStart(6) }} │</span
-          ><span v-if="sourceCol" class="src-chip" :title="item.ln.source">{{ item.ln.source }}</span>
+          ><span v-if="sourceCol" class="src-chip" :title="item.ln.source" @dblclick.stop="onFieldDblClick(item.ln, 'source')">{{ item.ln.source }}</span>
         </span>
         <template v-for="c in cellsOf(item.ln)" :key="c.field">
           <span v-if="c.field === 'message'" class="cell f-msg">
@@ -1175,10 +1295,18 @@ defineExpose({
           <span
             v-else
             class="cell"
-            :class="['f-' + c.field, c.field === 'level' ? levelClass(item.ln.level) : '']"
+            :class="['f-' + c.field, c.field === 'level' ? levelClass(item.ln.level) : '', isFieldCur(item.ln, c.field) ? 'fcur' : '']"
             :style="cellW(c.field)"
-            >{{ c.text }}</span
+            @dblclick.stop="onFieldDblClick(item.ln, c.field)"
           >
+            <!-- field-match-scope:字段列同染高亮/命中(所见即所染——屏显截断/缩写
+                 文本上染);光标/选区标记不进字段列,表头 cell 不在此模板 -->
+            <template v-for="(s, si) in renderSpans(c.text)" :key="si">
+              <span v-if="s.hl" class="hl-w" :style="{ color: s.hl }">{{ s.text }}</span>
+              <span v-else-if="s.hit" class="hit-w">{{ s.text }}</span>
+              <template v-else>{{ s.text }}</template>
+            </template>
+          </span>
         </template>
         </div>
       </template>
@@ -1186,7 +1314,7 @@ defineExpose({
 
     <!-- 书签列表(' 键) -->
     <div v-if="bmShow" class="bm-panel">
-      <div class="bm-head">书签(Esc 关闭,m 添加 · ctrl+j/k 选中,Enter 跳转)</div>
+      <div class="bm-head">书签(Esc 关闭,m 添加 · C-j/k 选中,Enter 跳转)</div>
       <ul>
         <li
           v-for="(b, i) in bmItems"
@@ -1329,6 +1457,13 @@ defineExpose({
   background: var(--visual, #005f2f);
   color: var(--popup-bg, #fff);
   border-radius: 1px;
+}
+/* 字段域光标栏位高亮框(field-interact):--visual 系同源,暗亮主题同 char-cursor */
+.cell.fcur {
+  background: var(--visual, #005f2f);
+  color: var(--popup-bg, #fff);
+  outline: 1px solid var(--char-sel-border, #d19a66);
+  outline-offset: -1px;
 }
 /* 字符选区底纹(vim-copy):--visual 系字符粒度;光标块叠加其上 */
 .char-sel {

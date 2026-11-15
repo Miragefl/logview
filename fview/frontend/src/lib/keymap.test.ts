@@ -19,6 +19,11 @@ describe('resolveKey 全表(TUI 对齐)', () => {
     // 导航
     [{ key: 'j' }, 'cursorDown'],
     [{ key: 'k' }, 'cursorUp'],
+    // keybind-unify-r2：方向键对齐 TUI（桌面本能，preventDefault 防页面滚动）
+    [{ key: 'ArrowDown' }, 'cursorDown'],
+    [{ key: 'ArrowUp' }, 'cursorUp'],
+    [{ key: 'ArrowLeft' }, 'cursorLeft'],
+    [{ key: 'ArrowRight' }, 'cursorRight'],
     [{ key: 'g' }, 'gotoTop'],
     [{ key: 'G' }, 'gotoBottom'],
     [{ key: 'H' }, 'viewportTop'],

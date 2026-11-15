@@ -28,15 +28,44 @@ func parsedLineWithTime(level, traceID, thread, logger, message string, t time.T
 }
 
 func TestSimpleKeyword(t *testing.T) {
-	// 裸词只搜 message：裸 ERROR 不再命中 level=ERROR
+	// 裸词扫全行 raw（field-match-scope 2026-11-12 翻案）：裸 ERROR 命中
+	// level=ERROR 的行——当年收紧到 message 因无兜底语法，如今 message:ERROR
+	// 精确兜底，裸词回归 grep 式直觉（与隐藏词 Raw 口径统一）。
 	q := ParseSearchQuery("ERROR")
 	// message 含 ERROR → 匹配
 	if !q.MatchLine(parsedLine("INFO", "", "", "", "ERROR happened")) {
 		t.Error("bare ERROR should match message containing ERROR")
 	}
-	// level=ERROR 但 message 不含 → 不匹配
+	// level=ERROR（message 不含）→ 翻案后同样匹配（全行 grep 语义）
+	if !q.MatchLine(parsedLine("ERROR", "abc", "main", "com.example.App", "something broke")) {
+		t.Error("bare ERROR should match level=ERROR row (raw full-line, see field-match-scope)")
+	}
+}
+
+// TestBareKeywordAllFields 裸词命中任一列原文（field-match-scope：grep 语义防回头收紧）。
+func TestBareKeywordAllFields(t *testing.T) {
+	q := ParseSearchQuery("OrderService")
+	if !q.MatchLine(parsedLine("INFO", "", "", "com.example.OrderService", "plain msg")) {
+		t.Error("bare word should match logger field via raw")
+	}
+	q2 := ParseSearchQuery("pool-3")
+	if !q2.MatchLine(parsedLine("INFO", "", "pool-3", "com.example.App", "plain msg")) {
+		t.Error("bare word should match thread field via raw")
+	}
+	q3 := ParseSearchQuery("abc-tr-9")
+	if !q3.MatchLine(parsedLine("INFO", "abc-tr-9", "main", "com.example.App", "plain msg")) {
+		t.Error("bare word should match traceId field via raw")
+	}
+}
+
+// TestMessageFieldFallback message: 兜底语法：只搜消息列（翻案后的精确域出口）。
+func TestMessageFieldFallback(t *testing.T) {
+	q := ParseSearchQuery("message:ERROR")
+	if !q.MatchLine(parsedLine("INFO", "", "", "", "ERROR happened")) {
+		t.Error("message:ERROR should match message containing ERROR")
+	}
 	if q.MatchLine(parsedLine("ERROR", "abc", "main", "com.example.App", "something broke")) {
-		t.Error("bare ERROR should NOT match level=ERROR without ERROR in message")
+		t.Error("message:ERROR should NOT match level=ERROR without ERROR in message")
 	}
 }
 
@@ -409,15 +438,15 @@ func TestTimeFieldPresent(t *testing.T) {
 	}
 }
 
-// --- 裸词只搜 message（breaking） ---
+// --- 裸词扫全行 raw（field-match-scope 2026-11-12 翻案,原 message-only 收缩废止） ---
 
 func TestBareWordMessageOnly(t *testing.T) {
 	q := ParseSearchQuery("abc123")
-	if q.MatchLine(parsedLine("INFO", "abc123", "", "", "no match here")) {
-		t.Error("bare word should not search traceId")
+	if !q.MatchLine(parsedLine("INFO", "abc123", "", "", "no match here")) {
+		t.Error("bare word should match traceId via raw (reverted, grep semantics)")
 	}
-	if q.MatchLine(parsedLine("INFO", "", "", "abc123", "no match here")) {
-		t.Error("bare word should not search logger")
+	if !q.MatchLine(parsedLine("INFO", "", "", "abc123", "no match here")) {
+		t.Error("bare word should match logger via raw (reverted, grep semantics)")
 	}
 	if !q.MatchLine(parsedLine("INFO", "", "", "", "trace abc123 found")) {
 		t.Error("bare word should match message")

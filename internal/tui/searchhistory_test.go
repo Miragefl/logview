@@ -225,3 +225,65 @@ func TestSearchHistBareJKRetired(t *testing.T) {
 		t.Fatalf("C-j 应下移, cursor=%d", app.searchHistCursor)
 	}
 }
+
+// keybind-unify-r2 B2：tab1/2 词表光标+C-jC-k 导航+C-d 删词（fview WordsPopup 同款；
+// 历史列表态 C-d 不删——只导历史）。
+func TestSearchWordDelete(t *testing.T) {
+	app := markSetup(t)
+	app.highlights = []string{"err", "timeout"}
+	app.openUnifiedPopup(1) // tab1 高亮
+	// 词表渲染 + 光标落首项
+	view := stripANSI(app.View())
+	if !strings.Contains(view, "当前高亮") || !strings.Contains(view, "▶") {
+		t.Fatalf("词表应渲染并含光标前缀:\n%s", view)
+	}
+	// C-j 移到第二项；C-d 删该词并 clamp
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if app.searchWordIdx != 1 {
+		t.Fatalf("C-j 应移到第二词, idx=%d", app.searchWordIdx)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if len(app.highlights) != 1 || app.highlights[0] != "err" {
+		t.Fatalf("C-d 应删第二词, 剩 %v", app.highlights)
+	}
+	if app.searchWordIdx != 0 {
+		t.Fatalf("删后 idx 应 clamp, idx=%d", app.searchWordIdx)
+	}
+	// 历史列表态：C-d 不删也不关（fview 历史态 navIdx 语义同款）。
+	// 前提：keywordHist 必须非空——空表走 n==0 防御分支吞键，是 Final Review I1
+	// 揪出的假绿路径（真实场景 C-r 开历史必先有历史词）。
+	app.keywordHist = []string{"err", "warn"}
+	app.searchHistMode = true
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if len(app.highlights) != 1 {
+		t.Fatal("历史态 C-d 不应删词")
+	}
+	if !app.searchHistMode {
+		t.Fatal("历史态 C-d 不应关闭历史列表")
+	}
+	// tab2 隐藏词同款
+	app.searchHistMode = false
+	app.searchTab = 2
+	app.hides = []string{"h1", "h2", "h3"}
+	app.searchWordIdx = 1
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if len(app.hides) != 2 || app.hides[1] != "h3" {
+		t.Fatalf("tab2 C-d 应删光标词 h2, 剩 %v", app.hides)
+	}
+	// 空表 C-d 无动作
+	app.hides = nil
+	app.searchWordIdx = 0
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if app.hides != nil {
+		t.Fatal("空表 C-d 应无动作")
+	}
+	// Final Review I2：C-d 删词同步输入框——Enter 全量重建不得复活已删词
+	app.searchTab = 1
+	if app.highlightInput != "err" {
+		t.Fatalf("删词后输入框应同步剩余词, got %q", app.highlightInput)
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(app.highlights) != 1 || app.highlights[0] != "err" {
+		t.Fatalf("Enter 后已删词不应复活, got %v", app.highlights)
+	}
+}

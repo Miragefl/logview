@@ -28,7 +28,7 @@ function toggleFields() {
 defineExpose({ toggleFields })
 
 /** onFieldMenuKey 下拉打开时的键盘流(2026-11-08 r4~r6 三轮):
- *  - ⌃j/⌃k 中继方向键:naive dropdown 键盘导航(vooks useKeyboard)经 evtd 委托、
+ *  - C-j/C-k 中继方向键:naive dropdown 键盘导航(vooks useKeyboard)经 evtd 委托、
  *    只认方向键——evtd 监听挂 **window**、按 target→window 传播链匹配 document,
  *    合成事件必须 bubbles:true 且派发到焦点元素(activeElement)复刻原生按键路径
  *    (r4 派发 document 本体无 bubbles,evtd 匹配不到,jsdom spy 错层假绿)。
@@ -37,7 +37,7 @@ defineExpose({ toggleFields })
  *  - Esc 关闭:naive handleKeydownEsc 只 emit update:show,manual 受控没接回调
  *    (r5 踩坑),自己关;故意不接 @update:show,否则 Enter 勾选后也会关。
  *  capture 拦截后 stopPropagation,同时掐断 App.vue 全局 vim 键
- *  (ctrl+j/k 原映射 navDown/navUp)。treemate 移动 pending 自动跳过 divider/禁用项。 */
+ *  (C-j/k 原映射 navDown/navUp)。treemate 移动 pending 自动跳过 divider/禁用项。 */
 function onFieldMenuKey(e: KeyboardEvent) {
   if (!fieldsShow.value) return
   const inInput = (() => {

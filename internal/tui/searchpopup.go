@@ -96,7 +96,11 @@ func (a *App) renderHighlightSection(content *strings.Builder) {
 			colorIdx := i % len(HighlightColors)
 			// 与主界面同款:彩色粗体+下划线,无底色块(与搜索命中的底色块区分)
 			style := lipgloss.NewStyle().Foreground(HighlightColors[colorIdx]).Bold(true).Underline(true)
-			content.WriteString(fmt.Sprintf("  %s\n", style.Render(kw)))
+			prefix := "  "
+			if i == a.searchWordIdx { // B2：词表光标（C-jC-k 导航/C-d 删除选中）
+				prefix = SelArrowStyle.Render("▶ ")
+			}
+			content.WriteString(fmt.Sprintf("%s %s\n", prefix, style.Render(kw)))
 		}
 		content.WriteString("\n")
 	}
@@ -111,8 +115,12 @@ func (a *App) renderHideSection(content *strings.Builder) {
 	}
 	if len(a.hides) > 0 {
 		content.WriteString(DetailDimStyle.Render("当前隐藏:") + "\n")
-		for _, kw := range a.hides {
-			content.WriteString(fmt.Sprintf("  %s %s\n", HideMarkStyle.Render("✕"), DetailDimStyle.Render(kw)))
+		for i, kw := range a.hides {
+			prefix := "  "
+			if i == a.searchWordIdx { // B2：词表光标（C-jC-k 导航/C-d 删除选中）
+				prefix = SelArrowStyle.Render("▶ ")
+			}
+			content.WriteString(fmt.Sprintf("%s %s %s\n", prefix, HideMarkStyle.Render("✕"), DetailDimStyle.Render(kw)))
 		}
 		content.WriteString("\n")
 	}

@@ -6,7 +6,13 @@ import { useTabsStore } from '../../stores/tabs'
 import { useUiStore } from '../../stores/ui'
 import { getMemStats } from '../../lib/backend'
 
-defineProps<{ copied?: number; copiedUnit?: '行' | '字符' }>()
+defineProps<{
+  copied?: number
+  copiedUnit?: '行' | '字符'
+  copiedEmpty?: boolean
+  /** vim-count 数字前缀输入中(showcmd 式反馈,动作发出即消) */
+  pendingCount?: number
+}>()
 
 const tabs = useTabsStore()
 const ui = useUiStore()
@@ -37,12 +43,16 @@ onBeforeUnmount(() => {
   <footer class="statusbar">
     <span>{{ tabs.active?.info.lines ?? 0 }} 行</span>
     <span v-if="copied && copied > 0" class="copied">已复制 {{ copied }} {{ copiedUnit ?? '行' }}</span>
+    <!-- 空值复制(field-interact):字段列空值双击/yy 未进剪贴板,闪提示防"没生效"误判 -->
+    <span v-else-if="copiedEmpty" class="copied">空值未复制</span>
     <span v-if="ui.visualActive" class="visual-badge">VISUAL</span>
     <!-- 混入持久指示(TUI 同款「混入 ×K」,K=锚数;输入态提示另走 ctxHint -->
     <span v-if="ctxCount > 0" class="ctx-mix">混入 ×{{ ctxCount }}</span>
     <span v-if="ui.ctxHint" class="ctx-hint">{{ ui.ctxHint }}</span>
     <span v-if="tabs.active?.info.follow" class="follow">● Following</span>
     <div class="spacer"></div>
+    <!-- vim-count 输入反馈(vim showcmd 同位:右下角) -->
+    <span v-if="pendingCount" class="count-hint">{{ pendingCount }}</span>
     <span v-if="memMB > 0">内存 {{ memMB }}MB</span>
     <!-- 匹配的解析规则名(rules.yaml rule name,如 java-logback;纯文本/未解析为空不显示) -->
     <span v-if="tabs.active?.parserName" class="parser">{{ tabs.active.parserName }}</span>
@@ -88,6 +98,11 @@ onBeforeUnmount(() => {
 /* 解析规则名:右侧元信息组(内存/字号)一员,略亮于状态栏底色便于识别又不抢戏 */
 .parser {
   color: var(--dim, #8b98a9);
+}
+/* vim-count 输入反馈:等宽字体右下角,比 hint 略亮可辨识 */
+.count-hint {
+  font-family: var(--font-mono, monospace);
+  color: var(--accent, #7dc4e4);
 }
 .spacer {
   flex: 1;

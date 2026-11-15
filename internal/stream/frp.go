@@ -33,6 +33,7 @@ type FRPSource struct {
 	tunnel frpTunnelHandle // tcp 直连形态为 nil
 	inner  *SSHSource
 	name   string // 记录名（label 与密码缓存 key）
+	alias  string // 展示别名（空回落 name；纯展示，Scope/密码键仍 name）
 }
 
 func NewFRPSource(name string, t frpTunnelHandle, user, path string, tailLines int) *FRPSource {
@@ -48,7 +49,16 @@ func NewFRPDirectSource(name, serverAddr string, remotePort int, user, path stri
 	return &FRPSource{inner: inner, name: name}
 }
 
-func (s *FRPSource) Label() string { return fmt.Sprintf("frp://%s%s", s.name, s.inner.path) }
+// SetAlias 展示别名（TUI 主界面 label 与 fview tab 标题同语义：空回落 name）。
+func (s *FRPSource) SetAlias(alias string) { s.alias = alias }
+
+func (s *FRPSource) Label() string {
+	disp := s.alias
+	if disp == "" {
+		disp = s.name
+	}
+	return fmt.Sprintf("frp://%s%s", disp, s.inner.path)
+}
 
 // Scope 词频隔离域=FRP 连接名(同连接多条路径共享词频历史)。
 func (s *FRPSource) Scope() string { return s.name }

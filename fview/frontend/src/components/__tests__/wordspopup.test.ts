@@ -1,5 +1,5 @@
 // WordsPopup 高亮/隐藏词管理框测试(第六轮 SLS 式改造):
-// 模式驱动/加词/词表键盘流(ctrl+j/k 选中,ctrl+d 删词)/Esc 关框/弹窗栈登记。
+// 模式驱动/加词/词表键盘流(C-j/k 选中,C-d 删词)/Esc 关框/弹窗栈登记。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -48,7 +48,7 @@ describe('WordsPopup 词管理框', () => {
     document.body.innerHTML = ''
   })
 
-  it('hl 模式:Enter 加词,词表 ctrl+j 选中 + ctrl+d 删除(焦点在输入框也可,r2)', async () => {
+  it('hl 模式:Enter 加词,词表 C-j 选中 + C-d 删除(焦点在输入框也可,r2)', async () => {
     const search = useSearchStore()
     const ann = useAnnotationsStore()
     search.openWords('hl')
@@ -60,8 +60,8 @@ describe('WordsPopup 词管理框', () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(ann.highlights.map((h) => h.word)).toEqual(['alpha'])
 
-    // 键盘选中第一条再删:ctrl+d 组合键(弹窗自动聚焦输入框,焦点恒在 input——
-    // 旧裸 d 因 inInput 防御在真机失效,r2 改 ctrl+d 解除防御)
+    // 键盘选中第一条再删:C-d 组合键(弹窗自动聚焦输入框,焦点恒在 input——
+    // 旧裸 d 因 inInput 防御在真机失效,r2 改 C-d 解除防御)
     key('j', { ctrlKey: true })
     await new Promise((r) => setTimeout(r, 0))
     expect(document.querySelectorAll('.wordspopup .words li.sel').length).toBe(1)
@@ -82,7 +82,7 @@ describe('WordsPopup 词管理框', () => {
     await new Promise((r) => setTimeout(r, 0))
     key('j', { ctrlKey: true })
     await new Promise((r) => setTimeout(r, 0))
-    // 裸 d:无删词行为(退役为 ctrl+d)
+    // 裸 d:无删词行为(退役为 C-d)
     key('d')
     await new Promise((r) => setTimeout(r, 0))
     expect(ann.highlights).toHaveLength(1)
@@ -140,7 +140,7 @@ describe('WordsPopup 词管理框', () => {
     setWord('alpha')
     key('Enter')
     await new Promise((r) => setTimeout(r, 0))
-    // ctrl+j 选中词表第一条
+    // C-j 选中词表第一条
     key('j', { ctrlKey: true })
     await new Promise((r) => setTimeout(r, 0))
 
@@ -173,5 +173,29 @@ describe('WordsPopup 词管理框', () => {
     // 模拟"管理框开着时关掉最后一个 tab"(App v-if 卸载组件)
     w.unmount()
     expect(search.wordsShow).toBe('')
+  })
+
+  it('seed 预填(field-interact):openWords(mode,word) 带词开框,一次性消费不自动加', async () => {
+    const search = useSearchStore()
+    const ann = useAnnotationsStore()
+    search.openWords('hl', 'timeout')
+    wrappers.push(mount(WordsPopup, { global: { plugins: [naive] } }))
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.wordspopup input') as HTMLInputElement
+    expect(input.value).toBe('timeout')
+    expect(search.wordsSeed).toBe('')
+    // 预填不自动加入:词表为空,Enter 才入表
+    expect(ann.highlights).toHaveLength(0)
+  })
+
+  it('seed 预填(field-interact):无 seed 开框输入框清空(现状)', async () => {
+    const search = useSearchStore()
+    search.openWords('hide')
+    wrappers.push(mount(WordsPopup, { global: { plugins: [naive] } }))
+    await new Promise((r) => setTimeout(r, 0))
+
+    const input = document.body.querySelector('.wordspopup input') as HTMLInputElement
+    expect(input.value).toBe('')
   })
 })

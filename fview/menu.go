@@ -11,8 +11,9 @@ import (
 // onCloseTab 广播 shortcut:closeTab 事件(前端 App.vue 订阅后关 activeId),
 // 退出回调经 onQuit 触发 runtime.Quit(shutdown 钩子兜底杀 frpc visitor)。
 // macOS 的 ⌘Q 退出必须由 app 菜单项提供(AppKit 不自动注入),无此项则按键无人消费。
-// 非 darwin 平台返回 nil:ctrl+w 已由 webview keydown 接管(CTRL_MAP.w),
-// 若注册菜单加速键会与 webview 双触发,一次按键关两个 tab。
+// 非 darwin 平台返回 nil:ctrl+w 已由 webview keydown 接管为换行开关
+// (CTRL_MAP.w=wrap,非 closeTab——非 mac 无键盘关 tab 途径,仅 tab 栏 × 点击;
+// keybind-unify-r2 修正陈旧注释),若注册菜单加速键会与 webview 双触发。
 func buildAppMenu(goos string, onCloseTab, onQuit func()) *menu.Menu {
 	if goos != "darwin" {
 		return nil

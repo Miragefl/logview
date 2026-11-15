@@ -39,7 +39,10 @@ type termNode struct {
 func (n *termNode) match(line *model.ParsedLine) bool {
 	switch n.typ {
 	case keywordTerm:
-		return ContainsIgnoreCase(line.Message(), n.value)
+		// 裸词扫全行 raw（field-match-scope 翻案,对齐 matchHides 口径）：
+		// 精确搜消息列用 message: 语法。当年收紧到 message 因无兜底（见
+		// search-syntax-enhancement），如今语法齐全,裸词回归 grep 式直觉。
+		return ContainsIgnoreCase(line.Raw.Text, n.value)
 	case fieldTerm:
 		val := line.Get(model.Field(n.field))
 		if val == "" {

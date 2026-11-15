@@ -37,11 +37,25 @@ const q = ref('')
 const qErr = ref('')
 const inputEl = ref<InstanceType<typeof NInput> | null>(null)
 
-// / 键聚焦(store 驱动;重复 / 幂等——已是聚焦态不再重复设 true)
+// / 键聚焦(store 驱动;重复 / 幂等——已是聚焦态不再重复设 true)。
+// seed 预填(field-interact):focusBar(word) 带词聚焦,一次性消费,无 seed
+// 聚焦不动现有词。r2:原值非空改追加 `原值 AND 新词`(缩圈累加,不 select
+// ——全选会让打字连原词一起覆盖);为空/纯空格才预填并全选(直接打字可换词)。
 watch(
   () => search.barFocused,
   (v) => {
-    if (v) nextTick(() => inputEl.value?.focus())
+    if (!v) return
+    const seed = search.seedQ
+    let appended = false
+    if (seed) {
+      appended = q.value.trim() !== ''
+      q.value = appended ? q.value + ' AND ' + seed : seed
+      search.seedQ = ''
+    }
+    nextTick(() => {
+      inputEl.value?.focus()
+      if (seed && !appended) inputEl.value?.select()
+    })
   }
 )
 
@@ -76,7 +90,7 @@ async function confirmSearch() {
   }
 }
 
-// ---- 历史下拉(ctrl+R,键盘流迁自 SearchPopup) ----
+// ---- 历史下拉(C-R,键盘流迁自 SearchPopup) ----
 const HIST_MAX = 8
 const histShow = ref(false)
 const histWords = ref<string[]>([])
@@ -116,7 +130,7 @@ function onBlur() {
   navIdx.value = -1
 }
 
-/** onKey 输入框键流:Enter 执行或应用历史 / Esc 失焦不清词 / ctrl+R 历史下拉。 */
+/** onKey 输入框键流:Enter 执行或应用历史 / Esc 失焦不清词 / C-R 历史下拉。 */
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter') {
     e.preventDefault()
@@ -159,12 +173,12 @@ function onKey(e: KeyboardEvent) {
       size="small"
       clearable
       class="q"
-      :placeholder="qErr ? qErr : '搜索(time:/level: 语法),回车执行 · ctrl+R 历史'"
+      :placeholder="qErr ? qErr : '搜索(裸词扫全行,time:/level:/message: 语法),回车执行 · C-R 历史'"
       :status="qErr ? 'error' : undefined"
       @keydown="onKey"
       @blur="onBlur"
     />
-    <!-- 历史下拉(ctrl+R) -->
+    <!-- 历史下拉(C-R) -->
     <ul v-if="histShow" class="hist">
       <li
         v-for="(w, i) in histWords"

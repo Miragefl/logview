@@ -101,4 +101,6 @@ export function UsageKeywords(arg1:string,arg2:string):Promise<Array<string>>;
 
 export function UsageRecent():Promise<Array<string>>;
 
+export function UsageScores(arg1:Array<string>):Promise<Record<string, number>>;
+
 export function UsageTouch(arg1:string):Promise<void>;

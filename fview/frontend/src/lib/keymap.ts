@@ -48,6 +48,7 @@ export type KeyAction =
   | 'clear'
   | 'escape'
   | 'sources'
+  | 'sourcesBack'
   | 'settings'
   | 'activate'
   | 'closeTab'
@@ -70,12 +71,16 @@ export interface KeyState {
   pendingZ: boolean
   /** y 序列态(yy=复制整行);可选字段——存量调用点仅初始化 pendingZ,内部 !! 归一 */
   pendingY?: boolean
+  /** vim-count 数字前缀累积态(0=无;可选字段同 pendingY 归一) */
+  pendingCount?: number
 }
 
 export interface KeyResult {
   action: KeyAction
   /** level 档位 arg ∈ E|W|I|D|A */
   arg?: string
+  /** count 前缀(3j=下移 3 行);仅移动键携带,其余动作不吃发出即清 */
+  count?: number
 }
 
 /** SIMPLE_MAP 无状态单键映射(z/y 序列与 ctrl 组合另查;y 在此仅查表返回,
@@ -85,6 +90,11 @@ const SIMPLE_MAP: Record<string, KeyResult> = {
   k: { action: 'cursorUp' },
   h: { action: 'cursorLeft' },
   l: { action: 'cursorRight' },
+  // keybind-unify-r2：方向键对齐 TUI（不进 count 白名单，纯四向移动）
+  ArrowDown: { action: 'cursorDown' },
+  ArrowUp: { action: 'cursorUp' },
+  ArrowLeft: { action: 'cursorLeft' },
+  ArrowRight: { action: 'cursorRight' },
   w: { action: 'wordFwd' },
   b: { action: 'wordBack' },
   e: { action: 'wordEnd' },
@@ -118,6 +128,7 @@ const SIMPLE_MAP: Record<string, KeyResult> = {
   '?': { action: 'help' },
   C: { action: 'clear' },
   q: { action: 'sources' },
+  Q: { action: 'sourcesBack' }, // vim-count:Q 反向循环(收起→FRP→K8s→SSH→本地)
   ',': { action: 'settings' },
   Enter: { action: 'activate' },
   Escape: { action: 'escape' },
@@ -153,6 +164,33 @@ const Z_MAP: Record<string, KeyResult> = {
   b: { action: 'anchorBottom' },
 }
 
+/** COUNT_OK_ACTIONS count 携带白名单(移动键,3j/5w/10G/2C-d);其余动作键不吃——
+ *  发出即清(vim 手感:按错键 count 作废,防 count 态卡死污染后续按键)。 */
+const COUNT_OK_ACTIONS = new Set<KeyAction>([
+  'cursorDown',
+  'cursorUp',
+  'cursorLeft',
+  'cursorRight',
+  'wordFwd',
+  'wordBack',
+  'wordEnd',
+  'gotoTop',
+  'gotoBottom',
+  'halfDown',
+  'halfUp',
+  'pageDown',
+  'pageUp',
+])
+
+/** finishCount 结果出口:pending 透传(z 序列态 count 多活一拍);移动键挂 count,
+ *  其余清零。 */
+function finishCount(r: KeyResult, st: KeyState): KeyResult {
+  if (r.action === 'pending') return r
+  const n = st.pendingCount || 0
+  st.pendingCount = 0
+  return n > 0 && COUNT_OK_ACTIONS.has(r.action) ? { ...r, count: n } : r
+}
+
 /** resolveKey 按键 → 动作;st.pendingZ/pendingY 由本函数维护(z/y 序列)。
  *  ctrl+1..9 切 tab(浏览器惯例,第四轮验收③全键盘);
  *  cmd 系白名单键(字号/设置/tab 数字)与 ctrl 等价,其余 cmd 交给系统。
@@ -162,23 +200,32 @@ export function resolveKey(e: KeyEventLike, st: KeyState): KeyResult {
     st.pendingZ = false
     st.pendingY = false
     // ctrl 走全表;cmd 仅白名单键接管,其余 none(不得漏进单键映射——
-    // cmd 按下时用户意图不是 vim 单键;cmd+w 已由原生菜单接管)
+    // cmd 按下时用户意图不是 vim 单键;cmd+w 已由原生菜单接管)。
+    // count 走 finishCount:翻页类(C-d/u/f/b)携带(2C-d=两半页),其余清零
     const ok = e.ctrlKey || META_OK_KEYS.has(e.key)
-    if (ok && /^[1-9]$/.test(e.key)) return { action: 'tabSwitch', arg: e.key }
-    return (ok ? CTRL_MAP[e.key] : undefined) ?? { action: 'none' }
+    if (ok && /^[1-9]$/.test(e.key)) return finishCount({ action: 'tabSwitch', arg: e.key }, st)
+    return finishCount((ok ? CTRL_MAP[e.key] : undefined) ?? { action: 'none' }, st)
+  }
+  // vim-count:裸数字进 count 累积('0' 仅 count>0 时并入,无 count 留给
+  // SIMPLE_MAP 行首);数字打断 z/y 序列(序列不吃 count,打断即作废)。
+  if ((e.key >= '1' && e.key <= '9') || (e.key === '0' && st.pendingCount)) {
+    st.pendingZ = false
+    st.pendingY = false
+    st.pendingCount = Math.min(1000, (st.pendingCount || 0) * 10 + Number(e.key))
+    return { action: 'pending' }
   }
   if (st.pendingY) {
     st.pendingY = false
-    if (e.key === 'y') return { action: 'yankLine' }
+    if (e.key === 'y') return finishCount({ action: 'yankLine' }, st)
     // 透传:无 y 前缀重新解析(含进 z 序列)
-    return resolveInner(e, st)
+    return finishCount(resolveInner(e, st), st)
   }
   if (st.pendingZ) {
     st.pendingZ = false
     // z 序列查表:y 走 SIMPLE_MAP 返回 yank 但不置 pendingY(序列不嵌套)
-    return Z_MAP[e.key] ?? SIMPLE_MAP[e.key] ?? { action: 'none' }
+    return finishCount(Z_MAP[e.key] ?? SIMPLE_MAP[e.key] ?? { action: 'none' }, st)
   }
-  return resolveInner(e, st)
+  return finishCount(resolveInner(e, st), st)
 }
 
 /** resolveInner 非序列态单键解析:z/y 进各自序列,其余查表。 */

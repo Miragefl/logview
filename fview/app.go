@@ -475,6 +475,7 @@ func (a *App) OpenSSHTab(host, path string, tailLines int, password string) (str
 	if err != nil {
 		return "", err
 	}
+	usage.Bump(usage.KeySSHHost + host) // 热点:成功打开计入频次(TUI 同款 key)
 	// 远程 tail 命令内建 follow，恒跟随
 	if err := a.mgr.SetFollow(id, true); err != nil {
 		return id, err
@@ -546,6 +547,7 @@ func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) 
 		if err != nil {
 			return "", err
 		}
+		usage.Bump(usage.KeyFRPConn + connName) // 热点:tcp 直连分支
 		if err := a.mgr.SetFollow(id, true); err != nil {
 			return id, err
 		}
@@ -565,6 +567,7 @@ func (a *App) OpenFRPTab(connName, path string, tailLines int, password string) 
 		_ = t.Cleanup() // 开 tab 失败回退本次引用
 		return "", err
 	}
+	usage.Bump(usage.KeyFRPConn + connName) // 热点:stcp 隧道分支
 	if err := a.mgr.SetFollow(id, true); err != nil {
 		return id, err
 	}
@@ -583,6 +586,9 @@ func (a *App) UsageRecent() []string { return fview.UsageRecent() }
 
 // UsageTouch 记录一次源使用（key 由前端按前缀规范拼接，如 file:/path/app.log）。
 func (a *App) UsageTouch(key string) { fview.UsageTouch(key) }
+
+// UsageScores 批量取衰减分（panel-hot-sort 三面板排序数据源；与 TUI 同口径）。
+func (a *App) UsageScores(keys []string) map[string]float64 { return fview.UsageScores(keys) }
 
 // UsageKeywords 高亮/隐藏词频 top20（共享 usage.json，kind ∈ hl|hide，scope 空即全局）。
 func (a *App) UsageKeywords(scope, kind string) []string { return fview.Keywords(scope, kind) }
@@ -626,6 +632,9 @@ func (a *App) OpenK8sTab(resource, namespace, kubeCtx string, tailLines int) (st
 	if err != nil {
 		return "", err
 	}
+	// 热点:ns 随打开记(TUI 949 同款);res 归前端 touch(fview 四段 key
+	// ctx/ns/kind/name,recent.ts 直开拆解依赖全参——panel-hot-sort Ruling)
+	usage.Bump(usage.KeyK8sNS + namespace)
 	if err := a.mgr.SetFollow(id, true); err != nil {
 		return id, err
 	}
@@ -660,6 +669,8 @@ func (a *App) OpenK8sMergedTab(resources []string, namespace, kubeCtx string, ta
 	if err != nil {
 		return "", err
 	}
+	// 热点:ns 随打开记;res 归前端 touch(四段 key,Ruling 同 OpenK8sTab)
+	usage.Bump(usage.KeyK8sNS + namespace)
 	if err := a.mgr.SetFollow(id, true); err != nil {
 		return id, err
 	}

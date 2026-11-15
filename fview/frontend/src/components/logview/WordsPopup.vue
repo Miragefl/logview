@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 高亮/隐藏词管理框(第六轮 SLS 式改造):SearchBar 两按钮/h/x 键唤起。
-// 输入加词(逗号分词)+词表键盘流(ctrl+j/k 选中,ctrl+d·x 删词)+ctrl+R 历史
+// 输入加词(逗号分词)+词表键盘流(C-j/k 选中,C-d·x 删词)+C-R 历史
 // (usage.json 词频,scope 隔离)——键盘流全套迁自 SearchPopup 第四轮实现。
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { NButton, NInput, NModal } from 'naive-ui'
@@ -58,7 +58,7 @@ function removeAt(i: number) {
   if (navIdx.value >= wordList.value.length) navIdx.value = wordList.value.length - 1
 }
 
-// ---- 键盘流(迁自 SearchPopup:ctrl+j/k 选中,d/x 删词,ctrl+R 历史) ----
+// ---- 键盘流(迁自 SearchPopup:C-j/k 选中,d/x 删词,C-R 历史) ----
 const HIST_MAX = 8
 const histShow = ref(false)
 const histWords = ref<string[]>([])
@@ -92,8 +92,8 @@ function navMove(delta: number) {
 }
 
 /** onDocKey 管理框键流(document 级,焦点丢失也响应):
- *  Esc 分层(历史→框) / Enter 历史应用或加词 / ctrl+j/k 导航 / ctrl+d·x 删选中词 / ctrl+R 历史。
- *  r2:删词主键改 ctrl+d——组合键不与打字冲突,焦点在输入框也生效(旧裸 d 因弹窗
+ *  Esc 分层(历史→框) / Enter 历史应用或加词 / C-j/k 导航 / C-d·x 删选中词 / C-R 历史。
+ *  r2:删词主键改 C-d——组合键不与打字冲突,焦点在输入框也生效(旧裸 d 因弹窗
  *  自动聚焦+inInput 防御在真机恒失效);x 保留但仅焦点不在输入框时(可打印字符,
  *  打 "x" 词不吞,final review C2)。 */
 function onDocKey(e: KeyboardEvent) {
@@ -143,7 +143,11 @@ watch(
     if (v) {
       ui.dialogOpen('words')
       document.addEventListener('keydown', onDocKey)
-      wordInput.value = ''
+      // seed 预填(field-interact):openWords(mode,word) 带词开框,词进输入框
+      // 等用户 Enter(不自动加,走现有去重);一次性消费,无 seed 开框清空(现状)
+      const seed = search.wordsSeed
+      wordInput.value = seed || ''
+      if (seed) search.wordsSeed = ''
       histShow.value = false
       navIdx.value = -1
       nextTick(() => inputEl.value?.focus())
@@ -211,7 +215,7 @@ onBeforeUnmount(() => {
       </ul>
       <p v-else class="empty">{{ isHl ? '暂无高亮词——命中词以亮色粗体下划线展示' : '暂无隐藏词——右键日志行也可快捷加词' }}</p>
       <div class="foot">
-        <span class="hint">ctrl+j/k 选中 · ctrl+d 删词 · ctrl+R 历史</span>
+        <span class="hint">C-j/k 选中 · C-d 删词 · C-R 历史</span>
         <NButton v-if="!isHl && ann.hideRules.length" size="tiny" quaternary type="warning" @click="ann.clearHideRules()">
           清空全部
         </NButton>

@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"runtime"
 	"runtime/debug"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -68,7 +67,8 @@ type App struct {
 	newLogs      int
 
 	searchMode  bool
-	searchTab   int // 0=搜索 1=高亮 2=隐藏
+	searchTab    int // 0=搜索 1=高亮 2=隐藏
+	searchWordIdx int // tab1/2 词表光标（keybind-unify-r2 B2：C-d 删除/C-jC-k 导航）
 	searchInput string
 	cachedQuery SearchQuery
 
@@ -92,6 +92,12 @@ type App struct {
 	colWish   int
 
 	pendingKey string
+	// vim-count 数字前缀累积(0=无;裸 1-9 起始,0 仅 count>0 并入,clamp 1000)
+	countN int
+	// 字段域光标(tui-word-field,对齐 fview field-interact 命名):-1=message 域
+	// (现状);>=0=可见字段栏索引(左起 0 基,AllFields∩fieldMask 可见序,与
+	// renderLineText parts 序一致)。注意与字段显隐面板的 fieldCursor 无关。
+	fieldFocus int
 
 	levelFilter string
 	wrapMode    bool
@@ -99,6 +105,10 @@ type App struct {
 	searchCursor int
 
 	helpMode bool
+	// markListOpen ' 键标记列表浮层（keybind-unify-r2 A2，fview 书签列表同款）：
+	// 非模态——开着 j/k 仍动日志光标，C-j/C-k 导列表；markIdx=markListRows 下标。
+	markListOpen bool
+	markIdx      int
 	// detailMode d 键行详情面板：完整字段 + 消息全文 + 原始行，j/k 联动移动光标
 	detailMode bool
 	yankMsg    string
@@ -182,10 +192,9 @@ type App struct {
 	pickerHostCursor   int
 	pickerRemotePath   string
 	pickerRemoteCursor int
-	pickerSshFocus     int // SSH 主机层焦点：0=主机 1=路径
 
 	pickerFRPLevel      int    // FRP 层级：0=连接列表 1=新建表单 2=远程目录
-	pickerFRPStep       int    // 表单步骤（按 type 释义见 pickerFRPFormEnter：0=type 1=serverAddr 2=token 3=secretKey|remotePort 4=serverName|user 5=user）
+	pickerFRPStep       int    // 表单步骤（按 type 释义见 pickerFRPFormEnter：0=type 1=serverAddr 2=token 3=secretKey|remotePort 4=serverName|user 5=user(tcp:alias) 6=alias(stcp)）
 	pickerFRPInput      string // FRP 搜索/表单输入
 	pickerFRPCursor     int
 	pickerFRPFormType   string // 表单暂存：连接类型 stcp/tcp
@@ -195,8 +204,10 @@ type App struct {
 	pickerFRPSName      string // 表单暂存：stcp serverName（提供方 proxies name）
 	pickerFRPRemotePort int    // 表单暂存：tcp remotePort
 	pickerFRPUser       string // 表单暂存/浏览目标：SSH 用户
+	pickerFRPAlias      string // 表单暂存：展示别名（可空；空回落 Name，纯展示不进逻辑键）
 	pickerFRPDir        string          // 远程浏览当前目录
 	pickerFRPConnName   string          // 当前连接名（frpPwKey/breadcrumb/confirm 保存）
+	pickerSSHInputMode bool // SSH 主机层新增表单态(keybind-unify-r2 A3:C-a 进,Enter 保存/Esc 退);默认过滤态无框打字(tui-picker-unify)
 	pickerFRPErr        string          // L2 目录拉取失败的首行错误（成功回填清空；空列表时显示而非误报"空目录"）
 	pickerFRPHost       string          // 浏览目标 host：stcp=127.0.0.1（隧道）；tcp=serverAddr 直连
 	pickerFRPPort       int             // 浏览目标端口：stcp=隧道本地端口；tcp=remotePort
@@ -259,6 +270,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		bufSize:        bufSize,
 		keymap:         DefaultKeyMap(),
 		fieldMask:      fm,
+		fieldFocus:     -1, // message 域(tui-word-field;0 是合法栏索引不可作默认)
 		fieldAlias:     overrideFieldAlias,
 		expanded:       make(map[int]bool),
 		hides:          hides,
@@ -474,7 +486,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recomputeChunkMsg:
 		return a, a.handleRecomputeChunk(msg)
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
+		// tui-picker-unify:picker 态 C-c 放行进 picker(K8s 直达 ctx 层,fview 面板
+		// 同款"面板内消费");picker 外 ctrl+c 退出终端惯例不变
+		if msg.String() == "ctrl+c" && !a.sourcePickerMode {
 			return a, a.shutdown()
 		}
 		if a.helpMode {
@@ -552,6 +566,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 有意不钳制：本消息只可能来自 FRP tab 可见的建连流程，且下方已完成 FRP 浏览态初始化——钳制回本地 tab 反而会渲染出半初始化状态
 		a.sourceTab = 3
 		a.pickerFRPLevel = 2
+		a.pickerDirFilter = "" // 进目录层清词(tui-picker-unify)
 		conn := msg.conn
 		cur := conn
 		a.pickerFRPCur = &cur
@@ -1131,32 +1146,16 @@ func (a *App) recountLevels() {
 	a.levelCounts = counts
 }
 
-func (a *App) jumpBookmark() {
-	if len(a.bookmarkSeq) == 0 || len(a.filteredView) == 0 {
-		return
-	}
-	// collect bookmark positions in filteredView order
-	var positions []int
+// markListRows 标记列表行：过滤视图序收集（A2 浮层与跳转数据源；原 jumpBookmark
+// 环绕跳转随 ' 改开关列表退役）。
+func (a *App) markListRows() []int {
+	var rows []int
 	for i, line := range a.filteredView {
 		if a.bookmarks[line.Raw.Seq] {
-			positions = append(positions, i)
+			rows = append(rows, i)
 		}
 	}
-	if len(positions) == 0 {
-		return
-	}
-	// find next bookmark after cursor
-	// 混入态光标是 ctxLines 坐标,起点先换算回 filteredView 再比较
-	start := a.cursor
-	if len(a.ctxLines) > 0 {
-		start = a.ctxToFv(a.cursor)
-	}
-	idx := sort.Search(len(positions), func(i int) bool { return positions[i] > start })
-	if idx >= len(positions) {
-		idx = 0
-	}
-	a.jumpToFv(positions[idx]) // 混入态落点换算;目标不在快照(follow 追加行)则退出后直接落
-	a.autoscroll = false
+	return rows
 }
 
 func (a *App) streamLabel() string {
@@ -1499,6 +1498,32 @@ func (a *App) handleCtxInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// isCountDigit 键串是否进 count 累积:1-9 恒真;'0' 仅已有 count 时并入
+// (无 count 时 0=行首,vim 标准)。
+func isCountDigit(key string, countN int) bool {
+	if len(key) != 1 {
+		return false
+	}
+	c := key[0]
+	return (c >= '1' && c <= '9') || (c == '0' && countN > 0)
+}
+
+// eatCountRunes 从 runes 头部吃数字进 count(clamp 1000),返回余下 runes。
+// 0 仅在已吃数字后并入;首 rune 非数字时原样返回(不消费)。
+func (a *App) eatCountRunes(runes []rune) ([]rune, int) {
+	n := a.countN
+	i := 0
+	for ; i < len(runes); i++ {
+		c := runes[i]
+		if c >= '0' && c <= '9' && (c != '0' || n > 0 || i > 0) {
+			n = min(1000, n*10+int(c-'0'))
+			continue
+		}
+		break
+	}
+	return runes[i:], n
+}
+
 func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	a.yankMsg = ""
 	if a.handlePendingKey(msg) {
@@ -1507,8 +1532,24 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if a.ctxInput != "" {
 		return a.handleCtxInputKeys(msg)
 	}
+	// vim-count:数字前缀累积(连按合并拆解——"10j" 单条 KeyRunes 先吃头部
+	// 数字,余下 rune 重组 KeyMsg 继续按序处理,与 +/- 分流同款套路)。
+	// 纯数字 return 不清(累积态要跨按键存活);n 快照后立即清零——任何
+	// 动作键发出即清,防 count 态卡死污染后续按键。
+	if msg.Type == tea.KeyRunes && !msg.Alt && len(msg.Runes) > 0 &&
+		((msg.Runes[0] >= '1' && msg.Runes[0] <= '9') || (msg.Runes[0] == '0' && a.countN > 0)) {
+		rest, cn := a.eatCountRunes(msg.Runes)
+		a.countN = cn
+		if len(rest) == 0 {
+			a.yankMsg = fmt.Sprintf("count %d", cn)
+			return a, nil
+		}
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: rest}
+	}
+	n := a.countN
+	a.countN = 0
 	if a.visualMode {
-		return a.handleVisualKeys(msg)
+		return a.handleVisualKeys(msg, n)
 	}
 
 	// 合并输入分流:终端快速连按时 bubbletea 把一个 read chunk 内的连续字符
@@ -1552,22 +1593,27 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// vim-copy:单按 y 进序列等第二键(yy=复制行);连按合并的 "yy" 直达
 		a.pendingKey = "y"
 	case "yy":
-		a.yankLines(a.cursor, a.cursor)
+		// tui-word-field:字段域连按 yy(合并形态)同走栏位复制——快慢打字同结果
+		if a.fieldFocus >= 0 {
+			a.yankFieldAt(a.fieldFocus)
+		} else {
+			a.yankLines(a.cursor, a.cursor)
+		}
 	case "F":
 		a.panelFocus = true
 		a.fieldCursor = 0
 	case "?":
 		a.helpMode = true
 	case "h":
-		a.moveCursorCol(MotionLeft)
+		a.moveCursorColN(MotionLeft, n)
 	case "l":
-		a.moveCursorCol(MotionRight)
+		a.moveCursorColN(MotionRight, n)
 	case "w":
-		a.moveCursorCol(MotionWordFwd)
+		a.moveCursorColN(MotionWordFwd, n)
 	case "b":
-		a.moveCursorCol(MotionWordBack)
+		a.moveCursorColN(MotionWordBack, n)
 	case "e":
-		a.moveCursorCol(MotionWordEnd)
+		a.moveCursorColN(MotionWordEnd, n)
 	case "0":
 		a.moveCursorCol(MotionStart)
 	case "^":
@@ -1608,8 +1654,41 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.statsPanel = !a.statsPanel
 	case "m":
 		a.toggleBookmark()
+		if a.markListOpen { // A2：删标记后列表缩短，光标钳制
+			if rows := len(a.markListRows()); a.markIdx > rows-1 {
+				a.markIdx = max(0, rows-1)
+			}
+		}
 	case "'":
-		a.jumpBookmark()
+		// A2：' 开关标记列表浮层（fview 书签列表同款，原环绕跳转退役）
+		a.markListOpen = !a.markListOpen
+		if a.markListOpen {
+			a.markIdx = 0 // 光标落第一项（fview 同款）
+		}
+	case "enter":
+		// A2：列表开着且有选中=跳转（居中锚定一次——Final Review I4 对齐 fview
+		// gotoBookmark 居中；跳转即关列表——fview 准绳，Final Declined#2）；空列表
+		// 无动作不关（fview bookmarkActivate 同款）；关着无动作
+		if a.markListOpen {
+			if rows := a.markListRows(); len(rows) > 0 {
+				a.scrollAnchor = 2 // 混入锚定同款居中机制（app.go:1383）
+				a.jumpToFv(rows[min(a.markIdx, len(rows)-1)])
+				a.autoscroll = false
+				a.markListOpen = false
+			}
+			return a, nil
+		}
+	case "ctrl+j":
+		// A2：标记列表导航（fview 同款：列表关着=被吞无动作）
+		if a.markListOpen && a.markIdx < len(a.markListRows())-1 {
+			a.markIdx++
+		}
+		return a, nil
+	case "ctrl+k":
+		if a.markListOpen && a.markIdx > 0 {
+			a.markIdx--
+		}
+		return a, nil
 	case "z":
 		a.pendingKey = "z"
 	case "I":
@@ -1626,7 +1705,7 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		"ctrl+d", "ctrl+f", "ctrl+u", "ctrl+b",
 		"up", "k", "down", "j", "pgup", "pgdown":
 		// 迭代 3:主日志界面移动键改 vim 风格 j/k(方向键保留),C-j/C-k 在主界面无绑定
-		a.moveCursor(msg.String())
+		a.moveCursor(msg.String(), n)
 	case "+", "-":
 		if a.hasActiveFilter() && len(a.filteredView) > 0 {
 			a.ctxInput = msg.String()
@@ -1642,6 +1721,12 @@ func (a *App) handlePendingKey(msg tea.KeyMsg) bool {
 		return false
 	}
 	key := msg.String()
+	// vim-count:数字打断 z/y 序列(序列不吃 count,透传回主流程累积,
+	// 对齐 fview keymap 数字分支)
+	if isCountDigit(key, a.countN) {
+		a.pendingKey = ""
+		return false
+	}
 	switch a.pendingKey {
 	case "z":
 		switch key {
@@ -1658,6 +1743,10 @@ func (a *App) handlePendingKey(msg tea.KeyMsg) bool {
 		// 键继续走主 switch,vim 手感不弹提示)
 		if key == "y" {
 			a.pendingKey = ""
+			if a.fieldFocus >= 0 {
+				a.yankFieldAt(a.fieldFocus) // tui-word-field:字段域 yy 复制栏位
+				return true
+			}
 			a.yankLines(a.cursor, a.cursor)
 			return true
 		}
@@ -1695,6 +1784,10 @@ func (a *App) escapeToNormal() {
 		a.statsPanel = false
 		return
 	}
+	if a.markListOpen { // A2：标记列表浮层（Esc 逐级，先于清搜索词）
+		a.markListOpen = false
+		return
+	}
 	if a.searchInput != "" {
 		var curLine *model.ParsedLine
 		if a.cursor >= 0 && a.cursor < len(a.filteredView) {
@@ -1719,6 +1812,7 @@ func (a *App) openSearch() {
 }
 
 func (a *App) beginVisual(charMode bool) {
+	a.fieldFocus = -1 // 字段域进 visual:清字段态(锚回落 message,双态不并存;fview startVisual 同款)
 	a.visualMode = true
 	a.visualStart = a.cursor
 	a.visualChar = charMode
@@ -1735,15 +1829,25 @@ func (a *App) openUnifiedPopup(tab int) {
 	a.searchMode = true
 	a.searchTab = tab
 	a.searchHistMode = false
+	// tui-word-field:光标词(含 visual 选区词/字段域值)直达预填——输入为空才
+	// 灌入,非空不覆盖;优先于 tab1/2 的已有词 join(fview WordsPopup seed 同序)。
+	w := a.cursorWord()
 	if tab == 0 {
+		if a.searchInput == "" && w != "" {
+			a.searchInput = w
+		}
 		a.searchCursor = len([]rune(a.searchInput))
 	} else if tab == 1 {
-		if a.highlightInput == "" && len(a.highlights) > 0 {
+		if a.highlightInput == "" && w != "" {
+			a.highlightInput = w
+		} else if a.highlightInput == "" && len(a.highlights) > 0 {
 			a.highlightInput = strings.Join(a.highlights, ", ")
 		}
 		a.highlightCursor = len([]rune(a.highlightInput))
 	} else {
-		if a.hideInput == "" && len(a.hides) > 0 {
+		if a.hideInput == "" && w != "" {
+			a.hideInput = w
+		} else if a.hideInput == "" && len(a.hides) > 0 {
 			a.hideInput = strings.Join(a.hides, ", ")
 		}
 		a.hideCursor = len([]rune(a.hideInput))
@@ -1774,16 +1878,32 @@ func (a *App) toggleFold() {
 }
 
 // moveCursor 统一处理光标移动键族（gg/G/H/M/L/半页/整页/上下/pgup/pgdown）。
-func (a *App) moveCursor(key string) {
+// n = vim-count(0/1=单步);g/G 跳第 n 行,翻页倍乘,j/k 步进;H/M/L/pg 系不吃
+// (vim 冷门语义,YAGNI)。
+func (a *App) moveCursor(key string, n int) {
 	last := len(a.viewLines()) - 1
+	steps := max(1, n)
 	switch key {
 	case "g":
-		a.cursor = 0
-		a.autoscroll = false
+		if n > 0 {
+			a.cursor = min(n-1, max(0, last))
+			a.autoscroll = false
+		} else {
+			a.cursor = 0
+			a.autoscroll = false
+		}
+		a.cursor = a.skipFolded(a.cursor, 1)
 		a.scrollAnchor = 0
 	case "G":
-		a.cursor = max(0, last)
-		a.autoscroll = true
+		if n > 0 {
+			a.cursor = min(n-1, max(0, last))
+			a.cursor = a.skipFolded(a.cursor, 1)
+		} else {
+			a.cursor = max(0, last)
+		}
+		// count+G 不开跟随:autoscroll 下 buildLogLines 每帧把光标钉回末行,
+		// 跳行会被当帧摧毁(Final Review C1);裸 G 到底保持跟随
+		a.autoscroll = n <= 0
 		a.scrollAnchor = 0
 	case "H":
 		a.cursor = a.offset
@@ -1804,28 +1924,28 @@ func (a *App) moveCursor(key string) {
 		a.autoscroll = false
 		a.scrollAnchor = 0
 	case "ctrl+d":
-		a.cursor += a.visibleLines() / 2
+		a.cursor += a.visibleLines() / 2 * steps
 		if a.cursor > last {
 			a.cursor = max(0, last)
 		}
 		a.cursor = a.skipFolded(a.cursor, 1)
 		a.autoscroll = (a.cursor == last)
 	case "ctrl+f":
-		a.cursor += a.visibleLines()
+		a.cursor += a.visibleLines() * steps
 		if a.cursor > last {
 			a.cursor = last
 		}
 		a.cursor = a.skipFolded(a.cursor, 1)
 		a.autoscroll = (a.cursor == last)
 	case "ctrl+u":
-		a.cursor -= a.visibleLines() / 2
+		a.cursor -= a.visibleLines() / 2 * steps
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
 		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "ctrl+b":
-		a.cursor -= a.visibleLines()
+		a.cursor -= a.visibleLines() * steps
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
@@ -1833,13 +1953,16 @@ func (a *App) moveCursor(key string) {
 		a.autoscroll = false
 	case "up", "k": // vim 风格 k 上移(原 C-k,迭代 3 改)
 		if a.cursor > 0 {
-			a.cursor--
+			a.cursor -= steps
+			if a.cursor < 0 {
+				a.cursor = 0
+			}
 			a.cursor = a.skipFolded(a.cursor, -1)
 			a.autoscroll = false
 		}
 	case "down", "j": // vim 风格 j 下移(原 C-j,迭代 3 改)
 		if a.cursor < last {
-			a.cursor++
+			a.cursor += steps
 			a.cursor = a.skipFolded(a.cursor, 1)
 			if a.cursor > last {
 				a.cursor = last
@@ -1847,14 +1970,14 @@ func (a *App) moveCursor(key string) {
 		}
 		a.autoscroll = (a.cursor == last)
 	case "pgup":
-		a.cursor -= a.visibleLines()
+		a.cursor -= a.visibleLines() * steps // tui-picker-unify 顺手:pg 系乘 count(对齐 fview,清 deferred#3)
 		if a.cursor < 0 {
 			a.cursor = 0
 		}
 		a.cursor = a.skipFolded(a.cursor, -1)
 		a.autoscroll = false
 	case "pgdown":
-		a.cursor += a.visibleLines()
+		a.cursor += a.visibleLines() * steps
 		if a.cursor > last {
 			a.cursor = last
 		}
@@ -1864,7 +1987,9 @@ func (a *App) moveCursor(key string) {
 	if len(a.ctxLines) > 0 {
 		a.autoscroll = false // 混入态冻结跟随:follow 新行不进快照,滚动无意义
 	}
-	// vim-copy:行切换保持列记忆(colWish clamp 到新行消息长)
+	// vim-copy:行切换保持列记忆(colWish clamp 到新行消息长)。tui-word-field:
+	// fieldFocus 跨行保持(fview 同款——字段域 j 逐行扫一列是核心用法,栏索引
+	// 是 AllFields 全局序非行内坐标,不存在错乱)。
 	if a.cursorCol >= 0 {
 		a.cursorCol = a.clampColWish()
 	}
@@ -1884,9 +2009,43 @@ func (a *App) clampColWish() int {
 }
 
 // moveCursorCol h/l/w/b/e/0/$/^ 字符光标移动(message rune 域;光标行越界防御)。
+// moveCursorColN 词族移动 ×n(vim-count;逐步走,首尾停住天然 clamp)。
+func (a *App) moveCursorColN(m Motion, n int) {
+	for i := 0; i < max(1, n); i++ {
+		a.moveCursorCol(m)
+	}
+}
+
 func (a *App) moveCursorCol(m Motion) {
 	vl := a.viewLines()
 	if a.cursor < 0 || a.cursor >= len(vl) {
+		return
+	}
+	// tui-word-field:字段域栏间移动(对齐 fview field-interact)——h/l 走栏,
+	// message motion(0/^/$/w/b/e)回跳 message from=0;最右栏 l 回 message col0。
+	if a.fieldFocus >= 0 {
+		nf := a.visibleFieldCount()
+		switch m {
+		case MotionLeft:
+			if a.fieldFocus > 0 {
+				a.fieldFocus--
+			}
+			return // 最左栏停住
+		case MotionRight:
+			if a.fieldFocus < nf-1 {
+				a.fieldFocus++
+				return
+			}
+			a.fieldFocus = -1 // 最右栏 → 回 message col0
+			a.cursorCol = 0
+			a.colWish = 0
+			return
+		}
+		a.fieldFocus = -1 // 0/^/$/w/b/e 回 message
+	} else if m == MotionLeft && a.cursorCol == 0 && a.visibleFieldCount() > 0 {
+		// message 最左列再按 h:跳入字段域最右栏(对齐 fview)
+		a.fieldFocus = a.visibleFieldCount() - 1
+		a.cursorCol = -1
 		return
 	}
 	from := a.cursorCol
@@ -1897,13 +2056,31 @@ func (a *App) moveCursorCol(m Motion) {
 	a.colWish = a.cursorCol
 }
 
-func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// visibleFieldCount 可见字段栏数(不含 message;h 跳入/两端停的域边界)。
+func (a *App) visibleFieldCount() int {
+	n := 0
+	for _, f := range model.AllFields {
+		if f != model.FieldMessage && a.fieldMask.IsVisible(f) {
+			n++
+		}
+	}
+	return n
+}
+
+func (a *App) handleVisualKeys(msg tea.KeyMsg, n int) (tea.Model, tea.Cmd) {
 	clampCol := func() { // 行切换后列记忆 clamp(字符选区端点跟随)
 		if a.cursorCol >= 0 {
 			a.cursorCol = a.clampColWish()
 		}
 	}
 	switch msg.String() {
+	case "/", "f":
+		// tui-word-field:选区词直达(fview 工作流对齐——visual 下 / 进搜索带选区词)
+		a.openUnifiedPopup(0)
+	case "ctrl+h":
+		a.openUnifiedPopup(1)
+	case "ctrl+x":
+		a.openUnifiedPopup(2)
 	case "y":
 		// vim-copy:字符选区复制子串(所见 message),行级保持 raw 行区间;y 后退出
 		if a.visualChar {
@@ -1916,30 +2093,44 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.visualChar = false
 	case "up", "k": // 可视模式同主界面 vim 风格 j/k(迭代 3 改,C-j/C-k 无绑定)
 		if a.cursor > 0 {
-			a.cursor--
+			a.cursor -= max(1, n)
+			if a.cursor < 0 {
+				a.cursor = 0
+			}
 		}
 		clampCol()
 	case "down", "j":
 		if a.cursor < len(a.filteredView)-1 {
-			a.cursor++
+			a.cursor += max(1, n)
+			if a.cursor > len(a.filteredView)-1 {
+				a.cursor = len(a.filteredView) - 1
+			}
 		}
 		clampCol()
 	case "G":
-		a.cursor = max(0, len(a.filteredView)-1)
+		if n > 0 {
+			a.cursor = min(n-1, max(0, len(a.filteredView)-1))
+		} else {
+			a.cursor = max(0, len(a.filteredView)-1)
+		}
 		clampCol()
 	case "g":
-		a.cursor = 0
+		if n > 0 {
+			a.cursor = min(n-1, max(0, len(a.filteredView)-1))
+		} else {
+			a.cursor = 0
+		}
 		clampCol()
 	case "h":
-		a.moveCursorCol(MotionLeft)
+		a.moveCursorColN(MotionLeft, n)
 	case "l":
-		a.moveCursorCol(MotionRight)
+		a.moveCursorColN(MotionRight, n)
 	case "w":
-		a.moveCursorCol(MotionWordFwd)
+		a.moveCursorColN(MotionWordFwd, n)
 	case "b":
-		a.moveCursorCol(MotionWordBack)
+		a.moveCursorColN(MotionWordBack, n)
 	case "e":
-		a.moveCursorCol(MotionWordEnd)
+		a.moveCursorColN(MotionWordEnd, n)
 	case "0":
 		a.moveCursorCol(MotionStart)
 	case "^":
@@ -1952,6 +2143,66 @@ func (a *App) handleVisualKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // charSelRowRange 字符选区某行的 rune 列区间(端点 inclusive,to=-1 到行尾);
 // 非选区行/折叠隐藏行 ok=false。行序小端为首行、大端为尾行(锚/光标自动归一)。
+// cursorWord 光标取词(tui-word-field,对齐 fview LogView.cursorWord):visual 选区
+// 优先(char=选区首行子串/line=锚行 message),字段域取整字段原始值,否则 message
+// 光标词(wordAt 同 w/b/e 词口径);空词返回 ""(调用方保持原行为)。
+func (a *App) cursorWord() string {
+	vl := a.viewLines()
+	if a.visualMode {
+		if a.visualChar {
+			lo := min(a.visualStart, a.cursor)
+			if lo >= 0 && lo < len(vl) {
+				from, to, ok := a.charSelRowRange(lo)
+				if ok {
+					r := []rune(vl[lo].Message())
+					if from < 0 || from >= len(r) {
+						return ""
+					}
+					if to < 0 || to >= len(r) {
+						to = len(r) - 1
+					}
+					if from <= to {
+						return string(r[from : to+1])
+					}
+				}
+			}
+			return ""
+		}
+		if a.visualStart >= 0 && a.visualStart < len(vl) {
+			return vl[a.visualStart].Message()
+		}
+		return ""
+	}
+	if a.fieldFocus >= 0 {
+		if a.cursor >= 0 && a.cursor < len(vl) {
+			if f, ok := a.visibleFieldAt(a.fieldFocus); ok {
+				return vl[a.cursor].Get(f)
+			}
+		}
+		return ""
+	}
+	if a.cursorCol < 0 || a.cursor < 0 || a.cursor >= len(vl) {
+		return ""
+	}
+	return wordAt(vl[a.cursor].Message(), a.cursorCol)
+}
+
+// visibleFieldAt 可见字段栏索引(左起 0 基,不含 message)→字段名;越界 false。
+// 渲染注入与移动/取词共用,保证栏序单一来源。
+func (a *App) visibleFieldAt(i int) (model.Field, bool) {
+	n := 0
+	for _, f := range model.AllFields {
+		if f == model.FieldMessage || !a.fieldMask.IsVisible(f) {
+			continue
+		}
+		if n == i {
+			return f, true
+		}
+		n++
+	}
+	return model.FieldMessage, false
+}
+
 func (a *App) charSelRowRange(lineIdx int) (from, to int, ok bool) {
 	if !a.visualMode || !a.visualChar {
 		return 0, 0, false
@@ -2024,10 +2275,9 @@ func (a *App) yankCharSel() {
 }
 
 func (a *App) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "?", "esc", "q", "enter":
-		a.helpMode = false
-	}
+	// keybind-unify-r2 A8：任意键关闭（fview HelpModal 同款）——帮助开着时无并行
+	// 操作，按键即关并吞（原四键 ?/Esc/q/Enter 为其子集）。
+	a.helpMode = false
 	return a, nil
 }
 
@@ -2216,6 +2466,14 @@ func (a *App) View() string {
 	}
 	allLines = append(allLines, helpBar)
 	out := strings.Join(allLines, "\n")
+	// A2：标记列表浮层，右上叠加（非模态，不抢日志键）
+	if a.markListOpen {
+		if ov := a.markListOverlay(cw); ov != "" {
+			if first := strings.Split(ov, "\n"); len(first) > 0 {
+				out = overlayRightTop(out, ov, max(0, w-displayWidth(first[0])-4), 1)
+			}
+		}
+	}
 	if AppBgSeq != "" {
 		reset := "\x1b[0m"
 		out = strings.ReplaceAll(out, reset, reset+AppBgSeq)
@@ -2249,6 +2507,28 @@ func (a *App) inlinePopupLines(popupContent string, vl int) []string {
 		lines = append(lines, a.buildLogLines(remain)...)
 	}
 	return lines
+}
+
+// yankFieldAt 字段域 yy:复制光标行指定栏原始值(未 pad/未样式,对齐 fview)。
+func (a *App) yankFieldAt(fi int) {
+	vl := a.viewLines()
+	if a.cursor < 0 || a.cursor >= len(vl) {
+		return
+	}
+	f, ok := a.visibleFieldAt(fi)
+	if !ok {
+		return
+	}
+	v := vl[a.cursor].Get(f)
+	if v == "" {
+		a.yankMsg = fmt.Sprintf("字段 %s 为空,未复制", f) // fview fieldYank 同款:空值不进剪贴板防误导
+		return
+	}
+	if err := copyToClipboard(v); err != nil {
+		a.yankMsg = "复制失败: " + err.Error()
+		return
+	}
+	a.yankMsg = fmt.Sprintf("已复制字段 %s=%s", f, v)
 }
 
 func (a *App) yankLines(start, end int) {

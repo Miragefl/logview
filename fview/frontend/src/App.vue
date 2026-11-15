@@ -62,12 +62,13 @@ const railRef = ref<InstanceType<typeof SidebarRail> | null>(null)
 
 // 设置中心（Task 10 接入对话框，先占位开关）
 const settingsShow = ref(false)
-/** copied y 复制反馈(数量+单位,3s 闪现;vim-copy 字符选区单位为字符)。 */
-const copied = ref<{ n: number; unit: '行' | '字符' }>({ n: 0, unit: '行' })
+/** copied y 复制反馈(数量+单位,3s 闪现;vim-copy 字符选区单位为字符;
+ *  field-interact 空值复制带 empty 标记闪"空值未复制")。 */
+const copied = ref<{ n: number; unit: '行' | '字符'; empty?: boolean }>({ n: 0, unit: '行' })
 
-/** flashCopied 复制成功反馈 3s。 */
-function flashCopied(r?: { n: number; unit: '行' | '字符' }) {
-  if (!r || r.n <= 0) return
+/** flashCopied 复制成功反馈 3s;n<=0 且无 empty 标记为无选区 no-op 静默。 */
+function flashCopied(r?: { n: number; unit: '行' | '字符'; empty?: boolean }) {
+  if (!r || (r.n <= 0 && !r.empty)) return
   copied.value = r
   setTimeout(() => (copied.value = { n: 0, unit: '行' }), 3000)
 }
@@ -128,7 +129,8 @@ function isTyping(e: KeyboardEvent): boolean {
   )
 }
 // ---- vim 键位机(验收反馈④):resolveKey 纯映射 + dispatch 接线 ----
-const keyState = { pendingZ: false, pendingY: false }
+// reactive:pendingCount 驱动 StatusBar showcmd 式反馈(数字输入中右下角显示)
+const keyState = reactive({ pendingZ: false, pendingY: false })
 /** onMouseMove 键盘导航态复位(藏指针/悬停抑制随之解除)。位移 <2px 的 mousemove
  *  视为噪声不解除(滚动期间指针重算/触摸板抖动会派发零位移事件,真机首验踩坑)——
  *  真移动必超阈值,防误复位于未然;bool 判断 O(1),已复位时零开销。 */
@@ -153,11 +155,11 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     return
   }
-  const { action, arg } = resolveKey(e, keyState)
+  const { action, arg, count } = resolveKey(e, keyState)
   if (action === 'none' || action === 'pending') return
   // ⌘C/Ctrl+C 无选区放行系统(输入框已前置让位;有选区才拦截走 yankSelection)
   if (action === 'copySelection' && !logviewRef.value?.hasSelection()) return
-  // 阻止浏览器默认行为(/ 快速搜索、ctrl+w/数字等系统键)
+  // 阻止浏览器默认行为(/ 快速搜索、C-w/数字等系统键、方向键页面滚动——keybind-unify-r2)
   if (
     action === 'search' ||
     action === 'highlight' ||
@@ -169,37 +171,43 @@ function onKeydown(e: KeyboardEvent) {
     action === 'zoomIn' ||
     action === 'zoomOut' ||
     action === 'navDown' ||
-    action === 'navUp'
+    action === 'navUp' ||
+    action === 'cursorDown' ||
+    action === 'cursorUp' ||
+    action === 'cursorLeft' ||
+    action === 'cursorRight'
   ) {
     e.preventDefault()
   }
-  dispatchKey(action, arg)
+  dispatchKey(action, arg, count)
 }
 
-function dispatchKey(action: KeyAction, arg?: string) {
+/** dispatchKey count = vim 数字前缀(3j/5G/2C-d);仅移动键携带,undefined=单步。 */
+function dispatchKey(action: KeyAction, arg?: string, count?: number) {
   const lv = logviewRef.value
   switch (action) {
     case 'cursorDown':
-      lv?.moveCursor(1)
+      lv?.moveCursor(count ?? 1)
       break
     case 'cursorUp':
-      lv?.moveCursor(-1)
+      lv?.moveCursor(-(count ?? 1))
       break
-    // 字符光标移动(vim-copy):message rune 域,h/l/w/b/e/0/$/^(Task3 接线)
+    // 字符光标移动(vim-copy):message rune 域,h/l/w/b/e/0/$/^(Task3 接线);
+    // count 前缀对 h/l/w/b/e 生效(vim 惯例全量移动键)
     case 'cursorLeft':
-      lv?.moveCursorCol('left')
+      lv?.moveCursorCol('left', count)
       break
     case 'cursorRight':
-      lv?.moveCursorCol('right')
+      lv?.moveCursorCol('right', count)
       break
     case 'wordFwd':
-      lv?.moveCursorCol('wordFwd')
+      lv?.moveCursorCol('wordFwd', count)
       break
     case 'wordBack':
-      lv?.moveCursorCol('wordBack')
+      lv?.moveCursorCol('wordBack', count)
       break
     case 'wordEnd':
-      lv?.moveCursorCol('wordEnd')
+      lv?.moveCursorCol('wordEnd', count)
       break
     case 'lineStart':
       lv?.moveCursorCol('start')
@@ -211,10 +219,11 @@ function dispatchKey(action: KeyAction, arg?: string) {
       lv?.moveCursorCol('end')
       break
     case 'gotoTop':
-      lv?.gotoTop()
+      // vim-count:5g/10G 跳视图第 N 行;无 count 保持回顶
+      count ? lv?.gotoLine(count) : lv?.gotoTop()
       break
     case 'gotoBottom':
-      lv?.gotoBottom()
+      count ? lv?.gotoLine(count) : lv?.gotoBottom()
       break
     case 'viewportTop':
       lv?.cursorToViewport('top')
@@ -235,16 +244,16 @@ function dispatchKey(action: KeyAction, arg?: string) {
       lv?.anchorCursor('b')
       break
     case 'halfDown':
-      lv?.halfPage(1)
+      lv?.halfPage(1, count)
       break
     case 'halfUp':
-      lv?.halfPage(-1)
+      lv?.halfPage(-1, count)
       break
     case 'pageDown':
-      lv?.pageMove(1)
+      lv?.pageMove(1, count)
       break
     case 'pageUp':
-      lv?.pageMove(-1)
+      lv?.pageMove(-1, count)
       break
     case 'nextHit':
       lv?.cursorToHit(1)
@@ -253,14 +262,14 @@ function dispatchKey(action: KeyAction, arg?: string) {
       lv?.cursorToHit(-1)
       break
     case 'search':
-      // SLS 式常驻条(第六轮):/、f 聚焦输入框
-      searchStore.focusBar()
+      // SLS 式常驻条(第六轮):/、f 聚焦输入框;field-interact 带光标词/选区词预填
+      searchStore.focusBar(logviewRef.value?.cursorWord() || undefined)
       break
     case 'highlight':
-      searchStore.openWords('hl')
+      searchStore.openWords('hl', logviewRef.value?.cursorWord() || undefined)
       break
     case 'hide':
-      searchStore.openWords('hide')
+      searchStore.openWords('hide', logviewRef.value?.cursorWord() || undefined)
       break
     case 'level':
       // 级别档位 = 大写 E/W/I/D/A(小写已释放给折叠/换行/详情,对齐 TUI)
@@ -309,6 +318,9 @@ function dispatchKey(action: KeyAction, arg?: string) {
     // ---- 全键盘操作(第四轮验收③) ----
     case 'sources':
       railRef.value?.cyclePane()
+      break
+    case 'sourcesBack':
+      railRef.value?.cyclePane(-1)
       break
     case 'settings':
       settingsShow.value = !settingsShow.value
@@ -446,7 +458,7 @@ onBeforeUnmount(() => {
               @update:widths="onColWidths"
               @copied="flashCopied"
             />
-            <StatusBar :copied="copied.n" :copied-unit="copied.unit" />
+            <StatusBar :copied="copied.n" :copied-unit="copied.unit" :copied-empty="copied.empty" :pending-count="keyState.pendingCount" />
           </template>
         </main>
       </div>

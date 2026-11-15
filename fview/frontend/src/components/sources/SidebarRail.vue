@@ -27,11 +27,17 @@ function toggle(k: Pane) {
   ui.panelFilter = '' // 切面板清词(过滤词是面板会话态,不跨面板残留)
 }
 
-/** cyclePane q 键循环源面板(第四轮验收③全键盘):local→ssh→k8s→frp→收起。 */
+/** cyclePane q/Q 键循环源面板(第四轮验收③全键盘):local→ssh→k8s→frp→收起;
+ *  dir=-1 反向(vim-count:Q,收起→frp→k8s→ssh→local→收起)。 */
 const ORDER: Exclude<Pane, ''>[] = ['local', 'ssh', 'k8s', 'frp']
-function cyclePane() {
+function cyclePane(dir: 1 | -1 = 1) {
   const cur = ORDER.indexOf(active.value as Exclude<Pane, ''>)
-  active.value = cur < 0 ? ORDER[0] : cur === ORDER.length - 1 ? '' : ORDER[cur + 1]
+  if (cur < 0) {
+    active.value = dir > 0 ? ORDER[0] : ORDER[ORDER.length - 1]
+  } else {
+    const next = cur + dir
+    active.value = next < 0 || next >= ORDER.length ? '' : ORDER[next]
+  }
   ui.panelFilter = '' // 切面板清词
 }
 defineExpose({ cyclePane })

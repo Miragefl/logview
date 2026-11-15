@@ -155,6 +155,53 @@ func (a *App) jumpSearchMatch(dir int) {
 	a.updateSearchStats()
 }
 
+// searchWords 当前分区词表（B2：tab1=高亮词 / tab2=隐藏词，词表渲染与 C-d 删除数据源）。
+func (a *App) searchWords() []string {
+	if a.searchTab == 1 {
+		return a.highlights
+	}
+	if a.searchTab == 2 {
+		return a.hides
+	}
+	return nil
+}
+
+// deleteSearchWord 删除词表光标词并重算（B2；空表无动作，删后 idx 前移钳制）。
+func (a *App) deleteSearchWord() {
+	words := a.searchWords()
+	if len(words) == 0 || a.searchWordIdx >= len(words) {
+		return
+	}
+	w := words[a.searchWordIdx]
+	if a.searchTab == 1 {
+		out := a.highlights[:0]
+		for _, x := range a.highlights {
+			if x != w {
+				out = append(out, x)
+			}
+		}
+		a.highlights = out
+		// Final Review I2：同步输入框（confirmHighlights 按 input 全量重建——
+		// 不同步则 Enter 复活已删词），光标置尾
+		a.highlightInput = strings.Join(a.highlights, ", ")
+		a.highlightCursor = len([]rune(a.highlightInput))
+	} else {
+		out := a.hides[:0]
+		for _, x := range a.hides {
+			if x != w {
+				out = append(out, x)
+			}
+		}
+		a.hides = out
+		a.hideInput = strings.Join(a.hides, ", ")
+		a.hideCursor = len([]rune(a.hideInput))
+		a.recomputeView() // 隐藏词变更影响过滤视图
+	}
+	if a.searchWordIdx > 0 {
+		a.searchWordIdx--
+	}
+}
+
 func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if a.searchHistMode {
 		return a.handleSearchHistKeys(msg)
@@ -173,11 +220,13 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.activeSearchInput().clamp()
 		a.searchPending = false // 切分区取消未应用输入的防抖
 		a.searchDebounceTok++
+		a.searchWordIdx = 0 // B2：切分区词表光标归零
 	case tea.KeyShiftTab:
 		a.searchTab = (a.searchTab + 2) % 3
 		a.activeSearchInput().clamp()
 		a.searchPending = false
 		a.searchDebounceTok++
+		a.searchWordIdx = 0
 	default:
 		if _, changed := input.handleEditKeys(msg); changed && a.searchTab == 0 {
 			a.chunkTok++ // 输入已变,作废在途分帧刷新(其查询条件已过期)
@@ -199,6 +248,25 @@ func (a *App) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if a.searchTab == 0 {
 				a.timePresetMode = !a.timePresetMode
 				a.timePresetCursor = 0
+			}
+		case "ctrl+j":
+			// keybind-unify-r2 B2：tab1/2 词表导航（fview WordsPopup 同款）
+			if a.searchTab == 1 || a.searchTab == 2 {
+				if a.searchWordIdx < len(a.searchWords())-1 {
+					a.searchWordIdx++
+				}
+			}
+		case "ctrl+k":
+			if a.searchTab == 1 || a.searchTab == 2 {
+				if a.searchWordIdx > 0 {
+					a.searchWordIdx--
+				}
+			}
+		case "ctrl+d":
+			// keybind-unify-r2 B2：删词表光标词（历史态 C-d 由 handleSearchHistKeys
+			// 接管=无操作，fview WordsPopup 历史态不删同款）
+			if a.searchTab == 1 || a.searchTab == 2 {
+				a.deleteSearchWord()
 			}
 		case "ctrl+r":
 			// 打开当前分区历史列表(搜索=时序;高亮/隐藏=当前源词频快照)
@@ -278,6 +346,9 @@ func (a *App) handleSearchHistKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyCtrlR:
 		// 列表内再按 ctrl+r：无操作（避免误关）
+	case tea.KeyCtrlD:
+		// 列表内 ctrl+d：无操作（Final Review I1——default 关列表转发会误删词表词；
+		// fview WordsPopup 历史态 navIdx 语义：C-d 只在非历史态删词）
 	default:
 		// 其他未识别键（Tab 等）：关闭列表，回正常搜索处理
 		a.searchHistMode = false

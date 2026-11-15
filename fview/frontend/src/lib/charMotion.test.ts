@@ -2,7 +2,7 @@
 // 为词字符,连续标点为一词,空白跳过;消息首尾停住(不跨行接续)。
 // 用例编号 m*/s*/w* 与 TUI internal/tui/charnav_test.go 逐条对齐(双端同表)。
 import { describe, expect, it } from 'vitest'
-import { applyMotion, charSelText, colToSeg, isWordRune } from './charMotion'
+import { applyMotion, charSelText, colToSeg, isWordRune, wordAt } from './charMotion'
 
 describe('applyMotion 词移动(m 系列)', () => {
   it('m01: hello world 基本词移动', () => {
@@ -110,5 +110,39 @@ describe('colToSeg wrap 段投影(w 系列)', () => {
 
   it('w02: 空段数组与空消息安全', () => {
     expect(colToSeg([''], 0)).toEqual({ segIdx: 0, colInSeg: 0 })
+  })
+})
+
+describe('wordAt 光标取词(wa 系列,field-interact)', () => {
+  it('wa01: 词中/词尾取整词', () => {
+    expect(wordAt('timeout=3000', 3)).toBe('timeout')
+    expect(wordAt('timeout=3000', 6)).toBe('timeout')
+  })
+
+  it('wa02: 标点上返回空串(vim * 手感,灌标点进搜索框是噪声——验收 #6)', () => {
+    expect(wordAt('timeout=3000', 7)).toBe('')
+    expect(wordAt('a == b', 3)).toBe('')
+  })
+
+  it('wa03: 数字段取整段', () => {
+    expect(wordAt('timeout=3000', 9)).toBe('3000')
+  })
+
+  it('wa04: 空白上返回空串', () => {
+    expect(wordAt('a b', 1)).toBe('')
+    expect(wordAt('   ', 1)).toBe('')
+  })
+
+  it('wa05: CJK 连成词段', () => {
+    expect(wordAt('中文日志', 1)).toBe('中文日志')
+    expect(wordAt('中文 log', 0)).toBe('中文')
+  })
+
+  it('wa06: 空消息返回空串', () => {
+    expect(wordAt('', 0)).toBe('')
+  })
+
+  it('wa07: 越界 col clamp 进词内', () => {
+    expect(wordAt('abc', 99)).toBe('abc')
   })
 })

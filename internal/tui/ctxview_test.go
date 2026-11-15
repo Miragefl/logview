@@ -768,22 +768,24 @@ func TestCtxViewJumpToFollowLineExits(t *testing.T) {
 	}
 }
 
-// I1 回归(书签跳转):jumpBookmark 落点不在快照时同样退出混入后直接用 fv 索引。
+// I1 回归(标记跳转):列表 Enter 落点不在快照时同样退出混入后直接用 fv 索引
+// (keybind-unify-r2 A2:' 开列表+Enter 跳转,原 jumpBookmark 退役)。
 func TestCtxViewJumpBookmarkFollowLineExits(t *testing.T) {
 	app := ctxSetup(t)
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
 	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	followFollowLine(app)
-	// 书签打在 follow 追加行 L13 上(Seq=13,不在混入快照内)
+	// 标记打在 follow 追加行 L13 上(Seq=13,不在混入快照内)
 	app.bookmarks[uint64(13)] = true
 	app.bookmarkSeq = append(app.bookmarkSeq, uint64(13))
-	app.jumpBookmark()
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\''}}) // 开列表
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})                      // 跳选中项
 	if len(app.ctxLines) != 0 {
-		t.Fatal("书签目标行不在快照,jumpBookmark 应先退出混入再落点")
+		t.Fatal("标记目标行不在快照,Enter 跳转应先退出混入再落点")
 	}
 	if msg := app.filteredView[app.cursor].Message(); msg != "L13" {
-		t.Fatalf("书签跳转应落在 follow 追加行 L13 上, got %s(cursor=%d)", msg, app.cursor)
+		t.Fatalf("标记跳转应落在 follow 追加行 L13 上, got %s(cursor=%d)", msg, app.cursor)
 	}
 }
 

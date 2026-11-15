@@ -194,6 +194,10 @@ export function UsageRecent() {
   return window['go']['main']['App']['UsageRecent']();
 }
 
+export function UsageScores(arg1) {
+  return window['go']['main']['App']['UsageScores'](arg1);
+}
+
 export function UsageTouch(arg1) {
   return window['go']['main']['App']['UsageTouch'](arg1);
 }
