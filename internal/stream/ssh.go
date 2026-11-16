@@ -99,6 +99,9 @@ func NewSSHSource(host, path string, tailLines int) *SSHSource {
 	return &SSHSource{host: host, path: path, tailLines: tailLines}
 }
 
+// EncodingKey 编码记忆标识:主机+路径(同主机不同路径独立记忆)。
+func (s *SSHSource) EncodingKey() string { return "ssh:" + s.host + s.path }
+
 // SetPort 指定 ssh 端口（frp 隧道场景 127.0.0.1:bindPort）。
 func (s *SSHSource) SetPort(p int) { s.port = p }
 
@@ -195,13 +198,14 @@ func (s *SSHSource) stream(ctx context.Context, b *Batcher) {
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	st := newEncStager() // 远端日志流检测;含 ERROR 前缀行(远端数据,同源编码)
 	for scanner.Scan() {
 		text := scanner.Text()
 		// surface common ssh failures as ERROR-flavored lines for visibility
 		if isSSHErrorLine(text) {
 			text = fmt.Sprintf("ERROR %s", text)
 		}
-		if !b.Send(text, s.host) {
+		if !st.send(b, text, s.host) {
 			return
 		}
 	}

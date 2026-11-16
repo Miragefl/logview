@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/Miragefl/logview/internal/buffer"
+	"github.com/Miragefl/logview/internal/encoding"
 	"github.com/Miragefl/logview/internal/export"
 	"github.com/Miragefl/logview/internal/frp"
 	"github.com/Miragefl/logview/internal/model"
@@ -132,6 +133,20 @@ type App struct {
 
 	searchHistory     []string
 	currentScope      string   // 当前源词频隔离域(NewApp/ReplaceStream 刷新,空=全局)
+	// 字符集生效状态(charset-support):effEnc=当前生效编码(auto=跟随检测),
+	// 到达行按行级 Enc 标记校正;curEncKey=当前源记忆标识(手动选择落盘用)。
+	// detectedEnc=流级检测结论(首个数据行到达时记录,切回 auto 的重转目标);
+	// encConfirming/encPending=大存量切换确认层状态。
+	effEnc       encoding.Encoding
+	encStore     *encoding.Store
+	curEncKey    string
+	detectedEnc  encoding.Encoding
+	encConfirming bool
+	encPending    encoding.Encoding
+	encPendingBytes int64
+	// 编码选择弹窗(P 呼出,模态):encIdx 为 encPopupItems 下标
+	encPopup bool
+	encIdx   int
 	searchPending     bool     // 搜索输入已变更未应用(防抖期)
 	searchDebounceTok int      // 防抖令牌:输入变更/立即应用时自增,在途 tick 携带旧令牌即作废
 	searchHistMode    bool     // ctrl+r 历史列表 overlay 是否展开
@@ -280,6 +295,7 @@ func NewApp(src stream.LogStream, parsers *parser.AutoDetect, bufSize int, hides
 		exportState:    newExportState(),
 		sshPasswords:   make(map[string]string),
 		currentScope:   src.Scope(),
+		encStore:       encoding.NewStore(encoding.DefaultStorePath()),
 		sourceColorIdx: make(map[string]int),
 		bookmarks:      make(map[uint64]bool),
 		availableTabs:  availableSourceTabs(),
@@ -358,6 +374,15 @@ func (a *App) ReplaceStream(src stream.LogStream) tea.Cmd {
 	a.stream.Cleanup()
 	a.stream = src
 	a.currentScope = src.Scope()
+	// 编码状态随源刷新:记忆里手动选过的源直接预置生效(charset-support)
+	a.curEncKey = ""
+	a.effEnc = encoding.EncAuto
+	a.detectedEnc = encoding.EncAuto
+	a.encConfirming = false
+	if keyer, ok := src.(stream.EncodingKeyer); ok {
+		a.curEncKey = keyer.EncodingKey()
+		a.effEnc = a.encStore.LoadFor(a.curEncKey)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
 	// 无论 Start 成败都按新源重置视图（失败时在干净视图上展示错误行）
@@ -494,6 +519,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.helpMode {
 			return a.handleHelpKeys(msg)
 		}
+		if a.encConfirming {
+			return a.handleEncConfirmKeys(msg)
+		}
+		if a.encPopup {
+			return a.handleEncPopupKeys(msg)
+		}
 		if a.sshPwMode {
 			return a.handleSSHPwKeys(msg)
 		}
@@ -612,6 +643,7 @@ func (a *App) processBatch(lines []model.RawLine) {
 		jobs := make([]job, len(lines))
 		var last parser.Parser
 		for i, raw := range lines {
+			a.correctIncoming(&raw)
 			raw.Text = model.StripANSI(raw.Text)
 			p := a.parsers.Detect(raw)
 			if p != nil {
@@ -703,7 +735,207 @@ func (a *App) evictViewHead() {
 	}
 }
 
+// correctIncoming 到达行编码校正(charset-support):effEnc 非默认(手动/记忆)
+// 且行非程序行、与生效编码不一致时,按"取回原始字节再按生效编码解释"重转。
+// processLine 与 processBatch(≥512 并行段)双入口统一走这里。
+func (a *App) correctIncoming(raw *model.RawLine) {
+	// 首个数据行记录流级检测结论(校正覆盖行 Enc 前留住,切回 auto 的重转目标);
+	// 只升不改:GBK 流前导 ASCII 段直通行标 UTF8,真结论 GB18030 在首个非 ASCII
+	// 行才出现——首个 GB18030 标记行升级结论(I1:锁死首行会让切回 auto 整屏乱码)。
+	if raw.Enc != encoding.EncAuto && raw.Enc != encoding.EncApp {
+		if a.detectedEnc == encoding.EncAuto ||
+			(a.detectedEnc == encoding.EncUTF8 && raw.Enc == encoding.EncGB18030) {
+			a.detectedEnc = raw.Enc
+		}
+	}
+	if a.effEnc == encoding.EncAuto {
+		return // auto:stream 层检测已处理,不校正
+	}
+	if raw.Enc == encoding.EncAuto || raw.Enc == encoding.EncApp || raw.Enc == a.effEnc {
+		return // 程序行旁路 / 已是目标认知
+	}
+	raw.Text = encoding.Reencode(raw.Text, raw.Enc, a.effEnc)
+	raw.Enc = a.effEnc
+}
+
+// encConfirmBytes 手动切换的存量文本确认阈值(var 供测试调小):
+// GBK 转码行物化堆字符串,超大存量切换堆峰值≈原文本 1.5 倍(spec §约束)。
+var encConfirmBytes int64 = 1 << 30
+
+// applyEncoding 切换生效编码:同编码 noop;存量文本超阈值先开确认层;
+// 否则重转 buffer 全量(Reencode + 重解析 + 分帧视图重建)并落记忆。
+func (a *App) applyEncoding(enc encoding.Encoding) tea.Cmd {
+	if enc == a.effEnc {
+		return nil
+	}
+	total := 0
+	for i := 0; i < a.buffer.Len(); i++ {
+		if pl := a.buffer.Get(i); pl != nil {
+			total += len(pl.Raw.Text)
+		}
+	}
+	if int64(total) > encConfirmBytes {
+		a.encConfirming = true
+		a.encPending = enc
+		a.encPendingBytes = int64(total)
+		return nil
+	}
+	return a.rebuildEncoding(enc)
+}
+
+// confirmEncoding 确认层放行(y/Enter):按待定编码执行重转。
+func (a *App) confirmEncoding() tea.Cmd {
+	if !a.encConfirming {
+		return nil
+	}
+	a.encConfirming = false
+	return a.rebuildEncoding(a.encPending)
+}
+
+// cancelEncoding 确认层取消(n/Esc)。
+func (a *App) cancelEncoding() {
+	a.encConfirming = false
+	a.encPending = encoding.EncAuto
+}
+
+// rebuildEncoding 重转 buffer 全量:程序行(Enc 零值)旁路;其余行 Reencode
+// 到目标编码后重跑解析(转码改变字节长度,字段 span 必须重建),再分帧重建视图。
+// 切回 auto 的目标是流级检测结论(detectedEnc)——恢复"没手切过"的语义。
+func (a *App) rebuildEncoding(enc encoding.Encoding) tea.Cmd {
+	to := enc
+	if enc == encoding.EncAuto {
+		to = a.detectedEnc
+		if to == encoding.EncAuto || to == encoding.EncApp {
+			to = encoding.EncUTF8
+		}
+	}
+	for i := 0; i < a.buffer.Len(); i++ {
+		pl := a.buffer.Get(i)
+		if pl == nil {
+			continue
+		}
+		raw := pl.Raw
+		if raw.Enc == encoding.EncAuto || raw.Enc == encoding.EncApp {
+			continue // 程序行旁路
+		}
+		if raw.Enc != to {
+			raw.Text = encoding.Reencode(raw.Text, raw.Enc, to)
+		}
+		raw.Enc = to
+		a.buffer.Set(i, a.parseOne(raw))
+	}
+	a.effEnc = enc
+	a.encStore.Remember(a.curEncKey, enc) // auto/utf-8 删条目,gbk/gb18030 落盘
+	return a.startChunkedRecompute()
+}
+
+// parseOne 单行解析(重转路径):Detect+Parse,不触发 pending 回灌——
+// 重转行均为已见行,探测状态机已稳定,重复 Detect 幂等。
+func (a *App) parseOne(raw model.RawLine) *model.ParsedLine {
+	if a.parsers != nil {
+		if p := a.parsers.Detect(raw); p != nil {
+			return p.Parse(raw)
+		}
+	}
+	pl := &model.ParsedLine{Raw: raw}
+	pl.InitBase(raw.Text)
+	pl.SetStdSpan(model.FieldMessage, 0, len(raw.Text))
+	return pl
+}
+
+// handleEncPopupKeys 编码弹窗键处理(模态):C-j/C-k/方向键移动、Enter 应用、Esc/q 关闭。
+func (a *App) handleEncPopupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+j", "down":
+		a.encIdx = (a.encIdx + 1) % len(encPopupItems)
+	case "ctrl+k", "up":
+		a.encIdx = (a.encIdx - 1 + len(encPopupItems)) % len(encPopupItems)
+	case "enter":
+		a.encPopup = false
+		return a, a.applyEncoding(encPopupItems[a.encIdx].enc)
+	case "esc", "q":
+		a.encPopup = false
+	}
+	return a, nil
+}
+
+// handleEncConfirmKeys 大存量切换确认层:y/Enter 继续,n/Esc/q 取消。
+func (a *App) handleEncConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y", "enter":
+		return a, a.confirmEncoding()
+	case "n", "N", "esc", "q":
+		a.cancelEncoding()
+	}
+	return a, nil
+}
+
+// encPopupItems 编码弹窗选项(charset-support)。
+var encPopupItems = []struct {
+	label string
+	enc   encoding.Encoding
+}{
+	{"auto  自动检测", encoding.EncAuto},
+	{"UTF-8", encoding.EncUTF8},
+	{"GBK", encoding.EncGBK},
+	{"GB18030", encoding.EncGB18030},
+}
+
+// encIdxFor 编码对应的弹窗下标(打开弹窗时光标落在当前生效项)。
+func encIdxFor(e encoding.Encoding) int {
+	for i, it := range encPopupItems {
+		if it.enc == e {
+			return i
+		}
+	}
+	return 0
+}
+
+// openEncPopup P 键呼出弹窗(普通模式)。
+func (a *App) openEncPopup() {
+	a.encPopup = true
+	a.encIdx = encIdxFor(a.effEnc)
+}
+
+// buildEncPopup 编码选择弹窗内容(全屏模态,布局仿 helpMode)。
+func (a *App) buildEncPopup(vl int) []string {
+	lines := []string{"", "  选择字符集:", ""}
+	for i, it := range encPopupItems {
+		marker := "   "
+		if i == a.encIdx {
+			marker = " ▸ "
+		}
+		cur := ""
+		if it.enc == a.effEnc {
+			cur = "   ← 当前"
+		}
+		lines = append(lines, marker+it.label+cur)
+	}
+	lines = append(lines, "", "  C-j/C-k 移动 · Enter 应用 · Esc 关闭")
+	for len(lines) < vl {
+		lines = append(lines, "")
+	}
+	if len(lines) > vl {
+		lines = lines[:vl]
+	}
+	return lines
+}
+
+// buildEncConfirm 大存量切换确认层。
+func (a *App) buildEncConfirm(vl int) []string {
+	lines := []string{"",
+		"  切换到 " + strings.ToUpper(a.encPending.String()) +
+			" 将重转全部已载入日志(约 " + humanBytes(uint64(a.encPendingBytes)) +
+			",大文件短暂卡顿),继续?",
+		"", "  y 继续 · n 取消"}
+	for len(lines) < vl {
+		lines = append(lines, "")
+	}
+	return lines[:vl]
+}
+
 func (a *App) processLine(raw model.RawLine) {
+	a.correctIncoming(&raw)
 	now := time.Now()
 	if a.firstLineAt.IsZero() {
 		a.firstLineAt = now // 加载计时起点(首行到达)
@@ -1697,6 +1929,8 @@ func (a *App) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleLevelFilter("DEBUG")
 	case "E":
 		a.toggleLevelFilter("ERROR")
+	case "P":
+		a.openEncPopup()
 	case "W":
 		a.toggleLevelFilter("WARN")
 	case "A":
@@ -2418,6 +2652,10 @@ func (a *App) View() string {
 		logLines = a.buildSourcePickerLines(vl)
 	} else if a.helpMode {
 		logLines = a.buildHelpPopup(vl)
+	} else if a.encConfirming {
+		logLines = a.buildEncConfirm(vl)
+	} else if a.encPopup {
+		logLines = a.buildEncPopup(vl)
 	} else if a.exportMode {
 		logLines = a.buildExportPopup(vl)
 	} else if a.panelFocus {

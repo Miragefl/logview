@@ -27,6 +27,7 @@ func (p *PipeSource) Start(ctx context.Context) (<-chan []model.RawLine, error) 
 	b := NewBatcher(ctx)
 	go func() {
 		defer b.Close()
+		st := newEncStager()
 		scanner := bufio.NewScanner(p.reader)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
@@ -35,7 +36,7 @@ func (p *PipeSource) Start(ctx context.Context) (<-chan []model.RawLine, error) 
 				return
 			default:
 			}
-			if !b.Send(scanner.Text(), "pipe") {
+			if !st.send(b, scanner.Text(), "pipe") {
 				return
 			}
 		}

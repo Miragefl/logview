@@ -36,7 +36,7 @@
 - Tail logs from multiple SSH hosts in one terminal
 - Reach intranet logs through FRP tunnels
 - Read gzip logs directly; load 1GB files in seconds
-- Auto-detect java-logback / JSON log formats
+- Auto-detect java-logback / JSON log formats, plus GBK/GB18030 charset auto-detection (switchable in-app via `P`)
 - Prefer a window? **fview** runs the same engine in a native macOS app with tabs
 
 ---
@@ -440,7 +440,7 @@ logview completion fish > ~/.config/fish/completions/logview.fish
 | 多数据源 | k8s Pod/Deployment、本地文件(含 `.gz`)、SSH/FRP 远程、stdin 管道,多资源聚合 |
 | follow 模式 | `-f` 追踪新日志,`-200f` 简写加载尾行数(TUI) |
 | 大文件 | 1G/664 万行加载 15s,默认尾读秒开;5G mmap 零拷贝(TUI) |
-| 智能解析 | 自动识别 JSON、Logback 等格式,patterns 模板复用 |
+| 智能解析 | 自动识别 JSON、Logback 等格式,patterns 模板复用;GBK/GB18030 乱码自动检测转码(界面内 `P` 可切) |
 | 搜索语法 | `field:value`、`AND/OR/NOT`、`time:` 时间范围,输入防抖 |
 | 高亮与隐藏 | `C-h` 多色高亮,`C-x` 隐藏关键词,历史按频次跨会话 |
 | 上下文混入 | `+N/-N` 过滤行旁混入原始流上下文,多锚累积 |

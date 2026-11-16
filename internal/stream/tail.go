@@ -68,6 +68,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 	defer f.Close()
 
 	source := filepath.Base(path)
+	est := newEncStager() // tailFile 单文件全程一个检测器(gz/全量/follow 共享结论)
 
 	// gz 归档:全量解压顺序读(解压读满,行进 ring buffer,容量天然封顶),
 	// 读到 EOF 即止——归档不追加,follow 轮询无意义(followLines 同样不生效)。
@@ -89,7 +90,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if line != "" {
-					if !t.sendLine(ctx, ch, trimNewline(line), source) {
+					if !est.send(ch, trimNewline(line), source) {
 						return
 					}
 				}
@@ -98,7 +99,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 				}
 				return
 			}
-			if !t.sendLine(ctx, ch, trimNewline(line), source) {
+			if !est.send(ch, trimNewline(line), source) {
 				return
 			}
 		}
@@ -131,13 +132,13 @@ func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 			if err != nil {
 				// 末行无换行符时 ReadString 仍返回数据，先消费再退出
 				if line != "" {
-					if !t.sendLine(ctx, ch, trimNewline(line), source) {
+					if !est.send(ch, trimNewline(line), source) {
 						return
 					}
 				}
 				break
 			}
-			if !t.sendLine(ctx, ch, trimNewline(line), source) {
+			if !est.send(ch, trimNewline(line), source) {
 				return
 			}
 		}
@@ -173,7 +174,7 @@ func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 			}
 
 			for _, l := range ring {
-				if !t.sendLine(ctx, ch, l, source) {
+				if !est.send(ch, l, source) {
 					return
 				}
 			}
@@ -194,14 +195,14 @@ func (t *TailSource) tailFile(ctx context.Context, ch *Batcher, path string) {
 		if err != nil {
 			// 部分行也立即显示，避免丢行（与 GNU tail 行为一致）
 			if line != "" {
-				if !t.sendLine(ctx, ch, trimNewline(line), source) {
+				if !est.send(ch, trimNewline(line), source) {
 					return
 				}
 			}
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		if !t.sendLine(ctx, ch, trimNewline(line), source) {
+		if !est.send(ch, trimNewline(line), source) {
 			return
 		}
 	}

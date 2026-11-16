@@ -49,17 +49,18 @@ func (f *FileSource) sendMmapLines(b *Batcher, file *os.File, source string) boo
 		return false
 	}
 	// fd 保持打开即够;mapping 生命周期见函数注释(不 unmap)
+	est := newEncStager() // 编码检测;GBK 命中行 Decode 产生堆串,零拷贝仅 UTF-8 路径成立(spec §约束)
 	start := 0
 	for i := 0; i < len(data); i++ {
 		if data[i] == '\n' {
-			if !b.Send(mmapLineString(data[start:i]), source) {
+			if !est.send(b, mmapLineString(data[start:i]), source) {
 				return true
 			}
 			start = i + 1
 		}
 	}
 	if start < len(data) { // 末行无换行符,同样消费
-		b.Send(mmapLineString(data[start:]), source)
+		est.send(b, mmapLineString(data[start:]), source)
 	}
 	return true
 }

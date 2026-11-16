@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Miragefl/logview/internal/encoding"
 	"github.com/Miragefl/logview/internal/model"
 )
 
@@ -18,6 +19,13 @@ type LogStream interface {
 	// Scope 返回源的词频隔离域(关键词历史/频次按此分域:FRP=连接名、SSH=主机、k8s="k8s"、本地/管道="")。
 	Scope() string
 	Cleanup() error
+}
+
+// EncodingKeyer 源可选实现:返回编码按源记忆(encoding.json)的稳定标识,
+// 粒度精确到路径(ssh:host+path / frp:name+path / k8sres:kind/name / file:abs)。
+// 管道等无身份源不实现(记忆会话级不落盘)。
+type EncodingKeyer interface {
+	EncodingKey() string
 }
 
 const batchSize = 4096
@@ -70,10 +78,22 @@ func (b *Batcher) tickFlush() {
 func (b *Batcher) Out() <-chan []model.RawLine { return b.ch }
 
 // Send 追加一行,满批即发;ctx 取消返回 false(调用方停止读取)。
+// 程序生成行([logview] 提示/错误行)专用入口:Enc 保持零值旁路。
 func (b *Batcher) Send(text, source string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.buf = append(b.buf, model.RawLine{Text: text, Source: source, Seq: b.seq.Add(1)})
+	if len(b.buf) >= batchSize {
+		return b.flushBatchLocked()
+	}
+	return true
+}
+
+// SendEncoded 追加一行(带行级编码标记):数据行专用,与 encStager 配套。
+func (b *Batcher) SendEncoded(text, source string, enc encoding.Encoding) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = append(b.buf, model.RawLine{Text: text, Source: source, Seq: b.seq.Add(1), Enc: enc})
 	if len(b.buf) >= batchSize {
 		return b.flushBatchLocked()
 	}

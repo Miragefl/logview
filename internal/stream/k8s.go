@@ -51,6 +51,12 @@ func NewK8sSource(resource, namespace string, podNames []string, tailLines int) 
 	return &K8sSource{resource: res, namespace: namespace, podNames: podNames, tailLines: tailLines}
 }
 
+// EncodingKey 编码记忆标识:资源维度(kind/name,对齐 usage k8sres 前缀)——
+// 同资源各 pod 编码一致是常态。
+func (k *K8sSource) EncodingKey() string {
+	return "k8sres:" + k.resource.Kind + "/" + k.resource.Name
+}
+
 // SetContext 指定 kubectl context（默认用 kubeconfig 当前 context）。
 func (k *K8sSource) SetContext(name string) { k.kubeCtx = name }
 
@@ -157,8 +163,9 @@ func (k *K8sSource) streamPod(ctx context.Context, b *Batcher, podName string) {
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	st := newEncStager() // per pod:多 pod 合流时各资源独立检测(spec §2)
 	for scanner.Scan() {
-		if !b.Send(scanner.Text(), podName) {
+		if !st.send(b, scanner.Text(), podName) {
 			return
 		}
 	}

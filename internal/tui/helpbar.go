@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Miragefl/logview/internal/encoding"
 	"github.com/Miragefl/logview/internal/model"
 	"github.com/mattn/go-runewidth"
 )
@@ -200,7 +201,21 @@ func (a *App) statusItems() []helpItem {
 	if lb := a.loadBadge(); lb != "" {
 		items = append(items, helpItem{"", HelpStyle.Render(lb)})
 	}
+	if eb := a.encBadge(); eb != "" {
+		items = append(items, helpItem{"", HelpStyle.Render(eb)})
+	}
 	return items
+}
+
+// encBadge 编码徽章:非 UTF-8 编码生效时显示(charset-support)。
+func (a *App) encBadge() string {
+	switch a.effEnc {
+	case encoding.EncGBK:
+		return "[GBK]"
+	case encoding.EncGB18030:
+		return "[GB18030]"
+	}
+	return ""
 }
 
 // loadBadge 加载时长徽章:流结束(EOF)后定格总时长;未结束时按最近一行间隔区分——

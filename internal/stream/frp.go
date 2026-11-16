@@ -42,6 +42,9 @@ func NewFRPSource(name string, t frpTunnelHandle, user, path string, tailLines i
 	return &FRPSource{tunnel: t, inner: inner, name: name}
 }
 
+// EncodingKey 编码记忆标识:连接名+路径(同连接不同路径独立记忆)。
+func (f *FRPSource) EncodingKey() string { return "frp:" + f.name + f.inner.path }
+
 // NewFRPDirectSource tcp 直连形态：frps remotePort 暴露，SSH 直连 serverAddr:remotePort，不拉 frpc。
 func NewFRPDirectSource(name, serverAddr string, remotePort int, user, path string, tailLines int) *FRPSource {
 	inner := NewSSHSource(FRPDefaultUser(user)+"@"+serverAddr, path, tailLines)

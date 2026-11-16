@@ -1,12 +1,21 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/Miragefl/logview/internal/encoding"
+)
 
 // RawLine is an unparsed log line from any data source.
 type RawLine struct {
-	Text   string    // raw text
-	Source string    // origin label, e.g. "pod/api-7d8f6-x8k2j"
-	Seq    uint64    // monotonic sequence number
+	Text string // raw text (post encoding-detection conversion when non-UTF-8)
+	Source string // origin label, e.g. "pod/api-7d8f6-x8k2j"
+	Seq   uint64 // monotonic sequence number
+	// Enc is the line-level charset knowledge at ingest time: stream sources
+	// stamp it after auto-detection (utf-8 / gb18030). The zero value means
+	// a program-generated line ([logview] notices) or an unwired path — such
+	// lines bypass detection and manual re-encoding entirely.
+	Enc encoding.Encoding
 }
 
 // Field represents a parsed log field name.

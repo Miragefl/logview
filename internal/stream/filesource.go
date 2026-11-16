@@ -35,6 +35,19 @@ func (f *FileSource) Cleanup() error { return nil }
 // Scope 本地文件属全局域(词频与全局历史共享)。
 func (f *FileSource) Scope() string { return "" }
 
+// EncodingKey 编码记忆标识:首个路径绝对化。多路径文件混合编码太边缘,
+// 行级 Enc 标记保各行显示正确(spec §7)。
+func (f *FileSource) EncodingKey() string {
+	if len(f.paths) == 0 {
+		return ""
+	}
+	abs, err := filepath.Abs(f.paths[0])
+	if err != nil {
+		abs = f.paths[0]
+	}
+	return "file:" + abs
+}
+
 func (f *FileSource) Start(ctx context.Context) (<-chan []model.RawLine, error) {
 	b := NewBatcher(ctx)
 	go func() {
@@ -65,6 +78,7 @@ func (f *FileSource) readFile(ctx context.Context, b *Batcher, path string) {
 	defer closer.Close()
 
 	source := filepath.Base(path)
+	st := newEncStager() // gz 解压流的数据行检测(块式/mmap 路径内部各自建)
 	for {
 		select {
 		case <-ctx.Done():
@@ -75,7 +89,7 @@ func (f *FileSource) readFile(ctx context.Context, b *Batcher, path string) {
 		if err != nil {
 			// 末行无换行符时 ReadString 仍返回数据,先消费再退出
 			if line != "" {
-				b.Send(trimNewline(line), source)
+				st.send(b, trimNewline(line), source)
 			}
 			// 非 EOF 的读错误(如中途损坏的 gz)提示用户,而非静默截断
 			if err != io.EOF {
@@ -83,7 +97,7 @@ func (f *FileSource) readFile(ctx context.Context, b *Batcher, path string) {
 			}
 			break
 		}
-		b.Send(trimNewline(line), source)
+		st.send(b, trimNewline(line), source)
 	}
 }
 
@@ -134,6 +148,7 @@ func (f *FileSource) readPlainChunked(ctx context.Context, b *Batcher, path stri
 func (f *FileSource) sendChunkedLines(ctx context.Context, r io.Reader, b *Batcher, source string) bool {
 	buf := make([]byte, 1<<20)
 	var carry []byte
+	st := newEncStager() // 单次调用=单文件顺序读,检测粒度正确
 	for {
 		n, rerr := r.Read(buf)
 		if n > 0 {
@@ -143,7 +158,7 @@ func (f *FileSource) sendChunkedLines(ctx context.Context, r io.Reader, b *Batch
 			start := 0
 			for i := 0; i < len(chunk); i++ {
 				if chunk[i] == '\n' {
-					if !b.Send(chunk[start:i], source) {
+					if !st.send(b, chunk[start:i], source) {
 						return true
 					}
 					start = i + 1
@@ -155,7 +170,7 @@ func (f *FileSource) sendChunkedLines(ctx context.Context, r io.Reader, b *Batch
 		}
 		if rerr != nil {
 			if len(carry) > 0 { // 末行无换行符,同样消费
-				b.Send(string(carry), source)
+				st.send(b, string(carry), source)
 			}
 			if rerr != io.EOF {
 				b.Send(fmt.Sprintf("[logview] 读取 %s 出错(可能已损坏): %v", source, rerr), source)
