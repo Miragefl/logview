@@ -373,6 +373,46 @@ describe('终审修复回归', () => {
     expect(cur.element.closest('.wline')).toBe(wlines[1].element)
   })
 
+  it('鼠标拖选:wrap 第二视觉行命中列=段前缀偏移+段内列(修"复制到第一行去")', async () => {
+    // 'hello world' → 2 段 ['hello worl','d'];第 2 段 mousedown,px=0(测试 rect=0)
+    // → 段内列 0,全文列=段前缀 10('d')。修复前 hitCol 无视视觉行归属,px 从
+    // 全文头扫 → 列 0('h')——拖选锚/单击定位全落第一视觉行,复制第二行得第一
+    // 行内容(2026-11-18 用户报障根因)
+    const w = await setupCursor([ln(1, 'hello world')], true)
+    await new Promise((r) => setTimeout(r, 0))
+    const wlines = w.findAll('.wline')
+    expect(wlines.length).toBe(2)
+    await wlines[1].trigger('mousedown', { button: 0, clientX: 0 }) // 第二视觉行 'd'
+    await wlines[1].trigger('mouseup', { clientX: 0 }) // 单击:定位行+列光标
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.get('.char-cursor').text()).toBe('d') // 修复前:列 0='h'
+  })
+
+  it('v 选区 wrap 段投影:第二段底纹按段内列渲染(修"第二行显示不对")', async () => {
+    // 'hello world' → ['hello worl','d'];锚 col10('d') 反向移到 col8 → 选区 [8,10]。
+    // wrapGroups selFrom/selTo 曾以全文列传 markSel(段内坐标系,acc 从 spans 文本
+    // 0 起累加):第二段 1 字符容不下全文列 10 → 'd' 底纹丢/首段碰巧对(段1 起点即
+    // 全文 0)。2026-11-18 真机报障"复制内容对但第二行背景色不对"——修为 clamp
+    // 后减段起点 acc 归一到段内 0 基(与 curCol 走 colToSeg 归一同口径)。
+    const w = await setupCursor([ln(1, 'hello world')], true)
+    const vm = w.vm as unknown as {
+      moveCursor: (d: number) => void
+      moveCursorCol: (m: string) => void
+      startVisual: (mode: string) => void
+    }
+    vm.moveCursor(1)
+    vm.moveCursorCol('end') // col10 'd'
+    vm.startVisual('char') // 锚 (1,10)
+    vm.moveCursorCol('left') // col9
+    vm.moveCursorCol('left') // col8 → 选区 [8,10]
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.findAll('.wline').length).toBe(2)
+    // 'd' 底纹必须落在第二段内(修复前:段2 from=10 越界 → 不渲染)
+    expect(w.findAll('.wline')[1].find('.char-sel')?.text()).toBe('d')
+    // 全行 sel 底纹 = 'l'+'d'(col8 'r' 被光标反色块压住不进 .char-sel)
+    expect(w.findAll('.char-sel').map((s) => s.text()).join('')).toBe('ld')
+  })
+
   it('字符光标:非 wrap 模式光标行超宽临时 wrap(所见即光标,Final Review C1)', async () => {
     // mount 环境 msgWidthCh=10,'hello world'(11ch) 超宽——列光标激活后该行
     // 应临时按段渲染(.wline≥2),块光标可见;未激活时保持单行截断

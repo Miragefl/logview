@@ -934,4 +934,29 @@ describe('K8sPanel 热点排序(panel-hot-sort)', () => {
     await tick()
     expect(backend.usageTouch).toHaveBeenCalledWith('k8sctx:dev')
   })
+
+  it('默认选中+循环跟热度:初设=hot 第一,C-c/C-n 走热度序(字母序交叉可辨)', async () => {
+    // 三 ctx/三 ns,字母序与热度序交叉:热度序 [beta,alpha,gamma] vs 字母序 [alpha,beta,gamma]——
+    // 初设/循环若仍走原始数组,断言值必错(默认 alpha/gamma),交叉场景锁死差异(2026-11-18 迭代:
+    // 下拉 options 排序一直正常,真缺口是默认值与循环不跟热度——用户体感"完全没排序"的来源)
+    vi.mocked(backend.getK8sContexts).mockResolvedValue(['alpha', 'beta', 'gamma'])
+    vi.mocked(backend.getK8sNamespaces).mockResolvedValue(['ns-x', 'ns-y', 'ns-z'])
+    vi.mocked(backend.usageScores).mockResolvedValue({ 'k8sctx:beta': 3, 'k8sns:ns-y': 3 })
+    const w = mount(K8sPanel, { global: { plugins: [naive] } })
+    for (let i = 0; i < 6; i++) await tick()
+    const sels = w.findAllComponents(NSelect)
+    // 初设=热度第一(非字母第一):ctx=beta/ns=ns-y;程序初设不走 handler 不记频
+    expect(sels[0].props('value')).toBe('beta')
+    expect(sels[1].props('value')).toBe('ns-y')
+    expect(backend.usageTouch).not.toHaveBeenCalled()
+    // C-c 循环走热度序:beta → alpha(热度序第二;字母序路径会去 gamma)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+    for (let i = 0; i < 3; i++) await tick()
+    expect(sels[0].props('value')).toBe('alpha')
+    // C-c 换 ctx 触发 ns 重载(初设回热度第一 ns-y),C-n 循环:ns-y → ns-x(热度序第二)
+    for (let i = 0; i < 3; i++) await tick()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true }))
+    for (let i = 0; i < 3; i++) await tick()
+    expect(sels[1].props('value')).toBe('ns-x')
+  })
 })

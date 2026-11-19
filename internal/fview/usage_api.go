@@ -2,7 +2,9 @@
 package fview
 
 import (
+	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/Miragefl/logview/internal/usage"
@@ -12,9 +14,22 @@ import (
 const usageRecentLimit = 50
 
 // UsageRecent 返回源热点 key 列表（带 file:/ssh: 等前缀，衰减分降序），
-// 供 fview 本地文件面板与欢迎页展示。
+// 供 fview 本地文件面板与欢迎页展示。file: 项过滤已消失的本地文件——只有
+// os.IsNotExist 才剔（权限等其他 stat 错误保留，点击时既有静默兜底，误杀比
+// 漏显示伤）；远程 key（ssh:/frp:/k8sres:）无法本地检测，原样保留；
+// 持久化数据不动（7 天半衰期自清，外接盘/临时路径文件可能回来）。
 func UsageRecent() []string {
-	return usage.RecentSourceKeys(usageRecentLimit)
+	keys := usage.RecentSourceKeys(usageRecentLimit)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if strings.HasPrefix(k, "file:") {
+			if _, err := os.Stat(k[len("file:"):]); os.IsNotExist(err) {
+				continue
+			}
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // UsageTouch 记录一次源使用（key 由前端按前缀规范拼接，如 file:/path/app.log）。

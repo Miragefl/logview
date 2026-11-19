@@ -74,10 +74,15 @@ onMounted(async () => {
   document.addEventListener('keydown', onDocKey, true)
   try {
     ctxOptions.value = ((await getK8sContexts()) ?? []).map((c) => ({ label: c, value: c }))
-    if (ctxOptions.value.length) {
-      ctx.value = ctxOptions.value[0].value
-    }
+    // 先拉分再初设:默认选中跟热度第一(与 TUI 光标落热点第一对齐;初设走原始数组
+    // 曾是"下拉排序正常但面板看着没排序"的缺口——默认值/C-c/C-n 三处同根,2026-11-18)。
+    // 首项有真分才选它;全员无分保持原始首项(kubectl 返回即字母序,无分时热度序
+    // 与之等价,不折腾)
     await refreshHot()
+    if (ctxOptions.value.length) {
+      const hotFirst = ctxHotOptions.value[0]
+      ctx.value = (hot.value['k8sctx:' + hotFirst.value] ?? 0) > 0 ? hotFirst.value : ctxOptions.value[0].value
+    }
   } catch {
     /* 无 kubeconfig：下拉为空 */
   }
@@ -91,10 +96,12 @@ watch(ctx, async (c) => {
   if (!c) return
   try {
     nsOptions.value = ((await getK8sNamespaces(c)) ?? []).map((n) => ({ label: n, value: n }))
-    if (nsOptions.value.length) {
-      ns.value = nsOptions.value[0].value
-    }
+    // 先拉分再初设,首项有真分才跟热度,无分保持原始首项(onMounted ctx 同款)
     await refreshHot()
+    if (nsOptions.value.length) {
+      const hotFirst = nsHotOptions.value[0]
+      ns.value = (hot.value['k8sns:' + hotFirst.value] ?? 0) > 0 ? hotFirst.value : nsOptions.value[0].value
+    }
   } catch {
     nsOptions.value = []
   }
@@ -214,16 +221,18 @@ function onDocKey(e: KeyboardEvent) {
     hit = true
   } else if (e.ctrlKey && e.key === 'c') {
     // 循环下一个 context(尾回首)——watch 链自动重载 ns/资源(裸 c 退役,纯键位迁移);
-    // opts 空(无 kubeconfig)也消费——C-d/C-e 无条件消费同款,防穿透 App C-c 复制(Final Review)
-    const opts = ctxOptions.value
+    // opts 空(无 kubeconfig)也消费——C-d/C-e 无条件消费同款,防穿透 App C-c 复制(Final Review);
+    // 循环走热度序(下拉同序,2026-11-18)
+    const opts = ctxHotOptions.value
     if (opts.length) {
       const i = opts.findIndex((o) => o.value === ctx.value)
       ctx.value = opts[(i + 1) % opts.length].value
     }
     hit = true
   } else if (e.ctrlKey && e.key === 'n') {
-    // 循环下一个 namespace——watch 重载资源+选中态重置;opts 空也消费(同上防穿透)
-    const opts = nsOptions.value
+    // 循环下一个 namespace——watch 重载资源+选中态重置;opts 空也消费(同上防穿透);
+    // 循环走热度序(下拉同序,2026-11-18)
+    const opts = nsHotOptions.value
     if (opts.length) {
       const i = opts.findIndex((o) => o.value === ns.value)
       ns.value = opts[(i + 1) % opts.length].value

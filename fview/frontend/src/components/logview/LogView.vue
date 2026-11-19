@@ -301,7 +301,10 @@ function selRangeOf(seq: number): CharSelRow {
   return m?.get(seq) ?? { from: -1, to: -1 }
 }
 
-/** wrapGroups 行 wrap 段+段内光标列+选区间一次成型(渲染每行一调,免 O(段²) 重复切段)。 */
+/** wrapGroups 行 wrap 段+段内光标列+选区间一次成型(渲染每行一调,免 O(段²) 重复切段)。
+ *  selFrom/selTo 为段内 0 基列(markSel 坐标系=传入 spans 文本):clamp 全文选区到段
+ *  后减段起点 acc 归一——曾直传全文列,第二段容不下全文列值致底纹丢/首段碰巧对
+ *  (2026-11-18 真机报障"复制对但第二行背景色不对";curCol 走 colToSeg 归一同口径)。 */
 function wrapGroups(line: LineDTO): { seg: string; curCol: number; selFrom: number; selTo: number }[] {
   const segs = wrapSegments(line.message, msgWidthCh.value)
   const active = line.seq === cursorSeq.value && cursorCol.value >= 0
@@ -310,8 +313,8 @@ function wrapGroups(line: LineDTO): { seg: string; curCol: number; selFrom: numb
   let acc = 0
   return segs.map((seg, wi) => {
     const len = Array.from(seg).length
-    const sFrom = sr.from < 0 ? -1 : Math.max(sr.from, acc)
-    const sTo = sr.to < 0 ? (sr.from < 0 ? -1 : acc + len - 1) : Math.min(sr.to, acc + len - 1)
+    const sFrom = sr.from < 0 ? -1 : Math.max(sr.from, acc) - acc
+    const sTo = sr.from < 0 ? -1 : sr.to < 0 ? len - 1 : Math.min(sr.to, acc + len - 1) - acc
     const g = { seg, curCol: p && p.segIdx === wi ? p.colInSeg : -1, selFrom: sFrom > sTo ? -1 : sFrom, selTo: sFrom > sTo ? -1 : sTo }
     acc += len
     return g
@@ -1035,14 +1038,9 @@ function hasSelection(): boolean {
 const dragAnchor = ref<{ seq: number; col: number } | null>(null)
 let dragMoved = false
 
-/** hitCol 鼠标事件命中 message 内 rune 列(px→显示列→rune 列,CJK 半字落左;
- *  命中 gutter/字段列或未命中 message 区域=0)。 */
-function hitCol(e: MouseEvent, seq: number): number {
-  const msgEl = (e.target as HTMLElement | null)?.closest?.('.f-msg')
-  const l = mixedView.value.lines.find((x) => x.seq === seq)
-  if (!msgEl || !l) return 0
-  const px = e.clientX - msgEl.getBoundingClientRect().left
-  const runes = Array.from(l.message)
+/** colAtPx px→text 内 rune 列(px→显示列→rune 列,CJK 半字落左)。 */
+function colAtPx(text: string, px: number): number {
+  const runes = Array.from(text)
   let w = 0
   for (let i = 0; i < runes.length; i++) {
     const cw = displayWidth(runes[i]) || 1
@@ -1050,6 +1048,29 @@ function hitCol(e: MouseEvent, seq: number): number {
     w += cw * charPx.value
   }
   return Math.max(0, runes.length - 1)
+}
+
+/** hitCol 鼠标事件命中 message 内 rune 列;wrap 态按命中段(.wline)算
+ *  段前缀偏移+段内列——无视视觉行归属会让第二行命中列落回第一行
+ *  (拖选锚/单击定位错位,2026-11-18 报障"复制第二行复制到第一行去");
+ *  命中 gutter/字段列或未命中 message 区域=0)。 */
+function hitCol(e: MouseEvent, seq: number): number {
+  const msgEl = (e.target as HTMLElement | null)?.closest?.('.f-msg')
+  const l = mixedView.value.lines.find((x) => x.seq === seq)
+  if (!msgEl || !l) return 0
+  const wl = (e.target as HTMLElement | null)?.closest?.('.wline')
+  if (wl && wl.parentElement === msgEl) {
+    // wrap 段渲染(全局 wrap/光标行临时 wrap):px 相对命中段,列加段前缀 rune 偏移
+    const segs = wrapGroups(l)
+    const wi = Array.prototype.indexOf.call(msgEl.querySelectorAll('.wline'), wl)
+    if (wi >= 0 && wi < segs.length) {
+      let base = 0
+      for (let k = 0; k < wi; k++) base += Array.from(segs[k].seg).length
+      return base + colAtPx(segs[wi].seg, e.clientX - wl.getBoundingClientRect().left)
+    }
+    return 0
+  }
+  return colAtPx(l.message, e.clientX - msgEl.getBoundingClientRect().left)
 }
 
 /** finishDrag 拖选收尾:复制+收起;终点=最后一次 move 的光标位(mouseup 与
