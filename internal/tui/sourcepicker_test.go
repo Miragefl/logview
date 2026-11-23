@@ -621,7 +621,7 @@ func TestParentPath(t *testing.T) {
 // K8s 不可见时 openSourcePicker(0) 应钳制到首个可见 tab；可见 tab 原样保留。
 func TestOpenSourcePickerClampsHiddenTab(t *testing.T) {
 	app := newTestApp()
-	app.availableTabs = []int{1, 2, 3} // 模拟无 kubectl
+	app.availableTabs = []int{1, 2, 3} // 模拟裁剪后的可见集
 	app.openSourcePicker(0)            // 请求不可见的 K8s
 	if app.sourceTab != 1 {
 		t.Fatalf("K8s 不可见时 openSourcePicker(0) 应落本地 tab, got %d", app.sourceTab)

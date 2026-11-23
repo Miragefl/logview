@@ -182,7 +182,7 @@ type App struct {
 
 	sourcePickerMode  bool
 	sourceTab         int   // 0=K8s 1=本地 2=SSH 3=FRP
-	availableTabs     []int // 环境可见 tab 集（NewApp 探测一次；空集防御时回本地）
+	availableTabs     []int // 能力探测可见 tab 集（NewApp 探测一次；空集防御保留，本地恒在实际到不了）
 	pickSourceOnStart bool  // 启动即打开源选择器（picker 子命令）
 	bufSize           int   // ring 容量(SSH/FRP gz 装配传给 SSHSource)
 	statsDirty        bool  // ring 发生淘汰后流式统计失真,recomputeView 需全量重算 levelCounts
