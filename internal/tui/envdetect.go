@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 // 源选择器环境探测(包级函数变量,测试可注入;沿用 startFRPTunnel 等注入惯例)。
@@ -18,6 +19,29 @@ var (
 		return os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != ""
 	}
 )
+
+// kubeconfigExists KUBECONFIG(冒号分隔多路径)非空则任一路径存在即可——kubectl 语义:
+// 设了 KUBECONFIG 就不用默认文件,全不存在不回落;未设才查 ~/.kube/config。
+// HOME 不可解析兜底 false。
+func kubeconfigExists() bool {
+	if kc := os.Getenv("KUBECONFIG"); kc != "" {
+		for _, p := range filepath.SplitList(kc) {
+			if p == "" {
+				continue
+			}
+			if _, err := os.Stat(p); err == nil {
+				return true
+			}
+		}
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, ".kube", "config"))
+	return err == nil
+}
 
 // availableSourceTabs 环境感知的源选择器可见 tab 集(全局索引,升序)。
 // 远端会话只留本地;本机无 kubectl 去 K8s;其余全量。
