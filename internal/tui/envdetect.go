@@ -4,19 +4,31 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 )
 
 // 源选择器环境探测(包级函数变量,测试可注入;沿用 startFRPTunnel 等注入惯例)。
 // tab 全局索引:0=K8s 1=本地 2=SSH 3=FRP。
+// 可见性 = 纯能力探测,探测口径与执行层一比一(ssh: stream 层 exec 系统 ssh;
+// frp: tunnel.go 拉起 frpc 前的 LookPath;k8s: kubectl+kubeconfig 双检)。
+// 远端会话身份(SSH_TTY/SSH_CONNECTION)不参与判定——SSH 进服务器照样可看本机 K8s/SSH 跳板源。
 var (
-	// k8sProbe 本机是否可用 k8s(kubectl 在 PATH 即视为可用)。
+	// k8sProbe 本机是否可用 k8s:kubectl 在 PATH 且 kubeconfig 存在。
 	k8sProbe = func() bool {
-		_, err := exec.LookPath("kubectl")
+		if _, err := exec.LookPath("kubectl"); err != nil {
+			return false
+		}
+		return kubeconfigExists()
+	}
+	// sshProbe 本机是否有 ssh 客户端。
+	sshProbe = func() bool {
+		_, err := exec.LookPath("ssh")
 		return err == nil
 	}
-	// remoteProbe 是否处于 ssh/frp 进入的远端会话(隧道本质也是 ssh,SSH_TTY 天然覆盖)。
-	remoteProbe = func() bool {
-		return os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != ""
+	// frpProbe 本机是否可建 FRP 隧道(frpc 缺席时砍 tab,不留点了就报错的死入口)。
+	frpProbe = func() bool {
+		_, err := exec.LookPath("frpc")
+		return err == nil
 	}
 )
 
@@ -43,14 +55,19 @@ func kubeconfigExists() bool {
 	return err == nil
 }
 
-// availableSourceTabs 环境感知的源选择器可见 tab 集(全局索引,升序)。
-// 远端会话只留本地;本机无 kubectl 去 K8s;其余全量。
+// availableSourceTabs 能力驱动的源选择器可见 tab 集(全局索引,升序)。
+// 本地恒在;kubectl+kubeconfig 有 K8s;ssh 客户端有 SSH;frpc 有 FRP。
 func availableSourceTabs() []int {
-	if remoteProbe() {
-		return []int{1}
+	tabs := []int{1}
+	if k8sProbe() {
+		tabs = append(tabs, 0)
 	}
-	if !k8sProbe() {
-		return []int{1, 2, 3}
+	if sshProbe() {
+		tabs = append(tabs, 2)
 	}
-	return []int{0, 1, 2, 3}
+	if frpProbe() {
+		tabs = append(tabs, 3)
+	}
+	sort.Ints(tabs)
+	return tabs
 }

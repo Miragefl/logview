@@ -7,32 +7,49 @@ import (
 	"testing"
 )
 
-// withProbes 覆盖环境探测变量(测试后恢复),避免真机 kubectl 有无影响测试结果。
-func withProbes(t *testing.T, k8s, remote bool) {
+// withProbes 覆盖环境探测变量(测试后恢复),避免真机 kubectl/ssh/frpc 有无影响测试结果。
+func withProbes(t *testing.T, k8s, ssh, frp bool) {
 	t.Helper()
-	oldK8s, oldRemote := k8sProbe, remoteProbe
-	k8sProbe, remoteProbe = func() bool { return k8s }, func() bool { return remote }
-	t.Cleanup(func() { k8sProbe, remoteProbe = oldK8s, oldRemote })
+	oldK8s, oldSSH, oldFRP := k8sProbe, sshProbe, frpProbe
+	k8sProbe, sshProbe, frpProbe = func() bool { return k8s }, func() bool { return ssh }, func() bool { return frp }
+	t.Cleanup(func() { k8sProbe, sshProbe, frpProbe = oldK8s, oldSSH, oldFRP })
 }
 
 func TestAvailableSourceTabsAll(t *testing.T) {
-	withProbes(t, true, false)
+	withProbes(t, true, true, true)
 	if got := availableSourceTabs(); !reflect.DeepEqual(got, []int{0, 1, 2, 3}) {
 		t.Fatalf("全可用环境可见集 = %v, want [0 1 2 3]", got)
 	}
 }
 
 func TestAvailableSourceTabsNoKubectl(t *testing.T) {
-	withProbes(t, false, false)
+	withProbes(t, false, true, true)
 	if got := availableSourceTabs(); !reflect.DeepEqual(got, []int{1, 2, 3}) {
 		t.Fatalf("无 kubectl 可见集 = %v, want [1 2 3]", got)
 	}
 }
 
-func TestAvailableSourceTabsRemoteOverridesK8s(t *testing.T) {
-	withProbes(t, true, true) // 远端优先:即使本机有 kubectl 也只留本地
-	if got := availableSourceTabs(); !reflect.DeepEqual(got, []int{1}) {
-		t.Fatalf("远端会话可见集 = %v, want [1]", got)
+func TestAvailableSourceTabsNoSsh(t *testing.T) {
+	withProbes(t, true, false, true)
+	if got := availableSourceTabs(); !reflect.DeepEqual(got, []int{0, 1, 3}) {
+		t.Fatalf("无 ssh 客户端可见集 = %v, want [0 1 3]", got)
+	}
+}
+
+func TestAvailableSourceTabsNoFrp(t *testing.T) {
+	withProbes(t, true, true, false)
+	if got := availableSourceTabs(); !reflect.DeepEqual(got, []int{0, 1, 2}) {
+		t.Fatalf("无 frpc 可见集 = %v, want [0 1 2]", got)
+	}
+}
+
+func TestAvailableSourceTabsRemoteIgnored(t *testing.T) {
+	// 能力驱动翻案:SSH 会话身份变量不再裁剪 tab,能力齐则全量。
+	t.Setenv("SSH_CONNECTION", "10.0.0.1 1 10.0.0.2 22")
+	t.Setenv("SSH_TTY", "/dev/pts/0")
+	withProbes(t, true, true, true)
+	if got := availableSourceTabs(); !reflect.DeepEqual(got, []int{0, 1, 2, 3}) {
+		t.Fatalf("SSH 会话内能力齐全可见集 = %v, want [0 1 2 3](远端身份不参与判定)", got)
 	}
 }
 
